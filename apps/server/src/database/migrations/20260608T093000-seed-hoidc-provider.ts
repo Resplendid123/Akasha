@@ -1,4 +1,7 @@
 import { type Kysely } from 'kysely';
+import { bootstrapLogger } from '../../common/logger/bootstrap-logger';
+
+const CONTEXT = 'Migration:seed-hoidc-provider';
 
 // Configure via environment variables before running migrations:
 //   HOIDC_SSO_API       - SSO API base URL (e.g. https://webapi-sso.example.com)
@@ -8,9 +11,13 @@ export async function up(db: Kysely<any>): Promise<void> {
   const platformId = process.env.HOIDC_PLATFORM_ID;
 
   if (!ssoApi || !platformId) {
-    console.warn(
-      'Skipping HOIDC seed: HOIDC_SSO_API and HOIDC_PLATFORM_ID must both be set.',
-    );
+    bootstrapLogger.warn({
+      context: CONTEXT,
+      msg: 'Skipping HOIDC seed: HOIDC_SSO_API and HOIDC_PLATFORM_ID must both be set.',
+      reason: 'missing-env',
+      hasSsoApi: Boolean(ssoApi),
+      hasPlatformId: Boolean(platformId),
+    });
     return;
   }
 
@@ -21,7 +28,11 @@ export async function up(db: Kysely<any>): Promise<void> {
     .limit(1)
     .executeTakeFirst();
   if (!workspace) {
-    console.warn('Skipping HOIDC seed: workspace is not initialized.');
+    bootstrapLogger.warn({
+      context: CONTEXT,
+      msg: 'Skipping HOIDC seed: workspace is not initialized.',
+      reason: 'no-workspace',
+    });
     return;
   }
 

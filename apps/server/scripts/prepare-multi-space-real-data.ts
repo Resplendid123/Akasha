@@ -114,7 +114,7 @@ async function main(): Promise<void> {
       targets: plans.map(toPrintablePlan),
       copiedPageCount: plans.reduce((total, plan) => total + plan.pageCount, 0),
     };
-    console.log(JSON.stringify(summary, null, 2));
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
     if (!process.argv.includes('--apply')) return;
 
     const targetNames = plans.map((plan) => plan.name);
@@ -213,8 +213,8 @@ async function main(): Promise<void> {
       }
     }
 
-    console.log(
-      JSON.stringify(
+    process.stdout.write(
+      `${JSON.stringify(
         {
           created: true,
           removedPageCreatedListeners,
@@ -227,7 +227,7 @@ async function main(): Promise<void> {
         },
         null,
         2,
-      ),
+      )}\n`,
     );
   } finally {
     await app.close();
@@ -275,7 +275,9 @@ function toPrintablePlan(plan: TargetPlan) {
 void main().then(
   () => process.exit(0),
   (error) => {
-    console.error(error instanceof Error ? error.stack : error);
+    process.stderr.write(
+      `${error instanceof Error ? error.stack : String(error)}\n`,
+    );
     process.exit(1);
   },
 );

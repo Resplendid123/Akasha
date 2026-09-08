@@ -24,6 +24,10 @@ import { RedisConfigService } from './integrations/redis/redis-config.service';
 import { CacheModule } from '@nestjs/cache-manager';
 import KeyvRedis from '@keyv/redis';
 import { LoggerModule } from './common/logger/logger.module';
+import { SERVICE_NAME_SERVER } from './common/logger/log-service-name';
+import { resolveRequestId } from './common/logger/request-id';
+import { bootstrapLogger } from './common/logger/bootstrap-logger';
+import { LogContextInterceptor } from './common/interceptors/log-context.interceptor';
 import { ClsModule } from 'nestjs-cls';
 import { NoopAuditModule } from './integrations/audit/audit.module';
 import { ThrottleModule } from './integrations/throttle/throttle.module';
@@ -38,18 +42,35 @@ try {
   }
 } catch (err) {
   if (process.env.CLOUD === 'true') {
-    console.warn('Failed to load enterprise modules. Exiting program.\n', err);
+    // Module load time: the DI container does not exist yet, so this is the one
+    // logger available.
+    bootstrapLogger.error({
+      context: 'AppModule',
+      msg: 'Failed to load enterprise modules, exiting',
+      err,
+    });
     process.exit(1);
   }
 }
 
 @Module({
   imports: [
+    // Must stay ahead of LoggerModule so the CLS middleware is registered first.
     ClsModule.forRoot({
       global: true,
-      middleware: { mount: true },
+      middleware: {
+        mount: true,
+        // Required: defaults to false, and without it idGenerator is never called.
+        generateId: true,
+        idGenerator: (req) => resolveRequestId(req),
+        // Under Fastify this middleware receives the *native* ServerResponse,
+        // not a FastifyReply, so only setHeader() exists here.
+        setup: (cls, req, res) => {
+          res.setHeader('x-request-id', cls.getId());
+        },
+      },
     }),
-    LoggerModule,
+    LoggerModule.forRoot(SERVICE_NAME_SERVER),
     NoopAuditModule,
     ScheduleModule.forRoot(),
     CoreModule,
@@ -92,6 +113,10 @@ try {
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LogContextInterceptor,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditActorInterceptor,
