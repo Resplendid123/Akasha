@@ -208,10 +208,10 @@ async function main(): Promise<void> {
 
     const output = JSON.stringify(report, null, 2);
     if (options.json) {
-      console.log(output);
+      process.stdout.write(`${output}\n`);
     } else {
-      console.log(output);
-      console.error('\n判定：' + report.conclusion.summary);
+      process.stdout.write(`${output}\n`);
+      process.stderr.write(`\n判定：${report.conclusion.summary}\n`);
     }
   } finally {
     await app.close();
@@ -356,7 +356,7 @@ function summarizeConclusion(input: {
 
 function parseArgs(argv: string[]): CliOptions {
   if (argv.includes('--help') || argv.includes('-h')) {
-    console.log(`Usage: pnpm --filter server exec tsx scripts/diagnose-knowledge-image-evidence.ts [options]
+    process.stdout.write(`Usage: pnpm --filter server exec tsx scripts/diagnose-knowledge-image-evidence.ts [options]
 
 Required:
   --query <text>       Real image-related query to run through AiKnowledgeChatService
@@ -388,6 +388,8 @@ function escapeRegExp(value: string): string {
 }
 
 void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : error);
+  process.stderr.write(
+    `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`,
+  );
   process.exitCode = 1;
 });

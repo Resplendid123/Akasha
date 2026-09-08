@@ -8,8 +8,12 @@ import { Logger } from '@nestjs/common';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { InternalLogFilter } from '../../common/logger/internal-log-filter';
 import { loadRuntimeConfiguration } from '../../integrations/environment/consul-config.loader';
+import { AllExceptionsFilter } from '../../common/filters/all-exceptions.filter';
+import { bootstrapLogger } from '../../common/logger/bootstrap-logger';
+import { SERVICE_NAME_COLLAB } from '../../common/logger/log-service-name';
 
 async function bootstrap() {
+  process.env.SERVICE_NAME ??= SERVICE_NAME_COLLAB;
   await loadRuntimeConfiguration();
   const { CollabAppModule } = await import('./collab-app.module');
 
@@ -30,6 +34,10 @@ async function bootstrap() {
 
   app.useLogger(app.get(PinoLogger));
 
+  app.useGlobalFilters(
+    new AllExceptionsFilter(app.getHttpAdapter(), app.get(PinoLogger)),
+  );
+
   app.setGlobalPrefix('api', { exclude: ['/'] });
 
   app.enableCors();
@@ -48,7 +56,10 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
-  const reason = error instanceof Error ? error.message : String(error);
-  console.error(`Failed to bootstrap Akasha collaboration server: ${reason}`);
+  bootstrapLogger.fatal({
+    context: 'CollabBootstrap',
+    msg: 'Failed to bootstrap Akasha collaboration server',
+    err: error,
+  });
   process.exit(1);
 });

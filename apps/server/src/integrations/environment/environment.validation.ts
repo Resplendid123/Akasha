@@ -14,6 +14,7 @@ import {
 } from 'class-validator';
 import { plainToInstance, Type } from 'class-transformer';
 import { IsISO6391 } from '../../common/validators/is-iso6391';
+import { bootstrapLogger } from '../../common/logger/bootstrap-logger';
 
 export class EnvironmentVariables {
   @IsNotEmpty()
@@ -227,23 +228,33 @@ export class EnvironmentVariables {
   CLICKHOUSE_URL: string;
 }
 
+const CONTEXT = 'EnvironmentValidation';
+
 export function validate(config: Record<string, any>) {
   const validatedConfig = plainToInstance(EnvironmentVariables, config);
 
   const errors = validateSync(validatedConfig);
 
   if (errors.length > 0) {
-    console.error(
-      'The Environment variables has failed the following validations:',
-    );
-
-    errors.map((error) => {
-      console.error(JSON.stringify(error.constraints));
+    bootstrapLogger.error({
+      context: CONTEXT,
+      msg: 'The Environment variables has failed the following validations',
+      failedCount: errors.length,
     });
 
-    console.error(
-      'Please fix the environment variables and try again. Exiting program...',
-    );
+    errors.map((error) => {
+      bootstrapLogger.error({
+        context: CONTEXT,
+        msg: 'Environment variable validation failed',
+        property: error.property,
+        constraints: error.constraints,
+      });
+    });
+
+    bootstrapLogger.error({
+      context: CONTEXT,
+      msg: 'Please fix the environment variables and try again. Exiting program...',
+    });
     process.exit(1);
   }
 
@@ -251,9 +262,12 @@ export function validate(config: Record<string, any>) {
   const executionLeaseTtl =
     validatedConfig.KNOWLEDGE_SPACE_LEASE_TTL_MS ?? 180_000;
   if (heartbeat >= executionLeaseTtl) {
-    console.error(
-      'KNOWLEDGE_SPACE_HEARTBEAT_MS must be less than KNOWLEDGE_SPACE_LEASE_TTL_MS.',
-    );
+    bootstrapLogger.error({
+      context: CONTEXT,
+      msg: 'KNOWLEDGE_SPACE_HEARTBEAT_MS must be less than KNOWLEDGE_SPACE_LEASE_TTL_MS.',
+      heartbeat,
+      executionLeaseTtl,
+    });
     process.exit(1);
   }
 
@@ -261,9 +275,13 @@ export function validate(config: Record<string, any>) {
   const spaceConcurrency = validatedConfig.KNOWLEDGE_SPACE_CONCURRENCY ?? 10;
   const imageConcurrency = validatedConfig.KNOWLEDGE_IMAGE_CONCURRENCY ?? 5;
   if (databaseMaxPool < spaceConcurrency + imageConcurrency + 10) {
-    console.error(
-      'DATABASE_MAX_POOL must be at least KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10.',
-    );
+    bootstrapLogger.error({
+      context: CONTEXT,
+      msg: 'DATABASE_MAX_POOL must be at least KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10.',
+      databaseMaxPool,
+      spaceConcurrency,
+      imageConcurrency,
+    });
     process.exit(1);
   }
 

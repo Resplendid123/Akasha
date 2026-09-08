@@ -14,6 +14,11 @@ import { InternalLogFilter } from './common/logger/internal-log-filter';
 import { EnvironmentService } from './integrations/environment/environment.service';
 import { resolveFrameHeader } from './common/helpers';
 import { loadRuntimeConfiguration } from './integrations/environment/consul-config.loader';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { bootstrapLogger } from './common/logger/bootstrap-logger';
+import { SERVICE_NAME_SERVER } from './common/logger/log-service-name';
+
+process.env.SERVICE_NAME ??= SERVICE_NAME_SERVER;
 
 async function bootstrap() {
   await loadRuntimeConfiguration();
@@ -40,6 +45,10 @@ async function bootstrap() {
   );
 
   app.useLogger(app.get(PinoLogger));
+
+  app.useGlobalFilters(
+    new AllExceptionsFilter(app.getHttpAdapter(), app.get(PinoLogger)),
+  );
 
   app.setGlobalPrefix('api', {
     exclude: ['robots.txt', 'share/:shareId/p/:pageSlug', 'mcp'],
@@ -153,12 +162,12 @@ async function bootstrap() {
 
   const logger = new Logger('NestApplication');
 
-  process.on('unhandledRejection', (reason, promise) => {
-    logger.error(`UnhandledRejection, reason: ${reason}`, promise);
+  process.on('unhandledRejection', (reason) => {
+    logger.error({ err: reason }, 'UnhandledRejection');
   });
 
   process.on('uncaughtException', (error) => {
-    logger.error('UncaughtException:', error);
+    logger.error({ err: error }, 'UncaughtException');
   });
 
   const port = process.env.PORT || 3000;
@@ -171,7 +180,10 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
-  const reason = error instanceof Error ? error.message : String(error);
-  console.error(`Failed to bootstrap Akasha: ${reason}`);
+  bootstrapLogger.fatal({
+    context: 'Bootstrap',
+    msg: 'Failed to bootstrap Akasha',
+    err: error,
+  });
   process.exit(1);
 });

@@ -1,6 +1,7 @@
 import * as yauzl from 'yauzl';
 import * as path from 'path';
 import * as fs from 'node:fs';
+import { Logger, LoggerService } from '@nestjs/common';
 
 export enum FileTaskType {
   Import = 'import',
@@ -37,8 +38,9 @@ export function getFileTaskFolderPath(
 export async function extractZip(
   source: string,
   target: string,
+  logger: LoggerService = new Logger('FileUtils'),
 ): Promise<void> {
-  return extractZipInternal(source, target, true);
+  return extractZipInternal(source, target, true, logger);
 }
 
 /**
@@ -46,11 +48,13 @@ export async function extractZip(
  * @param source   Path to the ZIP file
  * @param target   Directory to extract into
  * @param allowNested  Whether to check and unwrap one level of nested ZIP
+ * @param logger   Logger used for skipped-entry diagnostics
  */
 function extractZipInternal(
   source: string,
   target: string,
   allowNested: boolean,
+  logger: LoggerService,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     yauzl.open(
@@ -80,7 +84,7 @@ function extractZipInternal(
                 ws.on('error', reject);
                 ws.on('finish', () => {
                   zipfile.close();
-                  extractZipInternal(nestedPath, target, false)
+                  extractZipInternal(nestedPath, target, false, logger)
                     .then(() => {
                       fs.unlinkSync(nestedPath);
                       resolve();
@@ -91,7 +95,10 @@ function extractZipInternal(
               });
             } else {
               zipfile.close();
-              extractZipInternal(source, target, false).then(resolve, reject);
+              extractZipInternal(source, target, false, logger).then(
+                resolve,
+                reject,
+              );
             }
           });
           zipfile.once('error', reject);
@@ -106,7 +113,10 @@ function extractZipInternal(
 
           const validationError = yauzl.validateFileName(safe);
           if (validationError) {
-            console.warn(`Skipping invalid entry (${validationError})`);
+            logger.warn(
+              { entry: safe, reason: 'invalid-file-name', validationError },
+              'Skipping zip entry',
+            );
             zipfile.readEntry();
             return;
           }
@@ -122,7 +132,10 @@ function extractZipInternal(
           const targetResolved = path.resolve(target);
 
           if (!resolved.startsWith(targetResolved + path.sep)) {
-            console.warn(`Skipping entry (path outside target): ${safe}`);
+            logger.warn(
+              { entry: safe, reason: 'path-outside-target' },
+              'Skipping zip entry',
+            );
             zipfile.readEntry();
             return;
           }
@@ -133,7 +146,15 @@ function extractZipInternal(
               fs.mkdirSync(fullPath, { recursive: true });
             } catch (mkdirErr: any) {
               if (mkdirErr.code === 'ENAMETOOLONG') {
-                console.warn(`Skipping directory (path too long): ${fullPath}`);
+                logger.warn(
+                  {
+                    entry: safe,
+                    fullPath,
+                    reason: 'path-too-long',
+                    op: 'mkdir-directory',
+                  },
+                  'Skipping zip entry',
+                );
                 zipfile.readEntry();
                 return;
               }
@@ -148,8 +169,14 @@ function extractZipInternal(
             fs.mkdirSync(path.dirname(fullPath), { recursive: true });
           } catch (mkdirErr: any) {
             if (mkdirErr.code === 'ENAMETOOLONG') {
-              console.warn(
-                `Skipping file directory creation (path too long): ${fullPath}`,
+              logger.warn(
+                {
+                  entry: safe,
+                  fullPath,
+                  reason: 'path-too-long',
+                  op: 'mkdir-parent',
+                },
+                'Skipping zip entry',
               );
               zipfile.readEntry();
               return;
@@ -165,8 +192,14 @@ function extractZipInternal(
               ws = fs.createWriteStream(fullPath);
             } catch (openWsErr: any) {
               if (openWsErr.code === 'ENAMETOOLONG') {
-                console.warn(
-                  `Skipping file write (path too long): ${fullPath}`,
+                logger.warn(
+                  {
+                    entry: safe,
+                    fullPath,
+                    reason: 'path-too-long',
+                    op: 'create-write-stream',
+                  },
+                  'Skipping zip entry',
                 );
                 zipfile.readEntry();
                 return;
@@ -177,8 +210,14 @@ function extractZipInternal(
             rs.on('error', (err) => reject(err));
             ws.on('error', (err) => {
               if ((err as any).code === 'ENAMETOOLONG') {
-                console.warn(
-                  `Skipping file write on stream (path too long): ${fullPath}`,
+                logger.warn(
+                  {
+                    entry: safe,
+                    fullPath,
+                    reason: 'path-too-long',
+                    op: 'write-stream',
+                  },
+                  'Skipping zip entry',
                 );
                 zipfile.readEntry();
               } else {
