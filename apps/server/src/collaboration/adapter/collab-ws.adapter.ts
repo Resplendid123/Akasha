@@ -1,6 +1,8 @@
 import { WebSocketServer } from 'ws';
+import { Logger } from '@nestjs/common';
 
 export class CollabWsAdapter {
+  private readonly logger = new Logger(CollabWsAdapter.name);
   private readonly wss: WebSocketServer;
 
   constructor() {
@@ -34,7 +36,10 @@ export class CollabWsAdapter {
     try {
       this.wss.close();
     } catch (err) {
-      console.error(err);
+      this.logger.error(
+        { op: 'close', err },
+        'Failed to close WebSocket server',
+      );
     }
   }
 
@@ -45,7 +50,10 @@ export class CollabWsAdapter {
         client.terminate();
       });
     } catch (err) {
-      console.error(err);
+      this.logger.error(
+        { op: 'destroy', err },
+        'Failed to destroy WebSocket server',
+      );
     }
   }
 }

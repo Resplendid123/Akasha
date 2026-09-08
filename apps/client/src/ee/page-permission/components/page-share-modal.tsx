@@ -76,13 +76,13 @@ export function PageShareModal({ readOnly }: PageShareModalProps) {
           open();
         }}
       >
-        {t("Share")}
+        {t("Permissions")}
       </Button>
 
       <Modal
         opened={opened}
         onClose={close}
-        title={t("Share")}
+        title={t("Permissions")}
         size={600}
         closeButtonProps={{ "aria-label": t("Close") }}
       >

@@ -14,7 +14,7 @@ import { Window } from 'happy-dom';
  * const html = '<p>Hello, world!</p>'
  * const extensions = [...]
  * const json = generateJSON(html, extensions)
- * console.log(json) // { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello, world!' }] }] }
+ * json // { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello, world!' }] }] }
  */
 export function generateJSON(
   html: string,
