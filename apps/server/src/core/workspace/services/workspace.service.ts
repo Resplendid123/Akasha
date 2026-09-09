@@ -33,7 +33,6 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { addDays } from 'date-fns';
 import { DISALLOWED_HOSTNAMES, WorkspaceStatus } from '../workspace.constants';
 import { isAdminActingOnOwner } from '../workspace.util';
-import { v4 } from 'uuid';
 import { InjectQueue } from '@nestjs/bullmq';
 import { QueueJob, QueueName } from '../../../integrations/queue/constants';
 import { Queue } from 'bullmq';
@@ -869,10 +868,6 @@ export class WorkspaceService {
     await executeTx(this.db, async (trx) => {
       await this.userRepo.updateUser(
         {
-          name: 'Deleted user',
-          email: v4() + '@deleted.akasha.com',
-          avatarUrl: null,
-          settings: null,
           deletedAt: new Date(),
         },
         userId,
@@ -881,25 +876,6 @@ export class WorkspaceService {
       );
 
       await trx.deleteFrom('groupUsers').where('userId', '=', userId).execute();
-      await this.spaceMemberService.removeUserFromNonPersonalSpaces(
-        userId,
-        workspaceId,
-        trx,
-      );
-      await trx
-        .deleteFrom('authAccounts')
-        .where('userId', '=', userId)
-        .execute();
-
-      await this.watcherRepo.deleteByUserAndWorkspace(userId, workspaceId, {
-        trx,
-      });
-
-      await this.favoriteRepo.deleteByUserAndWorkspace(userId, workspaceId, {
-        trx,
-      });
-
-      await this.userSessionRepo.revokeByUserId(userId, workspaceId, trx);
     });
 
     this.auditService.log({
@@ -914,11 +890,5 @@ export class WorkspaceService {
         },
       },
     });
-
-    try {
-      await this.attachmentQueue.add(QueueJob.DELETE_USER_AVATARS, user);
-    } catch (err) {
-      // empty
-    }
   }
 }

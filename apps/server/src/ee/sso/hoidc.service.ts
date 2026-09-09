@@ -216,6 +216,10 @@ export class HoidcService {
       return user;
     }
 
+    if (user.deletedAt) {
+      throw new UnauthorizedException('User is disabled');
+    }
+
     if (updateProfile) {
       const profileUpdate: { name?: string; avatarUrl?: string | null } = {};
       if (info.name !== null && info.name !== user.name) {

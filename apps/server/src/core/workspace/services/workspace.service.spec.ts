@@ -38,7 +38,7 @@ describe('WorkspaceService', () => {
     });
   });
 
-  it('keeps the personal-space owner membership when deleting a workspace user', async () => {
+  it('only marks the user deleted and removes group memberships', async () => {
     const trx = {
       deleteFrom: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -83,10 +83,20 @@ describe('WorkspaceService', () => {
       'workspace-1',
     );
 
+    expect(service.userRepo.updateUser).toHaveBeenCalledWith(
+      { deletedAt: expect.any(Date) },
+      'user-1',
+      'workspace-1',
+      trx,
+    );
+    expect(trx.deleteFrom).toHaveBeenCalledWith('groupUsers');
     expect(
       service.spaceMemberService.removeUserFromNonPersonalSpaces,
-    ).toHaveBeenCalledWith('user-1', 'workspace-1', trx);
-    expect(trx.deleteFrom).not.toHaveBeenCalledWith('spaceMembers');
+    ).not.toHaveBeenCalled();
+    expect(service.watcherRepo.deleteByUserAndWorkspace).not.toHaveBeenCalled();
+    expect(service.favoriteRepo.deleteByUserAndWorkspace).not.toHaveBeenCalled();
+    expect(service.userSessionRepo.revokeByUserId).not.toHaveBeenCalled();
+    expect(service.attachmentQueue.add).not.toHaveBeenCalled();
   });
 
   it('reads Akasha Skill release settings from the workspace', async () => {
