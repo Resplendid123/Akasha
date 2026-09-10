@@ -36,12 +36,16 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const tokenHeader = request.headers['x-token'];
     const ssoToken = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
+    const agentHeader = request.headers['x-iself-agent'];
+    const isAgentRequest =
+      (Array.isArray(agentHeader) ? agentHeader[0] : agentHeader)?.trim() ===
+      '1';
 
     // X-Token is reserved for SSO. Do not fall through to JWT/API-key auth
     // when it is present: otherwise a typo or an expired SSO token could be
     // interpreted as an unrelated credential.
     if (typeof ssoToken === 'string' && ssoToken.trim()) {
-      await this.authenticateSso(request, ssoToken.trim());
+      await this.authenticateSso(request, ssoToken.trim(), isAgentRequest);
       this.setJoinedWorkspacesCookie((request as any).user, context);
       return true;
     }
@@ -52,6 +56,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   private async authenticateSso(
     request: FastifyRequest,
     token: string,
+    isAgentRequest = false,
   ): Promise<void> {
     const workspace =
       (request.raw as any)?.workspace ?? (request as any).workspace;
@@ -107,6 +112,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         token,
       );
     } catch (error) {
+      // iself's agent proxy forwards a digital-employee token (marked by the
+      // X-Iself-Agent header) that a regular access-token verify cannot parse.
+      // Fall back to the agent-token verifier, which hits a different upstream
+      // endpoint and response contract, then map it to the real workspace user.
+      if (isAgentRequest) {
+        await this.authenticateAgent(request, token, {
+          ssoApi,
+          platformId,
+          workspace,
+        });
+        return;
+      }
       if (error instanceof UnauthorizedException) {
         throw error;
       }
@@ -122,6 +139,59 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     (request as any).user = { user, workspace };
     (request.raw as any).workspace = workspace;
     (request as any).sso = { email: info.email };
+  }
+
+  private async authenticateAgent(
+    request: FastifyRequest,
+    token: string,
+    ctx: { ssoApi: string; platformId: string; workspace: { id: string } },
+  ): Promise<void> {
+    let hoidcService: {
+      verifyAgentToken: (
+        config: { ssoApi: string; platformId: string },
+        token: string,
+      ) => Promise<{
+        uid: number;
+        email: string;
+        name: string | null;
+        digital_employee_id?: string;
+        target_platform_id?: string;
+      }>;
+    };
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { HoidcService } = require('../../ee/sso/hoidc.service');
+      hoidcService = this.moduleRef.get(HoidcService, { strict: false });
+    } catch {
+      throw new UnauthorizedException('SSO authentication is unavailable');
+    }
+    if (!hoidcService) {
+      throw new UnauthorizedException('SSO authentication is unavailable');
+    }
+
+    const agentInfo = await hoidcService.verifyAgentToken(
+      { ssoApi: ctx.ssoApi, platformId: ctx.platformId },
+      token,
+    );
+
+    const user = await this.userRepo.findByEmail(
+      agentInfo.email,
+      ctx.workspace.id,
+    );
+    if (!user || isUserDisabled(user)) {
+      throw new UnauthorizedException(
+        'SSO user is not a member of this workspace',
+      );
+    }
+
+    (request as any).user = { user, workspace: ctx.workspace };
+    (request.raw as any).workspace = ctx.workspace;
+    (request as any).sso = { email: agentInfo.email };
+    (request as any).iselfAgent = {
+      uid: agentInfo.uid,
+      digitalEmployeeId: agentInfo.digital_employee_id,
+      targetPlatformId: agentInfo.target_platform_id,
+    };
   }
 
   handleRequest(err: any, user: any, info: any, ctx: ExecutionContext) {
