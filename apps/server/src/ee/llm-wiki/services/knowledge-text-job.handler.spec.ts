@@ -205,40 +205,6 @@ describe('KnowledgeTextJobHandler maintenance boundary', () => {
     expect(fixture.textQueue.add).not.toHaveBeenCalled();
   });
 
-  it('runs review discovery and persists its durable snapshot', async () => {
-    const fixture = createFixture();
-    fixture.reviewService.reviewWiki.mockResolvedValue({
-      version: '2',
-      items: [],
-    });
-
-    await expect(
-      fixture.handler.handle({
-        ...job(QueueJob.REVIEW_DISCOVER, {
-          workspaceId: 'workspace-1',
-          spaceId: 'space-1',
-          limit: 20,
-        }),
-        id: 'review-discover__workspace-1__space-1',
-      } as Job),
-    ).resolves.toEqual(
-      expect.objectContaining({ type: 'review-discover', status: 'succeeded' }),
-    );
-
-    expect(
-      fixture.reviewSnapshot.replaceDiscoveredSnapshot,
-    ).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-      items: [],
-      docs: [],
-    });
-    expect(fixture.reviewSnapshot.markJobDone).toHaveBeenCalled();
-    expect(fixture.auditService.log).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'knowledge.review_discovered' }),
-    );
-  });
-
   it('ignores queue jobs outside the retained maintenance allowlist', async () => {
     const fixture = createFixture();
 
@@ -267,27 +233,9 @@ function createFixture() {
       links: [],
       pageSources: [],
     }),
-    findClaimsByPageIds: jest.fn().mockResolvedValue([]),
   };
   const textQueue = { add: jest.fn() };
-  const reviewService = {
-    reviewWiki: jest.fn(),
-    runDeepSearch: jest.fn(),
-    negotiateDraft: jest.fn(),
-  };
-  const reviewSnapshot = {
-    beginJob: jest.fn(),
-    markJobRunning: jest.fn(),
-    replaceDiscoveredSnapshot: jest.fn(),
-    markJobDone: jest.fn(),
-    markJobFailed: jest.fn(),
-    loadSnapshot: jest.fn(),
-    saveResolvedReview: jest.fn(),
-  };
   const auditService = { log: jest.fn() };
-  const reviewApplicationRepo = {
-    supersedeDraftsForReviewItem: jest.fn(),
-  };
   const spaceCompilation = {
     requestIncrementalCompileForPages: jest.fn(),
     scheduleIncrementalCompileForPages: jest.fn(),
@@ -305,10 +253,7 @@ function createFixture() {
     sourceRepo as never,
     capsuleRepo as never,
     textQueue as never,
-    reviewService as never,
-    reviewSnapshot as never,
     auditService as never,
-    reviewApplicationRepo as never,
     spaceCompilation as never,
     vectorIndex as never,
     sourceRetirement as never,
@@ -319,8 +264,6 @@ function createFixture() {
     sourceRepo,
     capsuleRepo,
     textQueue,
-    reviewService,
-    reviewSnapshot,
     auditService,
     spaceCompilation,
     vectorIndex,

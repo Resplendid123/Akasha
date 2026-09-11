@@ -4,7 +4,6 @@ import { ApiKeyModule } from './api-key/api-key.module';
 import { DocumentImportModule } from './document-import/document-import.module';
 import { ConfluenceImportModule } from './confluence-import/confluence-import.module';
 import { LlmWikiModule } from './llm-wiki/llm-wiki.module';
-import { ReviewModule } from './llm-wiki/review/review.module';
 import { AiChatModule } from './ai-chat/ai-chat.module';
 import { CronModule } from './cron/cron.module';
 
@@ -15,7 +14,6 @@ import { CronModule } from './cron/cron.module';
     DocumentImportModule,
     ConfluenceImportModule,
     LlmWikiModule,
-    ReviewModule,
     AiChatModule,
     CronModule,
   ],

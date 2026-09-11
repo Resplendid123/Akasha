@@ -3,8 +3,6 @@ import { SemanticKnowledgeCompilerRunner } from './adapters/semantic-knowledge-c
 import { KNOWLEDGE_COMPILER_RUNNER } from './llm-wiki.constants';
 import { LlmWikiModule } from './llm-wiki.module';
 
-jest.mock('./review/review.module', () => ({ ReviewModule: class {} }));
-
 describe('LlmWikiModule', () => {
   it('uses the project-local Akasha runner for compile jobs', () => {
     const providers =
