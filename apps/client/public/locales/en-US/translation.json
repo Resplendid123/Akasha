@@ -79,6 +79,7 @@
   "Failed to publish page": "Failed to publish page",
   "Page publish started": "Page publish started",
   "Publish now": "Publish now",
+  "Publish available in {{time}}": "Publish available in {{time}}",
   "Read": "Read",
   "Edit group": "Edit group",
   "Email": "Email",

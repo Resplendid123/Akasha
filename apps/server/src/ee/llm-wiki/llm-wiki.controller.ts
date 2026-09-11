@@ -18,8 +18,11 @@ import {
   Put,
   Query,
   UnauthorizedException,
+  HttpException,
   UseGuards,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { InjectQueue } from '@nestjs/bullmq';
 import { createHash } from 'crypto';
 import { Queue } from 'bullmq';
@@ -98,6 +101,12 @@ import { AgentAccessService } from '../../core/page/page-access/agent-access.ser
 @Controller('llm-wiki')
 export class LlmWikiController {
   private readonly logger = new Logger(LlmWikiController.name);
+  private static readonly PUBLISH_COOLDOWN_MS = [
+    10 * 60_000,
+    30 * 60_000,
+    2 * 60 * 60_000,
+  ];
+  private static readonly PUBLISH_COOLDOWN_TTL = 24 * 60 * 60_000;
 
   constructor(
     private readonly chatService: AiKnowledgeChatService,
@@ -119,7 +128,12 @@ export class LlmWikiController {
     private readonly apiKeyService: ApiKeyService,
     @Optional() private readonly environmentService?: EnvironmentService,
     @Optional() private readonly agentAccessService?: AgentAccessService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager?: Cache,
   ) {}
+
+  private publishCooldownKey(pageId: string) {
+    return `llm-wiki:page-publish-cooldown:${pageId}`;
+  }
 
   @HttpCode(HttpStatus.OK)
   @Post('query')
@@ -385,6 +399,27 @@ export class LlmWikiController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Get('pages/:pageId/publish-cooldown')
+  async getPagePublishCooldown(@Param('pageId', ParseUUIDPipe) pageId: string) {
+    const state = await this.cacheManager?.get<{
+      step: number;
+      expiresAt: number;
+    }>(this.publishCooldownKey(pageId));
+    const now = Date.now();
+    if (!state || state.expiresAt <= now) {
+      if (
+        state?.expiresAt &&
+        state.expiresAt <= now &&
+        state.step >= LlmWikiController.PUBLISH_COOLDOWN_MS.length
+      ) {
+        await this.cacheManager?.del(this.publishCooldownKey(pageId));
+      }
+      return { expiresAt: null, step: 0 };
+    }
+    return state;
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Post('pages/:pageId/publish')
   async publishPageKnowledge(
     @Param('pageId', ParseUUIDPipe) pageId: string,
@@ -402,12 +437,38 @@ export class LlmWikiController {
 
     await this.pageAccessService.validateCanEdit(page, user);
 
+    const cooldownKey = this.publishCooldownKey(page.id);
+    const cooldown = await this.cacheManager?.get<{
+      step: number;
+      expiresAt: number;
+    }>(cooldownKey);
+    if (cooldown && cooldown.expiresAt > Date.now()) {
+      throw new HttpException(
+        {
+          message: 'Page publish is cooling down',
+          expiresAt: cooldown.expiresAt,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const request = await this.spaceCompilation.requestImmediatePagePublish({
       workspaceId: workspace.id,
       spaceId: page.spaceId,
       sourcePageId: page.id,
     });
     const run = request.run!;
+    const step = Math.min(
+      (cooldown?.step ?? 0) + 1,
+      LlmWikiController.PUBLISH_COOLDOWN_MS.length,
+    );
+    const expiresAt =
+      Date.now() + LlmWikiController.PUBLISH_COOLDOWN_MS[step - 1];
+    await this.cacheManager?.set(
+      cooldownKey,
+      { step, expiresAt },
+      LlmWikiController.PUBLISH_COOLDOWN_TTL,
+    );
     const result = {
       pageId: page.id,
       spaceId: page.spaceId,

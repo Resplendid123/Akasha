@@ -1,4 +1,11 @@
-import { ActionIcon, Group, Menu, Text, ThemeIcon, Tooltip } from "@mantine/core";
+import {
+  ActionIcon,
+  Group,
+  Menu,
+  Text,
+  ThemeIcon,
+  Tooltip,
+} from "@mantine/core";
 import {
   IconArrowRight,
   IconArrowsHorizontal,
@@ -28,6 +35,7 @@ import { useParams } from "react-router-dom";
 import {
   usePageQuery,
   usePublishPageKnowledgeMutation,
+  usePagePublishCooldownQuery,
 } from "@/features/page/queries/page-query.ts";
 import { buildPageUrl } from "@/features/page/page.utils.ts";
 import { notifications } from "@mantine/notifications";
@@ -62,6 +70,21 @@ import {
   useWatchPageMutation,
   useUnwatchPageMutation,
 } from "@/features/page/queries/watcher-query";
+
+const PUBLISH_COOLDOWNS = [10 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
+const publishCooldownKey = (pageId: string) =>
+  `page-publish-cooldown:${pageId}`;
+
+function formatCooldown(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+  }
+  return `${minutes}m${seconds ? ` ${seconds}s` : ""}`;
+}
 
 interface PageHeaderMenuProps {
   readOnly?: boolean;
@@ -169,6 +192,53 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   const watchPage = useWatchPageMutation();
   const unwatchPage = useUnwatchPageMutation();
   const publishPageKnowledge = usePublishPageKnowledgeMutation();
+  const { data: serverCooldown } = usePagePublishCooldownQuery(page?.id);
+  const [publishCooldown, setPublishCooldown] = useState<{
+    expiresAt: number;
+    step: number;
+  } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const publishCooldownRemaining = publishCooldown
+    ? publishCooldown.expiresAt - now
+    : 0;
+  useEffect(() => {
+    if (serverCooldown?.expiresAt) {
+      setPublishCooldown({
+        expiresAt: serverCooldown.expiresAt,
+        step: serverCooldown.step,
+      });
+    }
+  }, [serverCooldown]);
+  const publishCoolingDown = publishCooldownRemaining > 0;
+
+  useEffect(() => {
+    setPublishCooldown(null);
+    if (!page?.id) return;
+    try {
+      const stored = localStorage.getItem(publishCooldownKey(page.id));
+      if (!stored) return;
+      const value = JSON.parse(stored) as { expiresAt?: number; step?: number };
+      if (value.expiresAt && value.step && value.expiresAt > Date.now()) {
+        setPublishCooldown({ expiresAt: value.expiresAt, step: value.step });
+      } else {
+        localStorage.removeItem(publishCooldownKey(page.id));
+      }
+    } catch {
+      // Ignore unavailable or malformed local storage.
+    }
+  }, [page?.id]);
+
+  useEffect(() => {
+    if (!publishCoolingDown) {
+      if (publishCooldown?.step === PUBLISH_COOLDOWNS.length) {
+        localStorage.removeItem(publishCooldownKey(page?.id ?? ""));
+        setPublishCooldown(null);
+      }
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [publishCoolingDown, publishCooldown, page?.id]);
 
   const handleCopyLink = () => {
     const pageUrl =
@@ -212,9 +282,19 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   };
 
   const handlePublishPage = () => {
-    if (!page?.id || publishPageKnowledge.isPending) return;
+    if (!page?.id || publishPageKnowledge.isPending || publishCoolingDown)
+      return;
     publishPageKnowledge.mutate(page.id, {
       onSuccess: () => {
+        const step = (publishCooldown?.step ?? 0) + 1;
+        const expiresAt =
+          Date.now() +
+          PUBLISH_COOLDOWNS[Math.min(step - 1, PUBLISH_COOLDOWNS.length - 1)];
+        setPublishCooldown({ expiresAt, step });
+        localStorage.setItem(
+          publishCooldownKey(page.id),
+          JSON.stringify({ expiresAt, step }),
+        );
         notifications.show({ message: t("Page publish started") });
       },
       onError: () => {
@@ -264,7 +344,10 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
           <Menu.Item
             leftSection={
               isFavorited ? (
-                <IconStarFilled size={16} color="var(--mantine-color-yellow-5)" />
+                <IconStarFilled
+                  size={16}
+                  color="var(--mantine-color-yellow-5)"
+                />
               ) : (
                 <IconStar size={16} />
               )
@@ -294,9 +377,13 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
             <Menu.Item
               leftSection={<IconRocket size={16} />}
               onClick={handlePublishPage}
-              disabled={publishPageKnowledge.isPending}
+              disabled={publishPageKnowledge.isPending || publishCoolingDown}
             >
-              {t("Publish now")}
+              {publishCoolingDown
+                ? t("Publish available in {{time}}", {
+                    time: formatCooldown(publishCooldownRemaining),
+                  })
+                : t("Publish now")}
             </Menu.Item>
           )}
 
