@@ -20,6 +20,7 @@ import {
   CacheKey,
   PERMISSION_CACHE_TTL_MS,
 } from '../../../common/helpers/cache-keys';
+import { UserType } from '../../../common/auth/user-type';
 
 @Injectable()
 export class SpaceMemberRepo {
@@ -111,6 +112,13 @@ export class SpaceMemberRepo {
       .execute();
   }
 
+  async removeAllDirectMembershipsForUser(
+    userId: string,
+    trx: KyselyTransaction,
+  ): Promise<void> {
+    await trx.deleteFrom('spaceMembers').where('userId', '=', userId).execute();
+  }
+
   async roleCountBySpaceId(role: string, spaceId: string): Promise<number> {
     const { count } = await this.db
       .selectFrom('spaceMembers')
@@ -154,7 +162,13 @@ export class SpaceMemberRepo {
         ),
       )
       .select(sql<string>`coalesce(users.name, groups.name)`.as('memberName'))
-      .where('spaceId', '=', spaceId);
+      .where('spaceId', '=', spaceId)
+      .where((eb) =>
+        eb.or([
+          eb('users.id', 'is', null),
+          eb('users.userType', '=', UserType.NORMAL),
+        ]),
+      );
 
     if (pagination.query) {
       baseQuery = baseQuery.where((eb) =>
@@ -364,11 +378,7 @@ export class SpaceMemberRepo {
       .unionAll(
         this.db
           .selectFrom('spaceMembers')
-          .innerJoin(
-            'groupUsers',
-            'groupUsers.groupId',
-            'spaceMembers.groupId',
-          )
+          .innerJoin('groupUsers', 'groupUsers.groupId', 'spaceMembers.groupId')
           .select(['spaceMembers.spaceId', 'spaceMembers.role'])
           .where('groupUsers.userId', '=', userId)
           .where('spaceMembers.spaceId', 'in', spaceIds),

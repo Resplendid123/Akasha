@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Inject,
   NotFoundException,
+  Optional,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -69,6 +70,12 @@ import { resolvePageAuthorDisplay } from './services/page-author-display';
 import { RestorePageAuthorsDto } from './dto/restore-page-authors.dto';
 import { PageAuthorMigrationService } from './services/page-author-migration.service';
 import { getApiKeyAccess } from '../../common/auth/api-key-access';
+import { AgentCallable } from '../../common/decorators/agent-callable.decorator';
+import { AgentCapability } from '../../common/auth/agent-capability';
+import { AgentAccess } from '../../common/decorators/agent-access.decorator';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { AgentAccessService } from './page-access/agent-access.service';
+import { UserType } from '../../common/auth/user-type';
 
 function pageSearchExcerpt(text: string | null, query: string): string {
   if (!text) return '';
@@ -97,11 +104,17 @@ export class PageController {
     @InjectKysely() private readonly db: KyselyDB,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
     private readonly pageAuthorMigrationService: PageAuthorMigrationService,
+    @Optional() private readonly agentAccessService?: AgentAccessService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
   @Post('/info')
-  async getPage(@Body() dto: PageInfoDto, @AuthUser() user: User) {
+  @AgentCallable(AgentCapability.PAGE_READ)
+  async getPage(
+    @Body() dto: PageInfoDto,
+    @AuthUser() user: User,
+    @AgentAccess() agentAccess?: AgentAccessContext,
+  ) {
     const page = await this.pageRepo.findById(dto.pageId, {
       includeSpace: true,
       includeContent: true,
@@ -115,11 +128,12 @@ export class PageController {
       throw new NotFoundException('Page not found');
     }
 
-    const { canEdit, hasRestriction } =
-      await this.pageAccessService.validateCanReadSourceWithPermissions(
-        page,
-        user,
-      );
+    const { canEdit, hasRestriction } = agentAccess
+      ? await this.agentAccessService.assertPageReadable(agentAccess, page)
+      : await this.pageAccessService.validateCanReadSourceWithPermissions(
+          page,
+          user,
+        );
 
     const permissions = { canEdit, hasRestriction };
     const displayPage = resolvePageAuthorDisplay(page);
@@ -141,16 +155,22 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('/search')
+  @AgentCallable(AgentCapability.PAGE_READ)
   async searchPersonalPages(
     @Body() dto: PersonalPageSearchDto,
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
+    @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
     const spaceId = dto.spaceId ?? getApiKeyAccess(user)?.personalSpaceId;
     if (!spaceId) {
       throw new ForbiddenException(
         'spaceId is required for Page source search',
       );
+    }
+
+    if (agentAccess) {
+      await this.agentAccessService.assertSpaceBound(agentAccess, spaceId);
     }
 
     const ability = await this.spaceAbility.createForUser(user, spaceId);
@@ -167,7 +187,9 @@ export class PageController {
     const accessiblePageIds =
       await this.pagePermissionRepo.filterAccessiblePageIds({
         pageIds: pages.map((page) => page.id),
-        userId: user.id,
+        userId: agentAccess
+          ? this.agentAccessService.pagePermissionUserId(agentAccess)
+          : user.id,
         spaceId,
       });
     const accessibleSet = new Set(accessiblePageIds);
@@ -407,6 +429,7 @@ export class PageController {
     }
 
     await this.pageAccessService.validateCanEdit(page, user);
+    await this.assertNormalPermissionUsers(userIds, workspace.id);
 
     await executeTx(this.db, async (trx) => {
       let pageAccess = await this.pagePermissionRepo.findPageAccessByPageId(
@@ -530,6 +553,7 @@ export class PageController {
   async updatePagePermissionRole(
     @Body() dto: UpdatePagePermissionRoleDto,
     @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
   ) {
     if ((!dto.userId && !dto.groupId) || (dto.userId && dto.groupId)) {
       throw new BadRequestException('Provide exactly one user or group');
@@ -541,6 +565,9 @@ export class PageController {
     }
 
     await this.pageAccessService.validateCanEdit(page, user);
+    if (dto.userId) {
+      await this.assertNormalPermissionUsers([dto.userId], workspace.id);
+    }
     const pageAccess = await this.pagePermissionRepo.findPageAccessByPageId(
       page.id,
     );
@@ -553,6 +580,23 @@ export class PageController {
       dto.role,
       { userId: dto.userId, groupId: dto.groupId },
     );
+  }
+
+  private async assertNormalPermissionUsers(
+    userIds: string[],
+    workspaceId: string,
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    const normalUserIds = await this.db
+      .selectFrom('users')
+      .select('id')
+      .where('id', 'in', userIds)
+      .where('workspaceId', '=', workspaceId)
+      .where('userType', '=', UserType.NORMAL)
+      .execute();
+    if (normalUserIds.length !== new Set(userIds).size) {
+      throw new BadRequestException('Agent users are system managed');
+    }
   }
 
   @HttpCode(HttpStatus.OK)
@@ -627,11 +671,16 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('create')
+  @AgentCallable(AgentCapability.PAGE_CREATE)
   async create(
     @Body() createPageDto: CreatePageDto,
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
+    @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
+    if (agentAccess && !createPageDto.spaceId) {
+      throw new BadRequestException('spaceId is required');
+    }
     if (createPageDto.parentPageId) {
       // Creating under a parent page - check edit permission on parent
       const parentPage = await this.pageRepo.findById(
@@ -644,7 +693,15 @@ export class PageController {
       ) {
         throw new NotFoundException('Parent page not found');
       }
-      await this.pageAccessService.validateCanEdit(parentPage, user);
+      if (agentAccess) {
+        await this.agentAccessService.assertCanCreate(
+          agentAccess,
+          createPageDto.spaceId,
+          parentPage,
+        );
+      } else {
+        await this.pageAccessService.validateCanEdit(parentPage, user);
+      }
     } else {
       // Creating at root level - require space-level permission
       const ability = await this.spaceAbility.createForUser(
@@ -653,6 +710,12 @@ export class PageController {
       );
       if (ability.cannot(SpaceCaslAction.Create, SpaceCaslSubject.Page)) {
         throw new ForbiddenException();
+      }
+      if (agentAccess) {
+        await this.agentAccessService.assertCanCreate(
+          agentAccess,
+          createPageDto.spaceId,
+        );
       }
     }
 
@@ -697,17 +760,38 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('update')
-  async update(@Body() updatePageDto: UpdatePageDto, @AuthUser() user: User) {
+  @AgentCallable(AgentCapability.PAGE_CONTENT_UPDATE)
+  async update(
+    @Body() updatePageDto: UpdatePageDto,
+    @AuthUser() user: User,
+    @AgentAccess() agentAccess?: AgentAccessContext,
+  ) {
+    if (
+      agentAccess &&
+      (updatePageDto.spaceId !== undefined ||
+        updatePageDto.parentPageId !== undefined)
+    ) {
+      throw new BadRequestException(
+        'Agent API keys cannot change Page location',
+      );
+    }
+    if (
+      agentAccess &&
+      updatePageDto.title === undefined &&
+      updatePageDto.icon === undefined &&
+      updatePageDto.content === undefined
+    ) {
+      throw new BadRequestException('At least one Page field is required');
+    }
     const page = await this.pageRepo.findById(updatePageDto.pageId);
 
     if (!page) {
       throw new NotFoundException('Page not found');
     }
 
-    const { hasRestriction } = await this.pageAccessService.validateCanEdit(
-      page,
-      user,
-    );
+    const { hasRestriction } = agentAccess
+      ? await this.agentAccessService.assertPageWritable(agentAccess, page)
+      : await this.pageAccessService.validateCanEdit(page, user);
 
     const updatedPage = await this.pageService.update(
       page,
@@ -957,10 +1041,12 @@ export class PageController {
 
   @HttpCode(HttpStatus.OK)
   @Post('/sidebar-pages')
+  @AgentCallable(AgentCapability.PAGE_TREE_READ)
   async getSidebarPages(
     @Body() dto: SidebarPageDto,
     @Body() pagination: PaginationOptions,
     @AuthUser() user: User,
+    @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
     if (!dto.spaceId && !dto.pageId) {
       throw new BadRequestException(
@@ -976,6 +1062,13 @@ export class PageController {
       }
 
       spaceId = page.spaceId;
+      if (agentAccess) {
+        await this.agentAccessService.assertPageReadable(agentAccess, page);
+      }
+    }
+
+    if (agentAccess) {
+      await this.agentAccessService.assertSpaceBound(agentAccess, spaceId);
     }
 
     const ability = await this.spaceAbility.createForUser(user, spaceId);
@@ -992,7 +1085,11 @@ export class PageController {
       spaceId,
       pagination,
       dto.pageId,
-      user.role === UserRole.OWNER ? undefined : user.id,
+      user.role === UserRole.OWNER
+        ? undefined
+        : agentAccess
+          ? this.agentAccessService.pagePermissionUserId(agentAccess)
+          : user.id,
       user.role === UserRole.OWNER ? true : spaceCanEdit,
     );
   }

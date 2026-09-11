@@ -70,11 +70,8 @@ describe('IsElfLlmWikiController', () => {
       recordQuery: jest.fn().mockResolvedValue(undefined),
     };
     const auditService = { log: jest.fn() };
-    const apiKeyService = {
-      validatePublicApiKey: jest.fn().mockResolvedValue({
-        apiKeyId: 'public-key-1',
-        spaceIds: ['space-1'],
-      }),
+    const agentAccessService = {
+      getBoundSpaceIds: jest.fn().mockResolvedValue(['space-1']),
     };
     const environmentService = {
       getAppUrl: jest.fn().mockReturnValue('https://akasha.example.com'),
@@ -95,7 +92,7 @@ describe('IsElfLlmWikiController', () => {
       chatService as any,
       citationImageResolver as any,
       queryAuditRepo as any,
-      apiKeyService as any,
+      agentAccessService as any,
       auditService as any,
       environmentService as any,
       attachmentResolver as any,
@@ -111,6 +108,13 @@ describe('IsElfLlmWikiController', () => {
       id: 'workspace-1',
       settings: { ai: { chat: true } },
     } as any;
+    const agentAccess = {
+      apiKeyId: 'public-key-1',
+      credentialVersion: 1,
+      agentUser: user,
+      workspace,
+      delegatedUser: { id: 'delegated-user-1' },
+    } as any;
 
     await expect(
       controller.queryKnowledge(
@@ -121,7 +125,7 @@ describe('IsElfLlmWikiController', () => {
         },
         user,
         workspace,
-        'public-token',
+        agentAccess,
       ),
     ).resolves.toEqual({
       answer: 'Kafka is used for async events.',
@@ -168,6 +172,7 @@ describe('IsElfLlmWikiController', () => {
     expect(chatService.chat).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       userId: 'user-1',
+      supplementalUserId: 'delegated-user-1',
       query: 'How do we use Kafka?',
       spaceIds: ['space-1'],
       chatContext: ['Previous turn'],
@@ -203,7 +208,7 @@ describe('IsElfLlmWikiController', () => {
       },
       user,
       workspace,
-      'public-token',
+      agentAccess,
     );
     expect(withAttachments.attachments).toEqual([
       expect.objectContaining({
@@ -231,7 +236,7 @@ describe('IsElfLlmWikiController', () => {
       },
       user,
       workspace,
-      'public-token',
+      agentAccess,
     );
     expect(attachmentResolver.resolveAttachments).toHaveBeenLastCalledWith({
       workspaceId: 'workspace-1',

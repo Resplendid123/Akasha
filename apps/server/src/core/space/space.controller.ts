@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpCode,
   HttpStatus,
+  Optional,
   NotFoundException,
   Post,
   UseGuards,
@@ -37,6 +38,11 @@ import { SpaceRepo } from '@akasha/db/repos/space/space.repo';
 import { UserRole, SpaceRole } from '../../common/helpers/types/permission';
 import { SpacePaginationOptions } from './dto/space-pagination-options.dto';
 import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
+import { AgentCallable } from '../../common/decorators/agent-callable.decorator';
+import { AgentCapability } from '../../common/auth/agent-capability';
+import { AgentAccess } from '../../common/decorators/agent-access.decorator';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { AgentAccessService } from '../page/page-access/agent-access.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('spaces')
@@ -48,15 +54,18 @@ export class SpaceController {
     private readonly spaceRepo: SpaceRepo,
     private readonly spaceAbility: SpaceAbilityFactory,
     private readonly workspaceAbility: WorkspaceAbilityFactory,
+    @Optional() private readonly agentAccessService?: AgentAccessService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
   @Post('/')
+  @AgentCallable(AgentCapability.SPACE_READ)
   async getWorkspaceSpaces(
     @Body()
     pagination: SpacePaginationOptions,
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
+    @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
     const isOwner = user.role === UserRole.OWNER;
 
@@ -100,16 +109,37 @@ export class SpaceController {
       }
     }
 
+    if (agentAccess) {
+      if (!this.agentAccessService) {
+        throw new ForbiddenException('Agent space authorization unavailable');
+      }
+      const boundIds = new Set(
+        await this.agentAccessService.getBoundSpaceIds(agentAccess),
+      );
+      result.items = result.items.filter((space) => boundIds.has(space.id));
+    }
+
     return result;
   }
 
   @HttpCode(HttpStatus.OK)
   @Post('info')
+  @AgentCallable(AgentCapability.SPACE_READ)
   async getSpaceInfo(
     @Body() spaceIdDto: SpaceIdDto,
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
+    @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
+    if (agentAccess) {
+      if (!this.agentAccessService) {
+        throw new ForbiddenException('Agent space authorization unavailable');
+      }
+      await this.agentAccessService.assertSpaceBound(
+        agentAccess,
+        spaceIdDto.spaceId,
+      );
+    }
     const space = await this.spaceService.getSpaceInfo(
       spaceIdDto.spaceId,
       workspace.id,

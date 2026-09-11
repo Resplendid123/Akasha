@@ -235,7 +235,6 @@ function createFixture() {
     }),
   };
   const textQueue = { add: jest.fn() };
-  const auditService = { log: jest.fn() };
   const spaceCompilation = {
     requestIncrementalCompileForPages: jest.fn(),
     scheduleIncrementalCompileForPages: jest.fn(),
@@ -253,7 +252,6 @@ function createFixture() {
     sourceRepo as never,
     capsuleRepo as never,
     textQueue as never,
-    auditService as never,
     spaceCompilation as never,
     vectorIndex as never,
     sourceRetirement as never,
@@ -264,7 +262,6 @@ function createFixture() {
     sourceRepo,
     capsuleRepo,
     textQueue,
-    auditService,
     spaceCompilation,
     vectorIndex,
     sourceRetirement,

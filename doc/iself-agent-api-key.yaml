@@ -1,0 +1,63 @@
+api:
+  name: iself Agent API Key 接口
+  description: 创建、管理 agent 用户及其空间绑定。管理接口仅允许工作区 owner 使用普通 SSO/JWT；绑定更新必须同时提供普通 SSO Token 和 agent API Key。
+
+authentication:
+  owner:
+    type: bearer
+    description: 工作区 owner 的普通 Akasha access token。
+  agent:
+    header: x-akasha-public-key
+    type: string
+    description: agent API Key JWT。
+
+endpoints:
+  - method: POST
+    path: /api/api-keys/public/create
+    auth: owner
+    body:
+      name: string
+    response: agent API Key、agent user 和初始 token；永久有效，初始无空间绑定。
+  - method: POST
+    path: /api/api-keys/public
+    auth: owner
+    body: pagination
+    response: 工作区 agent API Key 列表。
+  - method: POST
+    path: /api/api-keys/public/update
+    auth: owner
+    body:
+      apiKeyId: uuid
+      name: string
+    response: 更新后的 agent API Key。
+  - method: POST
+    path: /api/api-keys/public/rotate
+    auth: owner
+    body:
+      apiKeyId: uuid
+    response: 新 token；旧 token 立即失效。
+  - method: POST
+    path: /api/api-keys/public/delete
+    auth: owner
+    body:
+      apiKeyId: uuid
+    response: HTTP 204；key 与 agent user 软删除。
+  - method: POST
+    path: /api/iself/space
+    auth: agent 或 SSO
+    body: {}
+    response: 当前凭据可见的空间列表；agent 仅返回已绑定空间。
+  - method: POST
+    path: /api/iself/space-api-key/update
+    auth: agent + SSO
+    headers:
+      x-akasha-public-key: agent API Key JWT
+      x-token: 普通 SSO Token
+    body:
+      spaceIds: uuid[]
+    response: 更新后的绑定空间列表。
+
+errors:
+  401: 凭据缺失、无效或 agent key 已轮换/删除。
+  403: 非 owner 管理 agent，或 SSO 用户没有目标空间管理员权限。
+  400: 空间 ID 无效、重复或 agent API Key 名称为空。

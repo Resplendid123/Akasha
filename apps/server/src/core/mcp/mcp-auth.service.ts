@@ -15,7 +15,14 @@ import {
   extractBearerTokenFromHeader,
   isUserDisabled,
 } from '../../common/helpers';
-import { withApiKeyAccess } from '../../common/auth/api-key-access';
+import {
+  getApiKeyAccess,
+  isAgentApiKeyAccess,
+  withApiKeyAccess,
+} from '../../common/auth/api-key-access';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { ApiKeyType } from '../../common/auth/api-key-type';
+import { UserType } from '../../common/auth/user-type';
 import { FastifyRequest } from 'fastify';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 import { ModuleRef } from '@nestjs/core';
@@ -23,6 +30,7 @@ import { ModuleRef } from '@nestjs/core';
 export type McpAuthContext = {
   user: User;
   workspace: Workspace;
+  agentAccess?: AgentAccessContext;
 };
 
 @Injectable()
@@ -40,6 +48,14 @@ export class McpAuthService {
   ) {}
 
   async authenticate(request: FastifyRequest): Promise<McpAuthContext> {
+    const publicKeyHeader = request.headers['x-akasha-public-key'];
+    const publicKey = Array.isArray(publicKeyHeader)
+      ? publicKeyHeader[0]
+      : publicKeyHeader;
+    if (typeof publicKey === 'string' && publicKey.trim()) {
+      return this.authenticateAgentApiKey(request, publicKey.trim());
+    }
+
     const tokenHeader = request.headers['x-token'];
     const ssoToken = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
     if (typeof ssoToken === 'string' && ssoToken.trim()) {
@@ -70,21 +86,50 @@ export class McpAuthService {
     if (!key) {
       throw new UnauthorizedException('API key not found or revoked');
     }
-
-    if (key.expiresAt && key.expiresAt <= new Date()) {
-      throw new UnauthorizedException('API key has expired');
-    }
-
     const workspace = await this.workspaceRepo.findById(payload.workspaceId);
     if (!workspace) {
       throw new UnauthorizedException('Workspace not found');
     }
 
-    const user = await this.userRepo.findById(payload.sub, workspace.id);
-    if (!user || isUserDisabled(user)) {
-      throw new UnauthorizedException('User not found');
+    if (key.keyType === ApiKeyType.AGENT) {
+      if (
+        !key.agentUserId ||
+        payload.sub !== key.agentUserId ||
+        payload.credentialVersion === undefined ||
+        Number(key.credentialVersion) !== payload.credentialVersion
+      ) {
+        throw new UnauthorizedException('Agent API key is no longer valid');
+      }
+      const user = await this.userRepo.findById(key.agentUserId, workspace.id);
+      if (!user || user.userType !== UserType.AGENT || isUserDisabled(user)) {
+        throw new UnauthorizedException('Agent user is unavailable');
+      }
+      const authenticatedUser = withApiKeyAccess(user, {
+        apiKeyId: key.id,
+        personalSpaceId: null,
+        keyType: ApiKeyType.AGENT,
+        credentialVersion: payload.credentialVersion,
+      });
+      this.trackLastUsed(key.id);
+      return {
+        user: authenticatedUser,
+        workspace,
+        agentAccess: {
+          apiKeyId: key.id,
+          credentialVersion: payload.credentialVersion,
+          agentUser: authenticatedUser,
+          workspace,
+        },
+      };
     }
 
+    if (key.expiresAt && key.expiresAt <= new Date()) {
+      throw new UnauthorizedException('API key has expired');
+    }
+    const user = await this.userRepo.findById(payload.sub, workspace.id);
+    if (!user || user.userType === UserType.AGENT || isUserDisabled(user)) {
+      throw new UnauthorizedException('User not found');
+    }
     const personalSpace = await this.spaceRepo.findPersonalSpaceForUser({
       userId: user.id,
       workspaceId: workspace.id,
@@ -92,17 +137,70 @@ export class McpAuthService {
     const authenticatedUser = withApiKeyAccess(user, {
       apiKeyId: key.id,
       personalSpaceId: personalSpace?.id ?? null,
+      keyType: ApiKeyType.PERSONAL,
     });
+    this.trackLastUsed(key.id);
+    return { user: authenticatedUser, workspace };
+  }
 
+  private async authenticateAgentApiKey(
+    request: FastifyRequest,
+    token: string,
+  ): Promise<McpAuthContext> {
+    const workspace =
+      (request.raw as any)?.workspace ?? (request as any).workspace;
+    if (!workspace?.id) {
+      throw new UnauthorizedException('Workspace is required');
+    }
+    const result = await this.getApiKeyService().validatePublicApiKey(
+      token,
+      workspace.id,
+    );
+    const access = getApiKeyAccess(result.user);
+    if (!isAgentApiKeyAccess(access)) {
+      throw new UnauthorizedException('An Agent API key is required');
+    }
+    return {
+      user: result.user,
+      workspace: result.workspace,
+      agentAccess: {
+        apiKeyId: access.apiKeyId,
+        credentialVersion: access.credentialVersion,
+        agentUser: result.user,
+        workspace: result.workspace,
+      },
+    };
+  }
+
+  private getApiKeyService(): {
+    validateApiKey: (
+      payload: JwtApiKeyPayload,
+    ) => Promise<{ user: User; workspace: Workspace }>;
+    validatePublicApiKey: (
+      token: string,
+      workspaceId: string,
+    ) => Promise<{ user: User; workspace: Workspace }>;
+  } {
+    try {
+      // Keep the core MCP module independent from the enterprise module.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { ApiKeyService } = require('../../ee/api-key/api-key.service');
+      const service = this.moduleRef?.get(ApiKeyService, { strict: false });
+      if (service) return service;
+    } catch {
+      // Mapped to one stable authentication error below.
+    }
+    throw new UnauthorizedException('API key authentication is unavailable');
+  }
+
+  private trackLastUsed(apiKeyId: string): void {
     this.apiKeyRepo
-      .updateLastUsed(key.id)
+      .updateLastUsed(apiKeyId)
       .catch((err) =>
         this.logger.warn(
-          `Failed to update lastUsedAt for API key ${key.id}: ${err?.message}`,
+          `Failed to update lastUsedAt for API key ${apiKeyId}: ${err?.message}`,
         ),
       );
-
-    return { user: authenticatedUser, workspace };
   }
 
   private async authenticateSso(

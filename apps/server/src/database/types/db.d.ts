@@ -68,7 +68,9 @@ export interface AiModelConfigs {
 }
 
 export interface ApiKeys {
+  agentUserId: string | null;
   createdAt: Generated<Timestamp>;
+  credentialVersion: Int8 | null;
   creatorId: string;
   deletedAt: Timestamp | null;
   expiresAt: Timestamp | null;
@@ -578,45 +580,6 @@ export interface KnowledgeQueryAudit {
   workspaceId: string;
 }
 
-export interface KnowledgeReviewApplications {
-  afterContent: string;
-  afterContentHash: string;
-  appliedAt: Timestamp | null;
-  appliedBy: string;
-  baseContentHash: string | null;
-  basePageVersion: string | null;
-  beforeContent: string | null;
-  createdAt: Generated<Timestamp>;
-  createdPageId: string | null;
-  id: Generated<string>;
-  operation: string;
-  patch: Json | null;
-  rationale: Generated<string>;
-  revertedAt: Timestamp | null;
-  reviewItemId: string;
-  sourceRefs: Generated<Json>;
-  spaceId: string;
-  status: Generated<string>;
-  targetHeadingPath: Generated<Json>;
-  targetPageId: string | null;
-  targetPageTitle: string | null;
-  updatedAt: Generated<Timestamp>;
-  workspaceId: string;
-}
-
-export interface KnowledgeReviewSnapshots {
-  discoveredAt: Generated<Timestamp>;
-  docs: Generated<Json>;
-  id: Generated<string>;
-  items: Generated<Json>;
-  jobs: Generated<Json>;
-  resolvedReviews: Generated<Json>;
-  spaceId: string;
-  updatedAt: Generated<Timestamp>;
-  version: Generated<string>;
-  workspaceId: string;
-}
-
 export interface KnowledgeSourceAccessPolicy {
   policyHash: string;
   policyVersion: Generated<number>;
@@ -1076,6 +1039,7 @@ export interface Users {
   settings: Json | null;
   timezone: string | null;
   updatedAt: Generated<Timestamp>;
+  userType: Generated<string>;
   workspaceId: string | null;
 }
 
@@ -1191,8 +1155,6 @@ export interface DB {
   knowledgeParentSectionSources: KnowledgeParentSectionSources;
   knowledgeQuarantinedArtifacts: KnowledgeQuarantinedArtifacts;
   knowledgeQueryAudit: KnowledgeQueryAudit;
-  knowledgeReviewApplications: KnowledgeReviewApplications;
-  knowledgeReviewSnapshots: KnowledgeReviewSnapshots;
   knowledgeSourceAccessPolicy: KnowledgeSourceAccessPolicy;
   knowledgeSourceAccessPrincipals: KnowledgeSourceAccessPrincipals;
   knowledgeSourceAccessRequirements: KnowledgeSourceAccessRequirements;

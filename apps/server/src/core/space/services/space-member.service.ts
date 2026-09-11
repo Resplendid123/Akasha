@@ -24,6 +24,7 @@ import {
   AUDIT_SERVICE,
   IAuditService,
 } from '../../../integrations/audit/audit.service';
+import { UserType } from '../../../common/auth/user-type';
 
 @Injectable()
 export class SpaceMemberService {
@@ -122,6 +123,7 @@ export class SpaceMemberService {
       .select(['id', 'name'])
       .where('users.id', 'in', dto.userIds)
       .where('users.workspaceId', '=', workspaceId)
+      .where('users.userType', '=', UserType.NORMAL)
       // using this because we can not use easily use onConflict with two unique indexes.
       .where(({ not, exists, selectFrom }) =>
         not(
@@ -238,6 +240,9 @@ export class SpaceMemberService {
         'The personal space owner cannot be removed',
       );
     }
+    if (dto.userId) {
+      await this.assertNormalUser(dto.userId, workspaceId);
+    }
 
     let spaceMember: SpaceMember = null;
 
@@ -333,6 +338,9 @@ export class SpaceMemberService {
         'The personal space owner must remain an admin',
       );
     }
+    if (dto.userId) {
+      await this.assertNormalUser(dto.userId, workspaceId);
+    }
 
     let spaceMember: SpaceMember = null;
 
@@ -402,6 +410,21 @@ export class SpaceMemberService {
       throw new BadRequestException(
         'There must be at least one space admin with full access',
       );
+    }
+  }
+
+  private async assertNormalUser(
+    userId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const user = await this.db
+      .selectFrom('users')
+      .select(['id', 'userType'])
+      .where('id', '=', userId)
+      .where('workspaceId', '=', workspaceId)
+      .executeTakeFirst();
+    if (!user || user.userType !== UserType.NORMAL) {
+      throw new BadRequestException('Agent users are system managed');
     }
   }
 

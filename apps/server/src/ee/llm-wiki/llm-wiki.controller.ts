@@ -88,6 +88,11 @@ import { jsonToMarkdown } from '../../collaboration/collaboration.util';
 import { ApiKeyService } from '../api-key/api-key.service';
 import { getApiKeyAccess } from '../../common/auth/api-key-access';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
+import { AgentCallable } from '../../common/decorators/agent-callable.decorator';
+import { AgentCapability } from '../../common/auth/agent-capability';
+import { AgentAccess } from '../../common/decorators/agent-access.decorator';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { AgentAccessService } from '../../core/page/page-access/agent-access.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('llm-wiki')
@@ -113,6 +118,7 @@ export class LlmWikiController {
     private readonly aiModelConfigService: AiModelConfigService,
     private readonly apiKeyService: ApiKeyService,
     @Optional() private readonly environmentService?: EnvironmentService,
+    @Optional() private readonly agentAccessService?: AgentAccessService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
@@ -304,10 +310,12 @@ export class LlmWikiController {
 
   @HttpCode(HttpStatus.OK)
   @Post('citation-page')
+  @AgentCallable(AgentCapability.PAGE_READ)
   async getCitationPage(
     @Body() dto: CitationPageDto,
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
+    @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
     const match = /^\/p\/([A-Za-z0-9_-]+)$/.exec(dto.pageUrl);
     if (!match) {
@@ -322,10 +330,17 @@ export class LlmWikiController {
       throw new NotFoundException('Shared Page not found');
     }
 
-    await this.pageAccessService.validateCanReadCitationSourceWithPermissions(
-      page,
-      user,
-    );
+    if (agentAccess) {
+      if (!this.agentAccessService) {
+        throw new ForbiddenException('Agent page authorization unavailable');
+      }
+      await this.agentAccessService.assertPageReadable(agentAccess, page);
+    } else {
+      await this.pageAccessService.validateCanReadCitationSourceWithPermissions(
+        page,
+        user,
+      );
+    }
 
     this.auditService.log({
       event: AuditEvent.KNOWLEDGE_CITATION_PAGE_READ,

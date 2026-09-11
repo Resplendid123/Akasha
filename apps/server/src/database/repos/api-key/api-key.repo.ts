@@ -14,10 +14,16 @@ import {
 } from '@akasha/db/pagination/cursor-pagination';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { ApiKeyType } from '../../../common/auth/api-key-type';
+import { sql } from 'kysely';
+import { SpaceRole } from '../../../common/helpers/types/permission';
 
 @Injectable()
 export class ApiKeyRepo {
   constructor(@InjectKysely() private readonly db: KyselyDB) {}
+
+  async transaction<T>(work: (trx: KyselyTransaction) => Promise<T>) {
+    return this.db.transaction().execute(work);
+  }
 
   async findById(
     id: string,
@@ -31,6 +37,37 @@ export class ApiKeyRepo {
       .where('id', '=', id)
       .where('workspaceId', '=', workspaceId)
       .where('deletedAt', 'is', null)
+      .executeTakeFirst();
+  }
+
+  async findByIdForUpdate(
+    id: string,
+    workspaceId: string,
+    trx: KyselyTransaction,
+  ): Promise<ApiKey | undefined> {
+    return trx
+      .selectFrom('apiKeys')
+      .selectAll()
+      .where('id', '=', id)
+      .where('workspaceId', '=', workspaceId)
+      .where('deletedAt', 'is', null)
+      .forUpdate()
+      .executeTakeFirst();
+  }
+
+  async findActiveAgentByName(
+    workspaceId: string,
+    name: string,
+    trx?: KyselyTransaction,
+  ): Promise<ApiKey | undefined> {
+    const db = dbOrTx(this.db, trx);
+    return db
+      .selectFrom('apiKeys')
+      .selectAll()
+      .where('workspaceId', '=', workspaceId)
+      .where('keyType', '=', ApiKeyType.AGENT)
+      .where('deletedAt', 'is', null)
+      .where(sql`lower(btrim(name))`, '=', name.trim().toLowerCase())
       .executeTakeFirst();
   }
 
@@ -200,6 +237,64 @@ export class ApiKeyRepo {
     return rows.map((row) => row.spaceId);
   }
 
+  async findBoundSpaces(
+    apiKeyId: string,
+    workspaceId: string,
+    trx?: KyselyTransaction,
+  ) {
+    const db = dbOrTx(this.db, trx);
+    return db
+      .selectFrom('apiKeySpaces as aks')
+      .innerJoin('spaces as s', 's.id', 'aks.spaceId')
+      .select(['s.id', 's.name'])
+      .where('aks.apiKeyId', '=', apiKeyId)
+      .where('s.workspaceId', '=', workspaceId)
+      .where('s.deletedAt', 'is', null)
+      .where('s.personalOwnerId', 'is', null)
+      .orderBy('s.name', 'asc')
+      .execute();
+  }
+
+  async replaceAgentSpaceBindings(
+    input: {
+      apiKeyId: string;
+      agentUserId: string;
+      spaceIds: string[];
+    },
+    trx: KyselyTransaction,
+  ): Promise<void> {
+    await trx
+      .deleteFrom('apiKeySpaces')
+      .where('apiKeyId', '=', input.apiKeyId)
+      .execute();
+    await trx
+      .deleteFrom('spaceMembers')
+      .where('userId', '=', input.agentUserId)
+      .execute();
+
+    if (input.spaceIds.length === 0) return;
+
+    await trx
+      .insertInto('apiKeySpaces')
+      .values(
+        input.spaceIds.map((spaceId) => ({
+          apiKeyId: input.apiKeyId,
+          spaceId,
+        })),
+      )
+      .execute();
+    await trx
+      .insertInto('spaceMembers')
+      .values(
+        input.spaceIds.map((spaceId) => ({
+          userId: input.agentUserId,
+          spaceId,
+          role: SpaceRole.WRITER,
+        })),
+      )
+      .execute();
+  }
+
   async findPublicKeys(workspaceId: string, pagination: PaginationOptions) {
     const query = this.db
       .selectFrom('apiKeys as ak')
@@ -212,8 +307,24 @@ export class ApiKeyRepo {
             .whereRef('users.id', '=', 'ak.creatorId'),
         ).as('creator'),
       )
+      .select((eb) =>
+        jsonObjectFrom(
+          eb
+            .selectFrom('users')
+            .select([
+              'id',
+              'name',
+              'email',
+              'avatarUrl',
+              'deletedAt',
+              'deactivatedAt',
+              'userType',
+            ])
+            .whereRef('users.id', '=', 'ak.agentUserId'),
+        ).as('agentUser'),
+      )
       .where('ak.workspaceId', '=', workspaceId)
-      .where('ak.keyType', '=', ApiKeyType.PUBLIC_RETRIEVAL)
+      .where('ak.keyType', '=', ApiKeyType.AGENT)
       .where('ak.deletedAt', 'is', null);
 
     const result = await executeWithCursorPagination(query, {
@@ -251,33 +362,6 @@ export class ApiKeyRepo {
     };
   }
 
-  async updatePublicKey(
-    id: string,
-    workspaceId: string,
-    name: string,
-    spaceIds: string[],
-  ): Promise<ApiKey | undefined> {
-    return this.db.transaction().execute(async (trx) => {
-      const apiKey = await trx
-        .updateTable('apiKeys')
-        .set({ name, updatedAt: new Date() })
-        .where('id', '=', id)
-        .where('workspaceId', '=', workspaceId)
-        .where('keyType', '=', ApiKeyType.PUBLIC_RETRIEVAL)
-        .where('deletedAt', 'is', null)
-        .returningAll()
-        .executeTakeFirst();
-
-      if (!apiKey) return undefined;
-      await trx.deleteFrom('apiKeySpaces').where('apiKeyId', '=', id).execute();
-      await trx
-        .insertInto('apiKeySpaces')
-        .values(spaceIds.map((spaceId) => ({ apiKeyId: id, spaceId })))
-        .execute();
-      return apiKey;
-    });
-  }
-
   async updateName(
     id: string,
     workspaceId: string,
@@ -293,6 +377,23 @@ export class ApiKeyRepo {
       .where('deletedAt', 'is', null)
       .returningAll()
       .executeTakeFirst();
+  }
+
+  async updateCredentialVersion(
+    id: string,
+    workspaceId: string,
+    credentialVersion: number,
+    trx: KyselyTransaction,
+  ): Promise<ApiKey> {
+    return trx
+      .updateTable('apiKeys')
+      .set({ credentialVersion, updatedAt: new Date() })
+      .where('id', '=', id)
+      .where('workspaceId', '=', workspaceId)
+      .where('keyType', '=', ApiKeyType.AGENT)
+      .where('deletedAt', 'is', null)
+      .returningAll()
+      .executeTakeFirstOrThrow();
   }
 
   async softDelete(

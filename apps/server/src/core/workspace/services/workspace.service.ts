@@ -22,6 +22,7 @@ import { executeTx } from '@akasha/db/utils';
 import { InjectKysely } from 'nestjs-kysely';
 import { Feature } from '../../../common/features';
 import { User } from '@akasha/db/types/entity.types';
+import { UserType } from '../../../common/auth/user-type';
 import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import { GroupRepo } from '@akasha/db/repos/group/group.repo';
 import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
@@ -624,6 +625,7 @@ export class WorkspaceService {
     if (!user) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     // prevent ADMIN from managing OWNER role
     if (
@@ -723,6 +725,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     if (user.deactivatedAt) {
       throw new BadRequestException('User is already deactivated');
@@ -785,6 +788,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     if (!user.deactivatedAt) {
       throw new BadRequestException('User is not deactivated');
@@ -826,6 +830,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     const workspaceOwnerCount = await this.userRepo.roleCountByWorkspaceId(
       UserRole.OWNER,
@@ -853,6 +858,7 @@ export class WorkspaceService {
     const user = await this.userRepo.findById(userId, workspaceId);
 
     if (!user || user.deletedAt) return;
+    this.assertNormalUser(user);
     if (user.role === UserRole.OWNER) {
       throw new ConflictException('SSO cannot delete a workspace owner');
     }
@@ -890,5 +896,11 @@ export class WorkspaceService {
         },
       },
     });
+  }
+
+  private assertNormalUser(user: User): void {
+    if (user.userType === UserType.AGENT) {
+      throw new BadRequestException('Agent users are system managed');
+    }
   }
 }

@@ -1,8 +1,8 @@
 api:
   name: iself 知识检索接口
   description: >-
-    为 iself 智能体检索 Akasha 知识。请求使用 SSO/HOIDC Token 认证，且只能检索
-    公共检索 API Key 允许访问的知识空间。
+    为 iself 智能体检索 Akasha 知识。请求必须同时提供 SSO/HOIDC Token 和 agent API Key，
+    且只能检索该 agent API Key 已绑定的知识空间。
   method: POST
   path: /api/iself/llm-wiki/query
   contentType: application/json
@@ -13,14 +13,14 @@ authentication:
       required: true
       type: string
       description: >-
-        原始 SSO 访问 Token 或 iself 数字员工 Token，不要添加 Bearer 前缀。
-        系统会通过 HOIDC 校验 Token，并将身份映射到当前工作区成员。
+        原始 SSO 访问 Token，不要添加 Bearer 前缀。系统会通过 HOIDC 校验 Token，
+        并将其映射为 agent 的补充授权主体。
     x-akasha-public-key:
       required: true
       type: string
       description: >-
-        公共检索 API Key。系统会校验 request.spaceIds 中的每个空间是否都在该
-        API Key 的授权范围内。
+        agent API Key。系统会校验 request.spaceIds 中的每个空间是否都在该 key
+        的绑定范围内。
 
 request:
   body:

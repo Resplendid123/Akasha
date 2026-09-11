@@ -1,41 +1,84 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { getApiKeyAccess } from '../../common/auth/api-key-access';
+import { ApiKeyType } from '../../common/auth/api-key-type';
+import { UserType } from '../../common/auth/user-type';
 import { UserRole } from '../../common/helpers/types/permission';
 import { ApiKeyService } from './api-key.service';
-import { ApiKeyType } from '../../common/auth/api-key-type';
 
-describe('ApiKeyService authentication context', () => {
-  it('resolves the current user personal space when validating a key', async () => {
+describe('ApiKeyService', () => {
+  const makeService = (overrides: Record<string, any> = {}) => {
     const apiKeyRepo = {
-      findById: jest.fn().mockResolvedValue({
-        id: 'key-1',
-        creatorId: 'user-1',
-        expiresAt: null,
-      }),
+      findById: jest.fn(),
       updateLastUsed: jest.fn().mockResolvedValue(undefined),
+      transaction: jest.fn((work) => work({})),
+      findActiveAgentByName: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn(),
+      findSpaceIdsByApiKeyId: jest.fn().mockResolvedValue([]),
+      ...overrides.apiKeyRepo,
     };
-    const userRepo = {
-      findById: jest.fn().mockResolvedValue({
-        id: 'user-1',
-        name: 'fish',
-        email: 'fish@example.com',
-        role: UserRole.MEMBER,
-      }),
+    const tokenService = {
+      verifyJwt: jest.fn(),
+      generateApiToken: jest.fn(),
+      ...overrides.tokenService,
     };
+    const userRepo = { findById: jest.fn(), ...overrides.userRepo };
     const workspaceRepo = {
       findById: jest.fn().mockResolvedValue({ id: 'workspace-1' }),
+      ...overrides.workspaceRepo,
     };
     const spaceRepo = {
-      findPersonalSpaceForUser: jest
-        .fn()
-        .mockResolvedValue({ id: 'personal-1' }),
+      findPersonalSpaceForUser: jest.fn(),
+      ...overrides.spaceRepo,
     };
-    const service = new ApiKeyService(
-      apiKeyRepo as any,
-      {} as any,
-      userRepo as any,
-      workspaceRepo as any,
-      spaceRepo as any,
-    );
+    const agentUserService = {
+      create: jest.fn(),
+      requireActive: jest.fn(),
+      rename: jest.fn(),
+      softDelete: jest.fn(),
+      ...overrides.agentUserService,
+    };
+    const spaceMemberRepo = {
+      removeAllDirectMembershipsForUser: jest.fn(),
+      ...overrides.spaceMemberRepo,
+    };
+    return {
+      apiKeyRepo,
+      tokenService,
+      userRepo,
+      agentUserService,
+      service: new ApiKeyService(
+        apiKeyRepo as any,
+        tokenService as any,
+        userRepo as any,
+        workspaceRepo as any,
+        spaceRepo as any,
+        agentUserService as any,
+        spaceMemberRepo as any,
+        { log: jest.fn() } as any,
+      ),
+    };
+  };
+
+  it('保留个人密钥现有的个人空间认证上下文', async () => {
+    const { service, apiKeyRepo, userRepo } = makeService({
+      spaceRepo: {
+        findPersonalSpaceForUser: jest
+          .fn()
+          .mockResolvedValue({ id: 'personal-1' }),
+      },
+    });
+    apiKeyRepo.findById.mockResolvedValue({
+      id: 'key-1',
+      keyType: ApiKeyType.PERSONAL,
+      expiresAt: null,
+    });
+    userRepo.findById.mockResolvedValue({
+      id: 'user-1',
+      workspaceId: 'workspace-1',
+      userType: UserType.NORMAL,
+      deletedAt: null,
+      deactivatedAt: null,
+    });
 
     const result = await service.validateApiKey({
       sub: 'user-1',
@@ -43,103 +86,94 @@ describe('ApiKeyService authentication context', () => {
       apiKeyId: 'key-1',
       type: 'api_key',
     });
-
     expect(getApiKeyAccess(result.user)).toEqual({
       apiKeyId: 'key-1',
       personalSpaceId: 'personal-1',
-    });
-    expect(spaceRepo.findPersonalSpaceForUser).toHaveBeenCalledWith({
-      userId: 'user-1',
-      workspaceId: 'workspace-1',
+      keyType: ApiKeyType.PERSONAL,
     });
   });
 
-  it('validates a public retrieval key without resolving its creator as a user', async () => {
-    const apiKeyRepo = {
-      findById: jest.fn().mockResolvedValue({
-        id: 'public-1',
-        keyType: ApiKeyType.PUBLIC_RETRIEVAL,
+  it('以智能体用户为主身份并拒绝轮换前的旧值', async () => {
+    const { service, apiKeyRepo, userRepo } = makeService();
+    apiKeyRepo.findById.mockResolvedValue({
+      id: 'agent-key-1',
+      keyType: ApiKeyType.AGENT,
+      agentUserId: 'agent-user-1',
+      credentialVersion: '2000',
+    });
+    userRepo.findById.mockResolvedValue({
+      id: 'agent-user-1',
+      workspaceId: 'workspace-1',
+      userType: UserType.AGENT,
+      deletedAt: null,
+      deactivatedAt: null,
+    });
+
+    await expect(
+      service.validateApiKey({
+        sub: 'agent-user-1',
+        workspaceId: 'workspace-1',
+        apiKeyId: 'agent-key-1',
+        credentialVersion: 1000,
+        type: 'api_key',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const result = await service.validateApiKey({
+      sub: 'agent-user-1',
+      workspaceId: 'workspace-1',
+      apiKeyId: 'agent-key-1',
+      credentialVersion: 2000,
+      type: 'api_key',
+    });
+    expect(result.user.id).toBe('agent-user-1');
+    expect(getApiKeyAccess(result.user)).toEqual({
+      apiKeyId: 'agent-key-1',
+      personalSpaceId: null,
+      keyType: ApiKeyType.AGENT,
+      credentialVersion: 2000,
+    });
+  });
+
+  it('由工作区所有者创建永久且初始无空间的智能体密钥', async () => {
+    const { service, userRepo, agentUserService, apiKeyRepo, tokenService } =
+      makeService();
+    userRepo.findById.mockResolvedValue({
+      id: 'owner-1',
+      role: UserRole.OWNER,
+      userType: UserType.NORMAL,
+      deletedAt: null,
+      deactivatedAt: null,
+    });
+    agentUserService.create.mockResolvedValue({
+      id: 'agent-user-1',
+      userType: UserType.AGENT,
+    });
+    apiKeyRepo.create.mockImplementation(async (value) => ({
+      id: 'agent-key-1',
+      ...value,
+    }));
+    tokenService.generateApiToken.mockResolvedValue('agent-token');
+
+    const result = await service.createPublicApiKey({
+      name: '检索智能体',
+      creatorId: 'owner-1',
+      workspaceId: 'workspace-1',
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'agent-key-1',
+        token: 'agent-token',
+        spaces: [],
+      }),
+    );
+    expect(apiKeyRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keyType: ApiKeyType.AGENT,
         expiresAt: null,
+        agentUserId: 'agent-user-1',
       }),
-      findSpaceIdsByApiKeyId: jest
-        .fn()
-        .mockResolvedValue(['space-1', 'space-2']),
-      updateLastUsed: jest.fn().mockResolvedValue(undefined),
-    };
-    const tokenService = {
-      verifyJwt: jest.fn().mockResolvedValue({
-        apiKeyId: 'public-1',
-        workspaceId: 'workspace-1',
-        type: 'public_api_key',
-      }),
-    };
-    const userRepo = { findById: jest.fn() };
-    const service = new ApiKeyService(
-      apiKeyRepo as any,
-      tokenService as any,
-      userRepo as any,
-      {} as any,
-      {} as any,
-    );
-
-    await expect(
-      service.validatePublicApiKey('public-token', 'workspace-1'),
-    ).resolves.toEqual({
-      apiKeyId: 'public-1',
-      workspaceId: 'workspace-1',
-      spaceIds: ['space-1', 'space-2'],
-    });
-    expect(userRepo.findById).not.toHaveBeenCalled();
-  });
-
-  it('creates a public key only with bindable workspace Spaces', async () => {
-    const apiKeyRepo = {
-      findBindableSpaceIds: jest.fn().mockResolvedValue(['space-1', 'space-2']),
-      createWithSpaces: jest.fn().mockResolvedValue({
-        id: 'public-1',
-        keyType: ApiKeyType.PUBLIC_RETRIEVAL,
-      }),
-    };
-    const tokenService = {
-      generatePublicApiToken: jest.fn().mockResolvedValue('public-token'),
-    };
-    const userRepo = {
-      findById: jest.fn().mockResolvedValue({
-        id: 'admin-1',
-        role: UserRole.ADMIN,
-        name: 'Admin',
-        email: 'admin@example.com',
-      }),
-    };
-    const service = new ApiKeyService(
-      apiKeyRepo as any,
-      tokenService as any,
-      userRepo as any,
-      {} as any,
-      {} as any,
-    );
-
-    await expect(
-      service.createPublicApiKey({
-        name: 'Robot',
-        creatorId: 'admin-1',
-        workspaceId: 'workspace-1',
-        spaceIds: ['space-1', 'space-2'],
-      }),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        id: 'public-1',
-        token: 'public-token',
-        spaces: [{ id: 'space-1' }, { id: 'space-2' }],
-      }),
-    );
-    expect(apiKeyRepo.createWithSpaces).toHaveBeenCalledWith(
-      expect.objectContaining({
-        keyType: ApiKeyType.PUBLIC_RETRIEVAL,
-        creatorId: 'admin-1',
-        workspaceId: 'workspace-1',
-      }),
-      ['space-1', 'space-2'],
+      expect.anything(),
     );
   });
 });
