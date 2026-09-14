@@ -2291,7 +2291,7 @@ export class KnowledgeSpaceCompilationRepo {
       .where('spaceId', '=', input.spaceId)
       .where('status', 'in', NONTERMINAL_RUN_STATUSES)
       .where(
-        sql<boolean>`"targetSourcePageIds" @> ${JSON.stringify([input.sourcePageId])}::jsonb`,
+        sql<boolean>`target_source_page_ids @> ${JSON.stringify([input.sourcePageId])}::jsonb`,
       )
       .orderBy('createdAt', 'desc')
       .limit(1)
