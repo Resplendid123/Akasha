@@ -130,6 +130,49 @@ export class ApiKeyService {
       opts.creatorId,
       opts.workspaceId,
     );
+    return this.provisionAgentApiKey({
+      name: opts.name,
+      owner,
+      workspaceId: opts.workspaceId,
+    });
+  }
+
+  /**
+   * Platform-to-platform agent API-key provisioning. There is no logged-in
+   * user, so the created key is attributed to the workspace owner. `agentId` is
+   * supplied by the calling platform and forms the stable email identifier of
+   * the agent user.
+   */
+  async createAgentApiKeyForPlatform(opts: {
+    agentId: string;
+    name: string;
+    workspaceId: string;
+  }) {
+    const agentId = opts.agentId.trim();
+    if (!agentId) {
+      throw new BadRequestException('agent_id is required');
+    }
+
+    const owner = await this.userRepo.findWorkspaceOwner(opts.workspaceId);
+    if (!owner) {
+      throw new NotFoundException('Workspace owner not found');
+    }
+
+    return this.provisionAgentApiKey({
+      name: opts.name,
+      owner,
+      workspaceId: opts.workspaceId,
+      agentId,
+    });
+  }
+
+  private async provisionAgentApiKey(opts: {
+    name: string;
+    owner: User;
+    workspaceId: string;
+    agentId?: string;
+  }) {
+    const { owner, workspaceId, agentId } = opts;
     const name = opts.name.trim();
     if (!name) {
       throw new BadRequestException('Agent API key name is required');
@@ -137,27 +180,22 @@ export class ApiKeyService {
 
     try {
       const result = await this.apiKeyRepo.transaction(async (trx) => {
-        if (
-          await this.apiKeyRepo.findActiveAgentByName(
-            opts.workspaceId,
-            name,
-            trx,
-          )
-        ) {
+        if (await this.apiKeyRepo.findActiveAgentByName(workspaceId, name, trx)) {
           throw new ConflictException('Agent API key name already exists');
         }
 
         const agentUser = await this.agentUserService.create(
           name,
-          opts.workspaceId,
+          workspaceId,
           trx,
+          agentId,
         );
         const credentialVersion = Date.now();
         const apiKey = await this.apiKeyRepo.create(
           {
             name,
             creatorId: owner.id,
-            workspaceId: opts.workspaceId,
+            workspaceId,
             keyType: ApiKeyType.AGENT,
             expiresAt: null,
             agentUserId: agentUser.id,
@@ -168,7 +206,7 @@ export class ApiKeyService {
         const token = await this.tokenService.generateApiToken({
           apiKeyId: apiKey.id,
           user: agentUser,
-          workspaceId: opts.workspaceId,
+          workspaceId,
           credentialVersion,
         });
 
@@ -184,7 +222,9 @@ export class ApiKeyService {
       return result;
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException('Agent API key name already exists');
+        throw new ConflictException(
+          'Agent API key name or agent_id already exists',
+        );
       }
       throw error;
     }

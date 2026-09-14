@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { getApiKeyAccess } from '../../common/auth/api-key-access';
 import { ApiKeyType } from '../../common/auth/api-key-type';
 import { UserType } from '../../common/auth/user-type';
@@ -21,7 +21,11 @@ describe('ApiKeyService', () => {
       generateApiToken: jest.fn(),
       ...overrides.tokenService,
     };
-    const userRepo = { findById: jest.fn(), ...overrides.userRepo };
+    const userRepo = {
+      findById: jest.fn(),
+      findWorkspaceOwner: jest.fn(),
+      ...overrides.userRepo,
+    };
     const workspaceRepo = {
       findById: jest.fn().mockResolvedValue({ id: 'workspace-1' }),
       ...overrides.workspaceRepo,
@@ -175,5 +179,59 @@ describe('ApiKeyService', () => {
       }),
       expect.anything(),
     );
+  });
+
+  it('平台间接口自动解析工作区所有者并用 agent_id 作为邮箱标识', async () => {
+    const { service, userRepo, agentUserService, apiKeyRepo, tokenService } =
+      makeService();
+    userRepo.findWorkspaceOwner.mockResolvedValue({
+      id: 'owner-1',
+      name: '所有者',
+      email: 'owner@akasha.net',
+    });
+    agentUserService.create.mockResolvedValue({
+      id: 'agent-user-1',
+      userType: UserType.AGENT,
+    });
+    apiKeyRepo.create.mockImplementation(async (value) => ({
+      id: 'agent-key-1',
+      ...value,
+    }));
+    tokenService.generateApiToken.mockResolvedValue('agent-token');
+
+    const result = await service.createAgentApiKeyForPlatform({
+      agentId: 'ext-agent-42',
+      name: '外部智能体',
+      workspaceId: 'workspace-1',
+    });
+
+    expect(userRepo.findWorkspaceOwner).toHaveBeenCalledWith('workspace-1');
+    expect(agentUserService.create).toHaveBeenCalledWith(
+      '外部智能体',
+      'workspace-1',
+      expect.anything(),
+      'ext-agent-42',
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'agent-key-1',
+        token: 'agent-token',
+        spaces: [],
+        creator: expect.objectContaining({ id: 'owner-1' }),
+      }),
+    );
+  });
+
+  it('平台间接口在找不到工作区所有者时抛出 NotFound', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findWorkspaceOwner.mockResolvedValue(undefined);
+
+    await expect(
+      service.createAgentApiKeyForPlatform({
+        agentId: 'ext-agent-42',
+        name: '外部智能体',
+        workspaceId: 'workspace-1',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

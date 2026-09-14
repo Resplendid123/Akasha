@@ -472,6 +472,10 @@ export class EnvironmentService {
     return this.configService.get<string>('SSO_ARCH_TOKEN', '');
   }
 
+  getIselfApiKeySecret(): string {
+    return this.configService.get<string>('ISELF_API_KEY_SECRET', '');
+  }
+
   isIframeEmbedAllowed(): boolean {
     const allowed = this.configService
       .get<string>('IFRAME_EMBED_ALLOWED', 'false')

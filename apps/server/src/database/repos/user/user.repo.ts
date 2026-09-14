@@ -85,6 +85,31 @@ export class UserRepo {
       .executeTakeFirst();
   }
 
+  /**
+   * Returns the active workspace owner (role=owner, normal user, not deleted or
+   * deactivated). Used by the platform-to-platform agent provisioning flow,
+   * which has no logged-in user but must attribute the created API key to a
+   * real owner account. When multiple owners exist, the earliest-created one is
+   * chosen for stable attribution.
+   */
+  async findWorkspaceOwner(
+    workspaceId: string,
+    trx?: KyselyTransaction,
+  ): Promise<User | undefined> {
+    const db = dbOrTx(this.db, trx);
+    return db
+      .selectFrom('users')
+      .select(this.baseFields)
+      .where('workspaceId', '=', workspaceId)
+      .where('role', '=', 'owner')
+      .where('userType', '=', UserType.NORMAL)
+      .where('deletedAt', 'is', null)
+      .where('deactivatedAt', 'is', null)
+      .orderBy('createdAt', 'asc')
+      .limit(1)
+      .executeTakeFirst();
+  }
+
   async updateUser(
     updatableUser: UpdatableUser,
     userId: string,

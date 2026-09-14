@@ -10,14 +10,22 @@ import { UserType } from '../../common/auth/user-type';
 export class AgentUserService {
   constructor(private readonly userRepo: UserRepo) {}
 
+  /**
+   * Creates an agent (digital-employee) user. When `agentId` is supplied (e.g.
+   * by an external platform), it is used as the stable identifier segment of
+   * the email so the same caller-side agent maps to a deterministic address;
+   * otherwise a random UUID is generated. A duplicate `agentId` collides on the
+   * email unique constraint and surfaces as a conflict upstream.
+   */
   async create(
     name: string,
     workspaceId: string,
     trx: KyselyTransaction,
+    agentId?: string,
   ): Promise<User> {
     return this.userRepo.insertAgentUser(
       {
-        email: `agent-user-${randomUUID()}@akasha.net`,
+        email: `agent-user-${agentId ?? randomUUID()}@akasha.net`,
         name,
         workspaceId,
         role: UserRole.MEMBER,
