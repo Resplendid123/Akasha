@@ -26,6 +26,11 @@ import { UpdatePublicApiKeyDto } from './dto/update-public-api-key.dto';
 import { AgentApiKeyIdDto } from './dto/agent-api-key-id.dto';
 import { UserRole } from '../../common/helpers/types/permission';
 import { UpdateAgentSpaceBindingsDto } from './dto/update-agent-space-bindings.dto';
+import { AgentSpaceBindingService } from './agent-space-binding.service';
+import { AuthCredentialPolicy } from '../../common/auth/auth-credential-policy';
+import { AuthCredentials } from '../../common/decorators/auth-credentials.decorator';
+import { AgentAccess } from '../../common/decorators/agent-access.decorator';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api-keys')
@@ -33,6 +38,7 @@ export class ApiKeyController {
   constructor(
     private readonly apiKeyService: ApiKeyService,
     private readonly workspaceAbility: WorkspaceAbilityFactory,
+    private readonly agentSpaceBindingService: AgentSpaceBindingService,
   ) {}
 
   @HttpCode(HttpStatus.OK)
@@ -80,8 +86,17 @@ export class ApiKeyController {
 
   @HttpCode(HttpStatus.OK)
   @Post('agent/spaces/update')
-  async updateAgentSpaces(@Body() dto: UpdateAgentSpaceBindingsDto, @AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
-    return this.apiKeyService.updateAgentSpaces({ apiKeyId: dto.apiKeyId, spaceIds: dto.spaceIds, userId: user.id, workspaceId: workspace.id });
+  @AuthCredentials(AuthCredentialPolicy.AGENT_AND_SSO)
+  async updateAgentSpaces(
+    @Body() dto: UpdateAgentSpaceBindingsDto,
+    @AuthWorkspace() workspace: Workspace,
+    @AgentAccess() agentAccess: AgentAccessContext,
+  ) {
+    return this.agentSpaceBindingService.replaceBindings({
+      workspace,
+      agentAccess,
+      spaceIds: dto.spaceIds,
+    });
   }
 
   @HttpCode(HttpStatus.OK)

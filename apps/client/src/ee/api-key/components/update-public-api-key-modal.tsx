@@ -4,7 +4,6 @@ import {
   Modal,
   Stack,
   TextInput,
-  MultiSelect,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { zod4Resolver } from "mantine-form-zod-resolver";
@@ -14,13 +13,10 @@ import { useTranslation } from "react-i18next";
 import { IApiKey } from "@/ee/api-key";
 import {
   useUpdatePublicApiKeyMutation,
-  useGetAgentSpacesQuery,
-  useUpdateAgentSpacesMutation,
 } from "@/ee/api-key/queries/api-key-query";
 
 const schema = z.object({
   name: z.string().min(1),
-  spaceIds: z.array(z.string()),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -38,18 +34,15 @@ export function UpdatePublicApiKeyModal({
 }: UpdatePublicApiKeyModalProps) {
   const { t } = useTranslation();
   const mutation = useUpdatePublicApiKeyMutation();
-  const spacesMutation = useUpdateAgentSpacesMutation();
-  const { data: spaces, isLoading: spacesLoading } = useGetAgentSpacesQuery(opened);
   const form = useForm<FormValues>({
     validate: zod4Resolver(schema),
-    initialValues: { name: "", spaceIds: [] },
+    initialValues: { name: "" },
   });
 
   useEffect(() => {
     if (opened && apiKey) {
       form.setValues({
         name: apiKey.name,
-        spaceIds: (apiKey.spaces ?? []).map((space) => space.id),
       });
     }
   }, [opened, apiKey]);
@@ -75,7 +68,8 @@ export function UpdatePublicApiKeyModal({
             apiKeyId: apiKey.id,
             name: values.name,
           });
-          await spacesMutation.mutateAsync({ apiKeyId: apiKey.id, spaceIds: values.spaceIds });
+          // Space bindings are managed through the business-facing agent
+          // credential endpoint, not from the owner rename dialog.
           close();
         })}
       >
@@ -86,20 +80,11 @@ export function UpdatePublicApiKeyModal({
             required
             {...form.getInputProps("name")}
           />
-          <MultiSelect
-            label={t("Bound spaces")}
-            placeholder={t("Select spaces")}
-            data={(spaces ?? []).map((space) => ({ value: space.id, label: space.name }))}
-            searchable
-            clearable
-            disabled={spacesLoading}
-            {...form.getInputProps("spaceIds")}
-          />
           <Group justify="flex-end" mt="md">
             <Button variant="default" onClick={close}>
               {t("Cancel")}
             </Button>
-            <Button type="submit" loading={mutation.isPending || spacesMutation.isPending}>
+            <Button type="submit" loading={mutation.isPending}>
               {t("Update")}
             </Button>
           </Group>
