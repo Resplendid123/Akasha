@@ -420,6 +420,24 @@ export class LlmWikiController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Get('pages/:pageId/compile-status')
+  async getPageCompileStatus(
+    @Param('pageId', ParseUUIDPipe) pageId: string,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    const page = await this.pageRepo.findById(pageId);
+    if (!page || page.workspaceId !== workspace.id || page.deletedAt !== null) {
+      throw new NotFoundException('Page not found');
+    }
+    return this.spaceCompilation.getPageCompileStatus({
+      workspaceId: workspace.id,
+      spaceId: page.spaceId,
+      sourcePageId: page.id,
+      currentSourceVersion: page.updatedAt?.toISOString(),
+    });
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Post('pages/:pageId/publish')
   async publishPageKnowledge(
     @Param('pageId', ParseUUIDPipe) pageId: string,

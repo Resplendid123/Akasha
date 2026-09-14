@@ -2252,6 +2252,52 @@ export class KnowledgeSpaceCompilationRepo {
       .executeTakeFirst();
   }
 
+  /** Returns the most recent compilation RunPage for a source page. */
+  async findLatestPageCompileStatus(input: {
+    workspaceId: string;
+    sourcePageId: string;
+  }) {
+    return this.db
+      .selectFrom('knowledgeSpaceCompileRunPages as page')
+      .innerJoin('knowledgeSpaceCompileRuns as run', 'run.id', 'page.runId')
+      .select([
+        'page.status as pageStatus',
+        'page.errorMessage as errorMessage',
+        'page.startedAt as startedAt',
+        'page.finishedAt as finishedAt',
+        'page.expectedSourceVersion as sourceVersion',
+        'run.id as runId',
+        'run.status as runStatus',
+        'run.phase as runPhase',
+        'run.updatedAt as runUpdatedAt',
+      ])
+      .where('page.workspaceId', '=', input.workspaceId)
+      .where('page.sourcePageId', '=', input.sourcePageId)
+      .orderBy('page.updatedAt', 'desc')
+      .limit(1)
+      .executeTakeFirst();
+  }
+
+  /** Finds an active page-scoped Run even before its RunPage rows are bound. */
+  async findActiveRunForPage(input: {
+    workspaceId: string;
+    spaceId: string;
+    sourcePageId: string;
+  }) {
+    return this.db
+      .selectFrom('knowledgeSpaceCompileRuns')
+      .selectAll()
+      .where('workspaceId', '=', input.workspaceId)
+      .where('spaceId', '=', input.spaceId)
+      .where('status', 'in', NONTERMINAL_RUN_STATUSES)
+      .where(
+        sql<boolean>`"targetSourcePageIds" @> ${JSON.stringify([input.sourcePageId])}::jsonb`,
+      )
+      .orderBy('createdAt', 'desc')
+      .limit(1)
+      .executeTakeFirst();
+  }
+
   async findRecentRuns(input: {
     workspaceId: string;
     spaceIds?: string[];

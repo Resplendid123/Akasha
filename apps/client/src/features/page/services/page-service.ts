@@ -46,6 +46,33 @@ export interface PagePublishCooldown {
   expiresAt: number | null;
 }
 
+export type PageCompileStatus =
+  | "completed"
+  | "compiling"
+  | "failed"
+  | "not_compiled"
+  | "outdated";
+
+export interface PageCompileStatusResult {
+  status: PageCompileStatus;
+  runId?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  failedAt?: string;
+  errorMessage?: string;
+  sourceVersion?: number;
+  publishedSourceVersion?: number;
+}
+
+export async function getPageCompileStatus(
+  pageId: string,
+): Promise<PageCompileStatusResult> {
+  const req = await api.get<PageCompileStatusResult>(
+    `/llm-wiki/pages/${pageId}/compile-status`,
+  );
+  return req.data;
+}
+
 export async function getPagePublishCooldown(
   pageId: string,
 ): Promise<PagePublishCooldown> {

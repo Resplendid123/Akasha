@@ -23,6 +23,7 @@ import {
   restorePage,
   publishPageKnowledge,
   getPagePublishCooldown,
+  getPageCompileStatus,
 } from "@/features/page/services/page-service";
 import {
   IMovePage,
@@ -130,6 +131,16 @@ export function usePagePublishCooldownQuery(pageId?: string) {
     queryFn: () => getPagePublishCooldown(pageId!),
     enabled: !!pageId,
     refetchInterval: 60_000,
+  });
+}
+
+export function usePageCompileStatusQuery(pageId?: string) {
+  return useQuery({
+    queryKey: ["page-compile-status", pageId],
+    queryFn: () => getPageCompileStatus(pageId!),
+    enabled: !!pageId,
+    refetchInterval: (query) =>
+      query.state.data?.status === "compiling" ? 5_000 : false,
   });
 }
 

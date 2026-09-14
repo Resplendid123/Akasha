@@ -115,7 +115,34 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     workspaceId: string;
     spaceId: string;
     sourcePageId: string;
+    currentSourceVersion?: string;
   }) {
+    // Keep this lookup optional for lightweight callers that provide only the
+    // run-request repository contract; production repos always implement it.
+    const existing = this.runRepo.findLatestPageCompileStatus
+      ? await this.runRepo.findLatestPageCompileStatus({
+          workspaceId: input.workspaceId,
+          sourcePageId: input.sourcePageId,
+        })
+      : undefined;
+    const activeUnbound =
+      !existing && this.runRepo.findActiveRunForPage
+        ? await this.runRepo.findActiveRunForPage(input)
+        : undefined;
+    if (
+      (existing &&
+        ['queued', 'compiling', 'aggregate_pending', 'aggregating'].includes(
+          String(existing.runStatus),
+        )) ||
+      activeUnbound
+    ) {
+      const run =
+        activeUnbound ??
+        (this.runRepo.findRun
+          ? await this.runRepo.findRun(existing!.runId)
+          : undefined);
+      if (run) return { disposition: 'coalesced' as const, run };
+    }
     const [result] = await this.requestRuns([
       {
         workspaceId: input.workspaceId,
@@ -128,6 +155,64 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       await this.promoteWaitingSpaceJob(result.run.spaceJobId);
     }
     return result;
+  }
+
+  async getPageCompileStatus(input: {
+    workspaceId: string;
+    spaceId: string;
+    sourcePageId: string;
+    currentSourceVersion?: string;
+  }) {
+    const latest = await this.runRepo.findLatestPageCompileStatus(input);
+    if (!latest) {
+      const active = this.runRepo.findActiveRunForPage
+        ? await this.runRepo.findActiveRunForPage(input)
+        : undefined;
+      return active
+        ? {
+            status: 'compiling' as const,
+            runId: active.id,
+            startedAt: active.queuedAt,
+          }
+        : { status: 'not_compiled' as const };
+    }
+    const active = ['queued', 'compiling', 'aggregate_pending', 'aggregating'];
+    let status:
+      | 'completed'
+      | 'compiling'
+      | 'failed'
+      | 'not_compiled'
+      | 'outdated';
+    if (
+      active.includes(String(latest.runStatus)) ||
+      ['pending', 'queued', 'running'].includes(String(latest.pageStatus))
+    ) {
+      status = 'compiling';
+    } else if (
+      latest.pageStatus === 'succeeded' ||
+      latest.runStatus === 'succeeded'
+    ) {
+      status =
+        input.currentSourceVersion &&
+        latest.sourceVersion &&
+        input.currentSourceVersion !== latest.sourceVersion
+          ? 'outdated'
+          : 'completed';
+    } else if (
+      latest.pageStatus === 'failed' ||
+      latest.runStatus === 'failed'
+    ) {
+      status = 'failed';
+    } else {
+      status = 'not_compiled';
+    }
+    return {
+      status,
+      runId: latest.runId,
+      startedAt: latest.startedAt,
+      finishedAt: latest.finishedAt,
+      errorMessage: latest.errorMessage,
+    };
   }
 
   async cancelRun(input: {

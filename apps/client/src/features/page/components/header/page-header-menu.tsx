@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Badge,
   Group,
   Menu,
   Text,
@@ -24,6 +25,10 @@ import {
   IconStarFilled,
   IconTrash,
   IconWifiOff,
+  IconAlertCircle,
+  IconCircleCheck,
+  IconLoader2,
+  IconCircle,
 } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useAsideTriggerProps } from "@/hooks/use-toggle-aside.tsx";
@@ -36,6 +41,7 @@ import {
   usePageQuery,
   usePublishPageKnowledgeMutation,
   usePagePublishCooldownQuery,
+  usePageCompileStatusQuery,
 } from "@/features/page/queries/page-query.ts";
 import { buildPageUrl } from "@/features/page/page.utils.ts";
 import { notifications } from "@mantine/notifications";
@@ -192,7 +198,10 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   const watchPage = useWatchPageMutation();
   const unwatchPage = useUnwatchPageMutation();
   const publishPageKnowledge = usePublishPageKnowledgeMutation();
-  const { data: serverCooldown } = usePagePublishCooldownQuery(page?.id);
+  const { data: serverCooldown, refetch: refetchCooldown } =
+    usePagePublishCooldownQuery(page?.id);
+  const { data: compileStatus, refetch: refetchCompileStatus } =
+    usePageCompileStatusQuery(page?.id);
   const [publishCooldown, setPublishCooldown] = useState<{
     expiresAt: number;
     step: number;
@@ -296,15 +305,74 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
           JSON.stringify({ expiresAt, step }),
         );
         notifications.show({ message: t("Page publish started") });
+        void refetchCompileStatus();
       },
-      onError: () => {
+      onError: (error: any) => {
+        if (error?.response?.status === 429) {
+          void refetchCooldown();
+        }
         notifications.show({
-          message: t("Failed to publish page"),
+          message:
+            error?.response?.data?.message || t("Failed to publish page"),
           color: "red",
         });
       },
     });
   };
+
+  const compileBadge = (() => {
+    const status = compileStatus?.status ?? "not_compiled";
+    const config = {
+      completed: {
+        color: "green",
+        label: t("Compiled"),
+        icon: <IconCircleCheck size={13} />,
+      },
+      compiling: {
+        color: "blue",
+        label: t("Compiling"),
+        icon: <IconLoader2 size={13} className="animate-spin" />,
+      },
+      failed: {
+        color: "red",
+        label: t("Compilation failed"),
+        icon: <IconAlertCircle size={13} />,
+      },
+      not_compiled: {
+        color: "gray",
+        label: t("Not compiled"),
+        icon: <IconCircle size={13} />,
+      },
+      outdated: {
+        color: "gray",
+        label: t("Needs recompilation"),
+        icon: <IconCircle size={13} />,
+      },
+    }[status] ?? {
+      color: "gray",
+      label: t("Not compiled"),
+      icon: <IconCircle size={13} />,
+    };
+    return (
+      <Tooltip
+        label={
+          status === "failed"
+            ? compileStatus?.errorMessage || t("Compilation failed")
+            : config.label
+        }
+        withArrow
+      >
+        <Badge
+          size="sm"
+          variant="light"
+          color={config.color}
+          leftSection={config.icon}
+        >
+          {config.label}
+        </Badge>
+      </Tooltip>
+    );
+  })();
 
   return (
     <>
@@ -378,6 +446,7 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
               leftSection={<IconRocket size={16} />}
               onClick={handlePublishPage}
               disabled={publishPageKnowledge.isPending || publishCoolingDown}
+              rightSection={compileBadge}
             >
               {publishCoolingDown
                 ? t("Publish available in {{time}}", {
