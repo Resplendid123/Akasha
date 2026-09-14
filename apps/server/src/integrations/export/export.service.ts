@@ -197,10 +197,13 @@ export class ExportService {
   async exportSpace(
     spaceId: string,
     format: string,
-    includeAttachments: boolean,
     userId?: string,
     ignorePermissions = false,
   ) {
+    // Space exports always bundle attachments so pages remain intact when
+    // re-imported into another space.
+    const includeAttachments = true;
+
     const space = await this.db
       .selectFrom('spaces')
       .select(['id', 'name'])

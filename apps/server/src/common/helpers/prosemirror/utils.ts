@@ -125,16 +125,40 @@ export function getProsemirrorContent(content: any) {
 
 export { isAttachmentNode };
 
+// Pulls the attachment UUID out of an internal file URL such as
+// `/api/files/<uuid>/<name>` or `/files/<uuid>/<name>`. Returns null for
+// external URLs or anything that doesn't carry a valid UUID, so we never treat
+// a pasted external image as an owned attachment.
+export function extractAttachmentIdFromUrl(url: unknown): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  const match = url.match(
+    /(?:^|\/)files\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\/|$)/,
+  );
+  if (match && isValidUUID(match[1])) {
+    return match[1];
+  }
+  return null;
+}
+
 export function getAttachmentIds(prosemirrorJson: any) {
   const doc = jsonToNode(prosemirrorJson);
   const attachmentIds = [];
 
   doc?.descendants((node: Node) => {
     if (isAttachmentNode(node.type.name)) {
-      if (node.attrs.attachmentId && isValidUUID(node.attrs.attachmentId)) {
-        if (!attachmentIds.includes(node.attrs.attachmentId)) {
-          attachmentIds.push(node.attrs.attachmentId);
-        }
+      // Prefer the explicit attachmentId attribute, but fall back to parsing the
+      // id out of the src/url. Some legacy/imported image nodes carry a valid
+      // `/api/files/<uuid>/...` src without the attachmentId attribute; without
+      // this fallback their files are skipped during export and the reference
+      // breaks on re-import.
+      const attachmentId =
+        node.attrs.attachmentId && isValidUUID(node.attrs.attachmentId)
+          ? node.attrs.attachmentId
+          : extractAttachmentIdFromUrl(node.attrs.src) ??
+            extractAttachmentIdFromUrl(node.attrs.url);
+
+      if (attachmentId && !attachmentIds.includes(attachmentId)) {
+        attachmentIds.push(attachmentId);
       }
     }
   });
