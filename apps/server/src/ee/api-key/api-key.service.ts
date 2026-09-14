@@ -194,6 +194,25 @@ export class ApiKeyService {
     return this.apiKeyRepo.findPublicKeys(workspaceId, pagination);
   }
 
+  async getAgentBindableSpaces(userId: string, workspaceId: string) {
+    await this.requireWorkspaceOwner(userId, workspaceId);
+    return this.apiKeyRepo.findBindableSpaces(workspaceId);
+  }
+
+  async updateAgentSpaces(opts: { apiKeyId: string; userId: string; workspaceId: string; spaceIds: string[] }) {
+    await this.requireWorkspaceOwner(opts.userId, opts.workspaceId);
+    const spaceIds = [...new Set(opts.spaceIds)];
+    const result = await this.apiKeyRepo.transaction(async (trx) => {
+      const key = await this.requireAgentKeyForUpdate(opts.apiKeyId, opts.workspaceId, trx);
+      const valid = await this.apiKeyRepo.findBindableSpaceIds(opts.workspaceId, spaceIds, trx);
+      if (valid.length !== spaceIds.length) throw new BadRequestException('Invalid spaceIds');
+      await this.apiKeyRepo.replaceAgentSpaceBindings({ apiKeyId: key.id, agentUserId: key.agentUserId!, spaceIds }, trx);
+      return this.apiKeyRepo.findBoundSpaces(key.id, opts.workspaceId, trx);
+    });
+    this.logAgentKeyChange(AuditEvent.API_KEY_UPDATED, opts.apiKeyId, 'replace_spaces');
+    return { spaces: result };
+  }
+
   async updatePublicApiKey(opts: {
     apiKeyId: string;
     name: string;

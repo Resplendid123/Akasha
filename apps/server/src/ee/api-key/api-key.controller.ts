@@ -25,6 +25,7 @@ import { CreatePublicApiKeyDto } from './dto/create-public-api-key.dto';
 import { UpdatePublicApiKeyDto } from './dto/update-public-api-key.dto';
 import { AgentApiKeyIdDto } from './dto/agent-api-key-id.dto';
 import { UserRole } from '../../common/helpers/types/permission';
+import { UpdateAgentSpaceBindingsDto } from './dto/update-agent-space-bindings.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api-keys')
@@ -69,6 +70,18 @@ export class ApiKeyController {
   ) {
     this.assertWorkspaceOwner(user);
     return this.apiKeyService.getPublicApiKeys(workspace.id, pagination);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('agent/spaces')
+  async listAgentSpaces(@AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
+    return this.apiKeyService.getAgentBindableSpaces(user.id, workspace.id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('agent/spaces/update')
+  async updateAgentSpaces(@Body() dto: UpdateAgentSpaceBindingsDto, @AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
+    return this.apiKeyService.updateAgentSpaces({ apiKeyId: dto.apiKeyId, spaceIds: dto.spaceIds, userId: user.id, workspaceId: workspace.id });
   }
 
   @HttpCode(HttpStatus.OK)
