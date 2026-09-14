@@ -6,6 +6,8 @@ import { TokenModule } from '../../core/auth/token.module';
 import { AgentUserService } from './agent-user.service';
 import { AgentSpaceBindingService } from './agent-space-binding.service';
 import { IselfAgentSpaceController } from './iself-agent-space.controller';
+import { IselfApiKeyController } from './iself-api-key.controller';
+import { IselfPlatformAuthGuard } from './guards/iself-platform-auth.guard';
 
 /**
  * ApiKeyModule - API Key 管理模块
@@ -17,12 +19,17 @@ import { IselfAgentSpaceController } from './iself-agent-space.controller';
  */
 @Module({
   imports: [TokenModule],
-  controllers: [ApiKeyController, IselfAgentSpaceController],
+  controllers: [
+    ApiKeyController,
+    IselfAgentSpaceController,
+    IselfApiKeyController,
+  ],
   providers: [
     ApiKeyService,
     ApiKeyRepo,
     AgentUserService,
     AgentSpaceBindingService,
+    IselfPlatformAuthGuard,
   ],
   exports: [ApiKeyService, AgentUserService, AgentSpaceBindingService],
 })
