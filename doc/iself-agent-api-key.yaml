@@ -13,36 +13,6 @@ authentication:
 
 endpoints:
   - method: POST
-    path: /api/api-keys/public/create
-    auth: owner
-    body:
-      name: string
-    response: agent API Key、agent user 和初始 token；永久有效，初始无空间绑定。
-  - method: POST
-    path: /api/api-keys/public
-    auth: owner
-    body: pagination
-    response: 工作区 agent API Key 列表。
-  - method: POST
-    path: /api/api-keys/public/update
-    auth: owner
-    body:
-      apiKeyId: uuid
-      name: string
-    response: 更新后的 agent API Key。
-  - method: POST
-    path: /api/api-keys/public/rotate
-    auth: owner
-    body:
-      apiKeyId: uuid
-    response: 新 token；旧 token 立即失效。
-  - method: POST
-    path: /api/api-keys/public/delete
-    auth: owner
-    body:
-      apiKeyId: uuid
-    response: HTTP 204；key 与 agent user 软删除。
-  - method: POST
     path: /api/iself/space
     auth: agent 或 SSO
     body: {}
