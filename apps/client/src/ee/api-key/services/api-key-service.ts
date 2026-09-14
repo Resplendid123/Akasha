@@ -60,7 +60,7 @@ export async function getAgentSpaces(): Promise<Array<{ id: string; name: string
   const req = await api.post("/api-keys/agent/spaces");
   return req.data;
 }
-export async function updateAgentSpaces(data: { apiKeyId: string; spaceIds: string[] }) {
+export async function updateAgentSpaces(data: { spaceIds: string[] }) {
   const req = await api.post("/api-keys/agent/spaces/update", data);
   return req.data;
 }
