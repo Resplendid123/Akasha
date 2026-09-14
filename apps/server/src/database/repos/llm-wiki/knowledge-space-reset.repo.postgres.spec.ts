@@ -84,7 +84,7 @@ describePostgres('force-reset PostgreSQL scope', () => {
         sourcePages: 2,
         attachments: 2,
         attempts: 2,
-        history: 3,
+        history: 2,
         targetDelayed: 1,
         controlDelayed: 1,
       }),
@@ -97,7 +97,7 @@ describePostgres('force-reset PostgreSQL scope', () => {
         sourcePages: 2,
         attachments: 2,
         attempts: 2,
-        history: 3,
+        history: 2,
         oldRunStatus: 'superseded',
         oldRunPhase: 'complete',
         oldRunHasLease: false,
@@ -231,7 +231,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       error_code varchar, error_message varchar, updated_at timestamptz not null default now()
     );
     create table knowledge_query_audit (id varchar primary key);
-    create table knowledge_review_snapshots (id varchar primary key);
 
     insert into spaces values
       ('space-target','workspace-1','Target Space',3,null,now()),
@@ -272,7 +271,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       ('attempt-target','workspace-1','space-target','succeeded','completed','task-old','effective','effective','v1','h1',null,null,now()),
       ('attempt-control','workspace-1','space-control','succeeded','completed','task-control','effective-control','effective-control','v1','h1',null,null,now());
     insert into knowledge_query_audit values ('query-history');
-    insert into knowledge_review_snapshots values ('review-history');
   `.execute(db);
 }
 
@@ -285,7 +283,7 @@ async function evidence(db: Kysely<unknown>) {
       (select count(*) from knowledge_page_compile_schedules where space_id='space-target')::integer as "targetDelayed",
       (select count(*) from knowledge_page_compile_schedules where space_id='space-control')::integer as "controlDelayed",
       (select count(*) from knowledge_compilation_attempts)::integer as attempts,
-      ((select count(*) from knowledge_query_audit) + (select count(*) from knowledge_review_snapshots) + (select count(*) from knowledge_space_compile_runs where id='run-old'))::integer as history,
+      ((select count(*) from knowledge_query_audit) + (select count(*) from knowledge_space_compile_runs where id='run-old'))::integer as history,
       ((select count(*) from knowledge_pages where space_id='space-target') +
        (select count(*) from knowledge_artifact_contributions where space_id='space-target') +
        (select count(*) from knowledge_sources where source_space_id='space-target') +

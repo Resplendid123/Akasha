@@ -2,24 +2,25 @@ import {
   Button,
   Group,
   Modal,
-  MultiSelect,
   Stack,
   TextInput,
+  MultiSelect,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { zod4Resolver } from "mantine-form-zod-resolver";
 import { z } from "zod/v4";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { IApiKey } from "@/ee/api-key";
 import {
-  useGetPublicApiKeySpacesQuery,
   useUpdatePublicApiKeyMutation,
+  useGetAgentSpacesQuery,
+  useUpdateAgentSpacesMutation,
 } from "@/ee/api-key/queries/api-key-query";
 
 const schema = z.object({
   name: z.string().min(1),
-  spaceIds: z.array(z.string()).min(1),
+  spaceIds: z.array(z.string()),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -36,9 +37,9 @@ export function UpdatePublicApiKeyModal({
   apiKey,
 }: UpdatePublicApiKeyModalProps) {
   const { t } = useTranslation();
-  const { data: spaces, isLoading: spacesLoading } =
-    useGetPublicApiKeySpacesQuery();
   const mutation = useUpdatePublicApiKeyMutation();
+  const spacesMutation = useUpdateAgentSpacesMutation();
+  const { data: spaces, isLoading: spacesLoading } = useGetAgentSpacesQuery(opened);
   const form = useForm<FormValues>({
     validate: zod4Resolver(schema),
     initialValues: { name: "", spaceIds: [] },
@@ -53,13 +54,6 @@ export function UpdatePublicApiKeyModal({
     }
   }, [opened, apiKey]);
 
-  const spaceOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    for (const space of [...(apiKey?.spaces ?? []), ...(spaces ?? [])]) {
-      options.set(space.id, space.name ?? space.id);
-    }
-    return [...options].map(([value, label]) => ({ value, label }));
-  }, [apiKey?.spaces, spaces]);
 
   const close = () => {
     form.reset();
@@ -70,7 +64,7 @@ export function UpdatePublicApiKeyModal({
     <Modal
       opened={opened}
       onClose={close}
-      title={t("Update Public API key")}
+      title={t("Edit Agent")}
       size="md"
       closeButtonProps={{ "aria-label": t("Close") }}
     >
@@ -80,8 +74,8 @@ export function UpdatePublicApiKeyModal({
           await mutation.mutateAsync({
             apiKeyId: apiKey.id,
             name: values.name,
-            spaceIds: values.spaceIds,
           });
+          await spacesMutation.mutateAsync({ apiKeyId: apiKey.id, spaceIds: values.spaceIds });
           close();
         })}
       >
@@ -93,11 +87,11 @@ export function UpdatePublicApiKeyModal({
             {...form.getInputProps("name")}
           />
           <MultiSelect
-            label={t("Spaces")}
+            label={t("Bound spaces")}
             placeholder={t("Select spaces")}
-            data={spaceOptions}
+            data={(spaces ?? []).map((space) => ({ value: space.id, label: space.name }))}
             searchable
-            required
+            clearable
             disabled={spacesLoading}
             {...form.getInputProps("spaceIds")}
           />
@@ -105,7 +99,7 @@ export function UpdatePublicApiKeyModal({
             <Button variant="default" onClick={close}>
               {t("Cancel")}
             </Button>
-            <Button type="submit" loading={mutation.isPending}>
+            <Button type="submit" loading={mutation.isPending || spacesMutation.isPending}>
               {t("Update")}
             </Button>
           </Group>

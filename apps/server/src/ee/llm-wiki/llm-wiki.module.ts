@@ -32,7 +32,6 @@ import { IsElfLlmWikiController } from './iself-llm-wiki.controller';
 import { NoopAuditModule } from '../../integrations/audit/audit.module';
 import { LlmWikiFileCompilerAdapter } from './adapters/llm-wiki-file-compiler.adapter';
 import { SemanticKnowledgeCompilerRunner } from './adapters/semantic-knowledge-compiler.runner';
-import { ReviewModule } from './review/review.module';
 import { KnowledgeVectorIndexService } from './services/knowledge-vector-index.service';
 import { ConfiguredKnowledgeCompilerLlmProvider } from './compiler/knowledge-compiler-llm.provider';
 import { KnowledgeArtifactMaterializerService } from './services/knowledge-artifact-materializer.service';
@@ -64,7 +63,6 @@ import { SsoModule } from '../sso/sso.module';
   imports: [
     NoopAuditModule,
     AiModelConfigModule,
-    ReviewModule,
     ApiKeyModule,
     TokenModule,
     McpModule,

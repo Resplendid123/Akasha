@@ -46,8 +46,6 @@ import {
   KnowledgeParentSections,
   KnowledgeParentSectionSources,
   KnowledgeQueryAudit,
-  KnowledgeReviewApplications,
-  KnowledgeReviewSnapshots,
   KnowledgeQuarantinedArtifacts,
   KnowledgeSourceAccessPolicy as _KnowledgeSourceAccessPolicy,
   KnowledgeSourceAccessPrincipals as _KnowledgeSourceAccessPrincipals,
@@ -227,21 +225,6 @@ export type InsertableKnowledgeSourceAccessPrincipal =
 export type KnowledgeQueryAuditEntry = Selectable<KnowledgeQueryAudit>;
 export type InsertableKnowledgeQueryAuditEntry =
   Insertable<KnowledgeQueryAudit>;
-
-export type KnowledgeReviewSnapshot = Selectable<KnowledgeReviewSnapshots>;
-export type InsertableKnowledgeReviewSnapshot =
-  Insertable<KnowledgeReviewSnapshots>;
-export type UpdatableKnowledgeReviewSnapshot = Updateable<
-  Omit<KnowledgeReviewSnapshots, 'id'>
->;
-
-export type KnowledgeReviewApplication =
-  Selectable<KnowledgeReviewApplications>;
-export type InsertableKnowledgeReviewApplication =
-  Insertable<KnowledgeReviewApplications>;
-export type UpdatableKnowledgeReviewApplication = Updateable<
-  Omit<KnowledgeReviewApplications, 'id'>
->;
 
 export type KnowledgeQuarantinedArtifact =
   Selectable<KnowledgeQuarantinedArtifacts>;

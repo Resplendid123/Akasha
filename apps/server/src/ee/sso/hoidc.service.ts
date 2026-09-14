@@ -194,6 +194,7 @@ export class HoidcService {
             'invitedById',
             'password',
             'scimExternalId',
+            'userType',
           ])
           .executeTakeFirst();
 
@@ -214,6 +215,10 @@ export class HoidcService {
       });
 
       return user;
+    }
+
+    if (user.deletedAt) {
+      throw new UnauthorizedException('User is disabled');
     }
 
     if (updateProfile) {

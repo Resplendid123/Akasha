@@ -22,6 +22,7 @@ import { executeTx } from '@akasha/db/utils';
 import { InjectKysely } from 'nestjs-kysely';
 import { Feature } from '../../../common/features';
 import { User } from '@akasha/db/types/entity.types';
+import { UserType } from '../../../common/auth/user-type';
 import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import { GroupRepo } from '@akasha/db/repos/group/group.repo';
 import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
@@ -33,7 +34,6 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { addDays } from 'date-fns';
 import { DISALLOWED_HOSTNAMES, WorkspaceStatus } from '../workspace.constants';
 import { isAdminActingOnOwner } from '../workspace.util';
-import { v4 } from 'uuid';
 import { InjectQueue } from '@nestjs/bullmq';
 import { QueueJob, QueueName } from '../../../integrations/queue/constants';
 import { Queue } from 'bullmq';
@@ -625,6 +625,7 @@ export class WorkspaceService {
     if (!user) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     // prevent ADMIN from managing OWNER role
     if (
@@ -724,6 +725,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     if (user.deactivatedAt) {
       throw new BadRequestException('User is already deactivated');
@@ -786,6 +788,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     if (!user.deactivatedAt) {
       throw new BadRequestException('User is not deactivated');
@@ -827,6 +830,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     const workspaceOwnerCount = await this.userRepo.roleCountByWorkspaceId(
       UserRole.OWNER,
@@ -854,6 +858,7 @@ export class WorkspaceService {
     const user = await this.userRepo.findById(userId, workspaceId);
 
     if (!user || user.deletedAt) return;
+    this.assertNormalUser(user);
     if (user.role === UserRole.OWNER) {
       throw new ConflictException('SSO cannot delete a workspace owner');
     }
@@ -869,10 +874,6 @@ export class WorkspaceService {
     await executeTx(this.db, async (trx) => {
       await this.userRepo.updateUser(
         {
-          name: 'Deleted user',
-          email: v4() + '@deleted.akasha.com',
-          avatarUrl: null,
-          settings: null,
           deletedAt: new Date(),
         },
         userId,
@@ -881,25 +882,6 @@ export class WorkspaceService {
       );
 
       await trx.deleteFrom('groupUsers').where('userId', '=', userId).execute();
-      await this.spaceMemberService.removeUserFromNonPersonalSpaces(
-        userId,
-        workspaceId,
-        trx,
-      );
-      await trx
-        .deleteFrom('authAccounts')
-        .where('userId', '=', userId)
-        .execute();
-
-      await this.watcherRepo.deleteByUserAndWorkspace(userId, workspaceId, {
-        trx,
-      });
-
-      await this.favoriteRepo.deleteByUserAndWorkspace(userId, workspaceId, {
-        trx,
-      });
-
-      await this.userSessionRepo.revokeByUserId(userId, workspaceId, trx);
     });
 
     this.auditService.log({
@@ -914,11 +896,11 @@ export class WorkspaceService {
         },
       },
     });
+  }
 
-    try {
-      await this.attachmentQueue.add(QueueJob.DELETE_USER_AVATARS, user);
-    } catch (err) {
-      // empty
+  private assertNormalUser(user: User): void {
+    if (user.userType === UserType.AGENT) {
+      throw new BadRequestException('Agent users are system managed');
     }
   }
 }

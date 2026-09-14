@@ -31,13 +31,6 @@ export async function createApiKey(
   return req.data;
 }
 
-export async function getPublicApiKeySpaces(): Promise<
-  Array<{ id: string; name: string }>
-> {
-  const req = await api.post("/api-keys/public/spaces");
-  return req.data;
-}
-
 export async function createPublicApiKey(
   data: ICreatePublicApiKeyRequest,
 ): Promise<IApiKey> {
@@ -56,6 +49,23 @@ export async function updatePublicApiKey(
   data: IUpdatePublicApiKeyRequest,
 ): Promise<IApiKey> {
   const req = await api.post<IApiKey>("/api-keys/public/update", data);
+  return req.data;
+}
+
+export async function deleteAgentApiKey(data: { apiKeyId: string }): Promise<void> {
+  await api.post("/api-keys/public/delete", data);
+}
+
+export async function getAgentSpaces(): Promise<Array<{ id: string; name: string }>> {
+  const req = await api.post("/api-keys/agent/spaces");
+  return req.data;
+}
+export async function updateAgentSpaces(data: { apiKeyId: string; spaceIds: string[] }) {
+  const req = await api.post("/api-keys/agent/spaces/update", data);
+  return req.data;
+}
+export async function rotateAgentApiKey(data: { apiKeyId: string }): Promise<IApiKey> {
+  const req = await api.post<IApiKey>("/api-keys/public/rotate", data);
   return req.data;
 }
 

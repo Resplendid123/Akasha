@@ -910,6 +910,54 @@ describe('LlmWikiController', () => {
     });
   });
 
+  it('rejects immediate publish while the page cooldown is active', async () => {
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue({ step: 1, expiresAt: Date.now() + 60_000 }),
+      set: jest.fn(),
+      del: jest.fn(),
+    };
+    const requestImmediatePagePublish = jest.fn();
+    const controller = createController({
+      cacheManager,
+      spaceCompilation: { requestImmediatePagePublish },
+      pageRepo: {
+        findById: jest.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111',
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          deletedAt: null,
+        }),
+      },
+    });
+
+    await expect(
+      controller.publishPageKnowledge(
+        '11111111-1111-4111-8111-111111111111',
+        user(),
+        workspace(),
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: 'Page publish is cooling down',
+      }),
+      status: 429,
+    });
+    expect(requestImmediatePagePublish).not.toHaveBeenCalled();
+  });
+
+  it('returns and clears an expired final publish cooldown', async () => {
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue({ step: 3, expiresAt: Date.now() - 1 }),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const controller = createController({ cacheManager });
+
+    await expect(
+      controller.getPagePublishCooldown('11111111-1111-4111-8111-111111111111'),
+    ).resolves.toEqual({ expiresAt: null, step: 0 });
+    expect(cacheManager.del).toHaveBeenCalled();
+  });
+
   it('queues admin space actions with explicit operational job ids', async () => {
     const knowledgeQueue = {
       add: jest.fn().mockResolvedValue(undefined),
@@ -1651,6 +1699,7 @@ function createController(
     aiModelConfigService?: Partial<AiModelConfigService>;
     apiKeyService?: Partial<ApiKeyService>;
     environmentService?: Partial<EnvironmentService>;
+    cacheManager?: { get: jest.Mock; set?: jest.Mock; del?: jest.Mock };
   } = {},
 ) {
   return new LlmWikiController(
@@ -1741,6 +1790,8 @@ function createController(
       ...overrides.apiKeyService,
     } as unknown as ApiKeyService,
     overrides.environmentService as EnvironmentService | undefined,
+    undefined,
+    overrides.cacheManager as never,
   );
 }
 

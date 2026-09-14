@@ -68,6 +68,7 @@ describe('McpAuthService', () => {
     expect(getApiKeyAccess(result.user)).toEqual({
       apiKeyId: 'key-1',
       personalSpaceId: 'personal-space-1',
+      keyType: 'personal',
     });
     expect(tokenService.verifyJwt).toHaveBeenCalledWith(
       'token',

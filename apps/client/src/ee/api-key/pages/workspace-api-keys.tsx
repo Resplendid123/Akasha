@@ -16,15 +16,16 @@ import { useCursorPaginate } from "@/hooks/use-cursor-paginate";
 import {
   useGetApiKeysQuery,
   useGetPublicApiKeysQuery,
+  useRotateAgentApiKeyMutation,
 } from "@/ee/api-key/queries/api-key-query.ts";
 import { IApiKey } from "@/ee/api-key";
 import useUserRole from "@/hooks/use-user-role.tsx";
 
-type ApiKeyTab = "personal" | "public";
+type ApiKeyTab = "personal" | "agents";
 
 export default function WorkspaceApiKeys() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<ApiKeyTab>("personal");
+  const [activeTab, setActiveTab] = useState<ApiKeyTab>("agents");
   const personalPagination = useCursorPaginate();
   const publicPagination = useCursorPaginate();
   const [createModalOpened, setCreateModalOpened] = useState(false);
@@ -33,6 +34,7 @@ export default function WorkspaceApiKeys() {
   const [updateModalOpened, setUpdateModalOpened] = useState(false);
   const [revokeModalOpened, setRevokeModalOpened] = useState(false);
   const [selectedApiKey, setSelectedApiKey] = useState<IApiKey | null>(null);
+  const rotateMutation = useRotateAgentApiKeyMutation();
   const personalQuery = useGetApiKeysQuery(
     {
       cursor: personalPagination.cursor,
@@ -44,14 +46,14 @@ export default function WorkspaceApiKeys() {
     {
       cursor: publicPagination.cursor,
     },
-    activeTab === "public",
+    activeTab === "agents",
   );
-  const { isAdmin } = useUserRole();
+  const { isOwner } = useUserRole();
   const currentQuery = activeTab === "personal" ? personalQuery : publicQuery;
   const currentPagination =
     activeTab === "personal" ? personalPagination : publicPagination;
 
-  if (!isAdmin) {
+  if (!isOwner) {
     return null;
   }
 
@@ -67,6 +69,11 @@ export default function WorkspaceApiKeys() {
   const handleRevoke = (apiKey: IApiKey) => {
     setSelectedApiKey(apiKey);
     setRevokeModalOpened(true);
+  };
+
+  const handleRotate = async (apiKey: IApiKey) => {
+    const rotated = await rotateMutation.mutateAsync({ apiKeyId: apiKey.id });
+    setCreatedApiKey(rotated);
   };
 
   return (
@@ -104,7 +111,7 @@ export default function WorkspaceApiKeys() {
         <Group justify="space-between" align="flex-end" mb="md">
           <Tabs.List>
             <Tabs.Tab value="personal">{t("Personal API keys")}</Tabs.Tab>
-            <Tabs.Tab value="public">{t("Public API keys")}</Tabs.Tab>
+            <Tabs.Tab value="agents">{t("Agents")}</Tabs.Tab>
           </Tabs.List>
 
           {activeTab === "personal" ? (
@@ -113,7 +120,7 @@ export default function WorkspaceApiKeys() {
             </Button>
           ) : (
             <Button onClick={() => setCreatePublicModalOpened(true)}>
-              {t("Create Public API key")}
+              {t("Create Agent")}
             </Button>
           )}
         </Group>
@@ -122,10 +129,14 @@ export default function WorkspaceApiKeys() {
       <ApiKeyTable
         apiKeys={currentQuery.data?.items}
         isLoading={currentQuery.isLoading}
-        showUserColumn={activeTab === "personal"}
-        showSpacesColumn={activeTab === "public"}
+        showUserColumn={activeTab === "personal" || activeTab === "agents"}
+        userColumnLabel={activeTab === "agents" ? t("Agent user") : undefined}
+        keyNameLabel={activeTab === "agents" ? t("Agent key name") : undefined}
+        isAgentTable={activeTab === "agents"}
+        showSpacesColumn={activeTab === "agents"}
         onUpdate={handleUpdate}
         onRevoke={handleRevoke}
+        onRotate={activeTab === "agents" ? handleRotate : undefined}
       />
 
       <Space h="md" />
@@ -159,7 +170,7 @@ export default function WorkspaceApiKeys() {
         apiKey={createdApiKey}
       />
 
-      {selectedApiKey?.keyType === "public_retrieval" ? (
+      {selectedApiKey?.keyType === "agent" ? (
         <UpdatePublicApiKeyModal
           opened={updateModalOpened}
           onClose={() => {

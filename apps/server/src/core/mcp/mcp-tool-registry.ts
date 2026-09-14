@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { User, Workspace } from '@akasha/db/types/entity.types';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
 
 export type McpToolContext = {
   user: User;
   workspace: Workspace;
+  agentAccess?: AgentAccessContext;
 };
 
 export type McpToolResult = {

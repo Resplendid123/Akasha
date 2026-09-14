@@ -41,6 +41,7 @@ export type AiKnowledgeCitationEvidence = KnowledgeCitation & {
 type AiKnowledgeChatInput = {
   workspaceId: string;
   userId: string;
+  supplementalUserId?: string;
   chatId?: string;
   query: string;
   spaceIds: string[];
@@ -184,6 +185,7 @@ export class AiKnowledgeChatService {
   async retrieveOnly(input: {
     workspaceId: string;
     userId: string;
+    supplementalUserId?: string;
     query: string;
     spaceIds: string[];
     workspace?: Workspace;
@@ -199,6 +201,7 @@ export class AiKnowledgeChatService {
     const retrieval = await this.retrieval.retrieve({
       workspaceId: input.workspaceId,
       userId: input.userId,
+      supplementalUserId: input.supplementalUserId,
       query: input.query,
       spaceIds: input.spaceIds,
       authCache,
@@ -289,6 +292,7 @@ export class AiKnowledgeChatService {
         this.retrieval.retrieve({
           workspaceId: input.workspaceId,
           userId: input.userId,
+          supplementalUserId: input.supplementalUserId,
           query: retrievalQuery,
           spaceIds: input.spaceIds,
           authCache,
@@ -728,6 +732,7 @@ export class AiKnowledgeChatService {
           this.sourceAuthorization!.filterReadableSources({
             workspaceId: input.workspaceId,
             userId: input.userId,
+            supplementalUserId: input.supplementalUserId,
             sourcePageIds: requestedPageIds,
             cache: authCache,
           }),

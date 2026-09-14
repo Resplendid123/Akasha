@@ -23,6 +23,9 @@ import { UpdateApiKeyDto } from './dto/update-api-key.dto';
 import { RevokeApiKeyDto } from './dto/revoke-api-key.dto';
 import { CreatePublicApiKeyDto } from './dto/create-public-api-key.dto';
 import { UpdatePublicApiKeyDto } from './dto/update-public-api-key.dto';
+import { AgentApiKeyIdDto } from './dto/agent-api-key-id.dto';
+import { UserRole } from '../../common/helpers/types/permission';
+import { UpdateAgentSpaceBindingsDto } from './dto/update-agent-space-bindings.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api-keys')
@@ -65,18 +68,20 @@ export class ApiKeyController {
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
   ) {
-    this.assertCanManageApiKeys(user, workspace);
+    this.assertWorkspaceOwner(user);
     return this.apiKeyService.getPublicApiKeys(workspace.id, pagination);
   }
 
   @HttpCode(HttpStatus.OK)
-  @Post('public/spaces')
-  async listPublicApiKeySpaces(
-    @AuthUser() user: User,
-    @AuthWorkspace() workspace: Workspace,
-  ) {
-    this.assertCanManageApiKeys(user, workspace);
-    return this.apiKeyService.getBindablePublicKeySpaces(user.id, workspace.id);
+  @Post('agent/spaces')
+  async listAgentSpaces(@AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
+    return this.apiKeyService.getAgentBindableSpaces(user.id, workspace.id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('agent/spaces/update')
+  async updateAgentSpaces(@Body() dto: UpdateAgentSpaceBindingsDto, @AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
+    return this.apiKeyService.updateAgentSpaces({ apiKeyId: dto.apiKeyId, spaceIds: dto.spaceIds, userId: user.id, workspaceId: workspace.id });
   }
 
   @HttpCode(HttpStatus.OK)
@@ -101,11 +106,9 @@ export class ApiKeyController {
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
   ) {
-    this.assertCanManageApiKeys(user, workspace);
+    this.assertWorkspaceOwner(user);
     return this.apiKeyService.createPublicApiKey({
       name: dto.name,
-      spaceIds: dto.spaceIds,
-      expiresAt: dto.expiresAt,
       creatorId: user.id,
       workspaceId: workspace.id,
     });
@@ -118,11 +121,40 @@ export class ApiKeyController {
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
   ) {
-    this.assertCanManageApiKeys(user, workspace);
+    this.assertWorkspaceOwner(user);
     return this.apiKeyService.updatePublicApiKey({
       apiKeyId: dto.apiKeyId,
       name: dto.name,
-      spaceIds: dto.spaceIds,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('public/rotate')
+  async rotatePublicApiKey(
+    @Body() dto: AgentApiKeyIdDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    this.assertWorkspaceOwner(user);
+    return this.apiKeyService.rotatePublicApiKey({
+      apiKeyId: dto.apiKeyId,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+  }
+
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Post('public/delete')
+  async deletePublicApiKey(
+    @Body() dto: AgentApiKeyIdDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ): Promise<void> {
+    this.assertWorkspaceOwner(user);
+    await this.apiKeyService.deletePublicApiKey({
+      apiKeyId: dto.apiKeyId,
       userId: user.id,
       workspaceId: workspace.id,
     });
@@ -160,6 +192,12 @@ export class ApiKeyController {
   private assertCanManageApiKeys(user: User, workspace: Workspace) {
     const ability = this.workspaceAbility.createForUser(user, workspace);
     if (ability.cannot(WorkspaceCaslAction.Manage, WorkspaceCaslSubject.API)) {
+      throw new ForbiddenException();
+    }
+  }
+
+  private assertWorkspaceOwner(user: User) {
+    if (user.role !== UserRole.OWNER) {
       throw new ForbiddenException();
     }
   }

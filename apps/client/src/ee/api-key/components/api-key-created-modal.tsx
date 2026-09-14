@@ -31,7 +31,9 @@ export function ApiKeyCreatedModal({
     <Modal
       opened={opened}
       onClose={onClose}
-      title={t("{{credential}} created", { credential: t("API key") })}
+      title={t("{{credential}} created", {
+        credential: apiKey.keyType === "agent" ? t("Agent") : t("API key"),
+      })}
       size="lg"
       closeButtonProps={{ "aria-label": t("Close") }}
     >
@@ -43,7 +45,7 @@ export function ApiKeyCreatedModal({
         >
           {t(
             "Make sure to copy your {{credential}} now. You won't be able to see it again!",
-            { credential: t("API key") },
+            { credential: apiKey.keyType === "agent" ? t("agent credential") : t("API key") },
           )}
         </Alert>
 

@@ -10,7 +10,8 @@ export interface IApiKey {
   lastUsedAt: string | null;
   createdAt: string;
   creator: Partial<IUser>;
-  keyType?: "personal" | "public_retrieval";
+  agentUser?: Partial<IUser> & { userType?: "agent" };
+  keyType?: "personal" | "agent";
   spaces?: Array<{ id: string; name?: string }>;
 }
 
@@ -19,15 +20,11 @@ export interface ICreateApiKeyRequest {
   expiresAt?: string;
 }
 
-export interface ICreatePublicApiKeyRequest extends ICreateApiKeyRequest {
-  spaceIds: string[];
-}
+export interface ICreatePublicApiKeyRequest { name: string }
 
 export interface IUpdateApiKeyRequest {
   apiKeyId: string;
   name: string;
 }
 
-export interface IUpdatePublicApiKeyRequest extends IUpdateApiKeyRequest {
-  spaceIds: string[];
-}
+export interface IUpdatePublicApiKeyRequest extends IUpdateApiKeyRequest {}
