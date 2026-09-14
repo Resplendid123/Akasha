@@ -219,6 +219,7 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
     }
   }, [serverCooldown]);
   const publishCoolingDown = publishCooldownRemaining > 0;
+  const isCompiling = compileStatus?.status === "compiling";
 
   useEffect(() => {
     setPublishCooldown(null);
@@ -291,7 +292,12 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   };
 
   const handlePublishPage = () => {
-    if (!page?.id || publishPageKnowledge.isPending || publishCoolingDown)
+    if (
+      !page?.id ||
+      publishPageKnowledge.isPending ||
+      publishCoolingDown ||
+      isCompiling
+    )
       return;
     publishPageKnowledge.mutate(page.id, {
       onSuccess: () => {
@@ -445,7 +451,11 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
             <Menu.Item
               leftSection={<IconRocket size={16} />}
               onClick={handlePublishPage}
-              disabled={publishPageKnowledge.isPending || publishCoolingDown}
+              disabled={
+                publishPageKnowledge.isPending ||
+                publishCoolingDown ||
+                isCompiling
+              }
               rightSection={compileBadge}
             >
               {publishCoolingDown
