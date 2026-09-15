@@ -1028,10 +1028,33 @@ export class LlmWikiController {
       );
     }
 
+    // Refuse to retry while any involved Space still has a Run in flight. A
+    // retry mid-Run would coalesce into (or re-request) the live Run, and the
+    // cache reset below would null the still-published Run's extraction links.
+    // Ask the admin to wait for the current compilation to finish, then retry.
+    const spacesWithActiveRun =
+      await this.spaceCompilation.findSpaceIdsWithActiveRun({
+        workspaceId: workspace.id,
+        spaceIds: [...pagesBySpace.keys()],
+      });
+    if (spacesWithActiveRun.length > 0) {
+      throw new ConflictException(
+        'A compilation run is still in progress for the selected pages. Wait for it to finish, then retry.',
+      );
+    }
+
     // A page retry is an explicit new generation round. Clear the durable
     // source-content budget before queuing the Run so the Worker cannot reject
     // it immediately based on attempts consumed by an earlier Run.
     await this.spaceCompilation.resetGenerationAttemptBudget({
+      workspaceId: workspace.id,
+      sourcePageIds: pageIds,
+    });
+
+    // Drop the durable image-understanding cache for these pages too. Without
+    // this, a retried Run would claim the prior `ready` extractions and skip
+    // the VLM, so images that failed or need refreshing are never recompiled.
+    await this.spaceCompilation.clearImageExtractionCache({
       workspaceId: workspace.id,
       sourcePageIds: pageIds,
     });

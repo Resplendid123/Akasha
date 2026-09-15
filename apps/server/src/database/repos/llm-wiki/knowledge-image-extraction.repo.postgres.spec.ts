@@ -141,6 +141,36 @@ describePostgres('KnowledgeImageExtractionRepo PostgreSQL round trip', () => {
       expect.objectContaining({ id: 'ready-same-fingerprint' }),
     ]);
   });
+
+  it('deletes the durable image cache for a retried source page only', async () => {
+    await expect(
+      repo.deleteByPageIds({ workspaceId: 'workspace-1', sourcePageIds: [] }),
+    ).resolves.toBe(0);
+
+    await expect(
+      repo.deleteByPageIds({
+        workspaceId: 'workspace-1',
+        sourcePageIds: ['page-without-attachments'],
+      }),
+    ).resolves.toBe(0);
+    expect(await extractionEvidence(db)).not.toHaveLength(0);
+
+    // A wrong workspace must not reach this workspace's attachments.
+    await expect(
+      repo.deleteByPageIds({
+        workspaceId: 'workspace-other',
+        sourcePageIds: ['page-1'],
+      }),
+    ).resolves.toBe(0);
+    expect(await extractionEvidence(db)).not.toHaveLength(0);
+
+    const deleted = await repo.deleteByPageIds({
+      workspaceId: 'workspace-1',
+      sourcePageIds: ['page-1'],
+    });
+    expect(deleted).toBeGreaterThan(0);
+    expect(await extractionEvidence(db)).toEqual([]);
+  });
 });
 
 async function createFixture(

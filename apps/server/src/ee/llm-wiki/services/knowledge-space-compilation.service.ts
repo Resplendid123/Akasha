@@ -111,6 +111,41 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     return this.compilationRepo.resetGenerationAttemptBudget(input);
   }
 
+  /**
+   * Clears the durable image-understanding cache for the given source pages so
+   * an explicit retry re-runs the VLM instead of reusing prior extractions.
+   */
+  async clearImageExtractionCache(input: {
+    workspaceId: string;
+    sourcePageIds: string[];
+  }): Promise<number> {
+    return this.imageExtractionRepo.deleteByPageIds(input);
+  }
+
+  /**
+   * Returns the subset of the given Spaces that currently have a non-terminal
+   * (queued/compiling/aggregating) Run. A page retry checks this first and
+   * refuses while a Run is in flight: retrying mid-Run would coalesce into or
+   * re-request the live Run and, worse, `clearImageExtractionCache` would null
+   * out the still-published Run's `extraction_id`, dropping citation captions.
+   */
+  async findSpaceIdsWithActiveRun(input: {
+    workspaceId: string;
+    spaceIds: string[];
+  }): Promise<string[]> {
+    const spaceIds = [...new Set(input.spaceIds)];
+    const active = await Promise.all(
+      spaceIds.map(async (spaceId) => {
+        const run = await this.runRepo.findActiveRun({
+          workspaceId: input.workspaceId,
+          spaceId,
+        });
+        return run ? spaceId : undefined;
+      }),
+    );
+    return active.filter((spaceId): spaceId is string => spaceId !== undefined);
+  }
+
   async requestImmediatePagePublish(input: {
     workspaceId: string;
     spaceId: string;

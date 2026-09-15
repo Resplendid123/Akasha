@@ -86,6 +86,35 @@ export class KnowledgeImageExtractionRepo {
       .executeTakeFirst();
   }
 
+  /**
+   * Drops the durable image-understanding cache for every attachment that
+   * belongs to the given source pages. An explicit page retry uses this to
+   * force VLM re-extraction instead of reusing a prior `ready` result: the
+   * cache key is (workspaceId, attachmentId, cacheFingerprint) and carries no
+   * pageId, so we reach the attachments through `attachments.pageId`.
+   */
+  async deleteByPageIds(input: {
+    workspaceId: string;
+    sourcePageIds: string[];
+  }): Promise<number> {
+    const sourcePageIds = [...new Set(input.sourcePageIds)];
+    if (sourcePageIds.length === 0) return 0;
+    const result = await this.db
+      .deleteFrom('knowledgeImageExtractions')
+      .where('workspaceId', '=', input.workspaceId)
+      .where(
+        'attachmentId',
+        'in',
+        this.db
+          .selectFrom('attachments')
+          .select('id')
+          .where('workspaceId', '=', input.workspaceId)
+          .where('pageId', 'in', sourcePageIds),
+      )
+      .executeTakeFirst();
+    return Number(result.numDeletedRows ?? 0n);
+  }
+
   async findCurrentReadyForSnapshotImages(input: {
     workspaceId: string;
     spaceId: string;
