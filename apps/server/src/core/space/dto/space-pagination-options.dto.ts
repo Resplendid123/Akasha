@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -7,6 +8,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { SpaceRole } from '../../../common/helpers/types/permission';
 
 export class SpacePaginationOptions {
   @IsOptional()
@@ -31,4 +33,8 @@ export class SpacePaginationOptions {
   @IsOptional()
   @IsBoolean()
   adminView: boolean;
+
+  @IsOptional()
+  @IsIn([SpaceRole.ADMIN, SpaceRole.WRITER, SpaceRole.READER])
+  role?: SpaceRole;
 }

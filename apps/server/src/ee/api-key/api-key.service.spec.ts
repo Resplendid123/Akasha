@@ -1,4 +1,8 @@
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { getApiKeyAccess } from '../../common/auth/api-key-access';
 import { ApiKeyType } from '../../common/auth/api-key-type';
 import { UserType } from '../../common/auth/user-type';
@@ -233,5 +237,76 @@ describe('ApiKeyService', () => {
         workspaceId: 'workspace-1',
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('owner 可按 apiKeyId 重绑 agent 空间(内部/设置页路径)', async () => {
+    const { service, userRepo, apiKeyRepo } = makeService({
+      apiKeyRepo: {
+        findByIdForUpdate: jest.fn().mockResolvedValue({
+          id: 'agent-key-1',
+          keyType: ApiKeyType.AGENT,
+          agentUserId: 'agent-user-1',
+        }),
+        findBindableSpaceIds: jest
+          .fn()
+          .mockResolvedValue(['space-1', 'space-2']),
+        replaceAgentSpaceBindings: jest.fn().mockResolvedValue(undefined),
+        findBoundSpaces: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'space-1', name: 'A' },
+            { id: 'space-2', name: 'B' },
+          ]),
+      },
+    });
+    userRepo.findById.mockResolvedValue({
+      id: 'owner-1',
+      role: UserRole.OWNER,
+      userType: UserType.NORMAL,
+      deletedAt: null,
+      deactivatedAt: null,
+    });
+
+    const result = await service.updateAgentSpaces({
+      apiKeyId: 'agent-key-1',
+      userId: 'owner-1',
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1', 'space-2'],
+    });
+
+    expect(apiKeyRepo.replaceAgentSpaceBindings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKeyId: 'agent-key-1',
+        agentUserId: 'agent-user-1',
+        spaceIds: ['space-1', 'space-2'],
+      }),
+      expect.anything(),
+    );
+    expect(result).toEqual({
+      spaces: [
+        { id: 'space-1', name: 'A' },
+        { id: 'space-2', name: 'B' },
+      ],
+    });
+  });
+
+  it('非 owner 调用 updateAgentSpaces 被拒', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findById.mockResolvedValue({
+      id: 'member-1',
+      role: UserRole.MEMBER,
+      userType: UserType.NORMAL,
+      deletedAt: null,
+      deactivatedAt: null,
+    });
+
+    await expect(
+      service.updateAgentSpaces({
+        apiKeyId: 'agent-key-1',
+        userId: 'member-1',
+        workspaceId: 'workspace-1',
+        spaceIds: ['space-1'],
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

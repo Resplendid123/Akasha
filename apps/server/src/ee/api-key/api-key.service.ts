@@ -239,6 +239,48 @@ export class ApiKeyService {
     return this.apiKeyRepo.findBindableSpaces(workspaceId);
   }
 
+  /**
+   * Owner-facing space rebinding from the workspace settings page. Authorized
+   * by workspace ownership over a normal login session; the target agent key is
+   * named explicitly via `apiKeyId`. The business-facing agent-self flow lives
+   * in AgentSpaceBindingService.replaceBindings and is unaffected.
+   */
+  async updateAgentSpaces(opts: {
+    apiKeyId: string;
+    userId: string;
+    workspaceId: string;
+    spaceIds: string[];
+  }) {
+    await this.requireWorkspaceOwner(opts.userId, opts.workspaceId);
+    const spaceIds = [...new Set(opts.spaceIds)];
+    const result = await this.apiKeyRepo.transaction(async (trx) => {
+      const key = await this.requireAgentKeyForUpdate(
+        opts.apiKeyId,
+        opts.workspaceId,
+        trx,
+      );
+      const valid = await this.apiKeyRepo.findBindableSpaceIds(
+        opts.workspaceId,
+        spaceIds,
+        trx,
+      );
+      if (valid.length !== spaceIds.length) {
+        throw new BadRequestException('Invalid spaceIds');
+      }
+      await this.apiKeyRepo.replaceAgentSpaceBindings(
+        { apiKeyId: key.id, agentUserId: key.agentUserId!, spaceIds },
+        trx,
+      );
+      return this.apiKeyRepo.findBoundSpaces(key.id, opts.workspaceId, trx);
+    });
+    this.logAgentKeyChange(
+      AuditEvent.API_KEY_UPDATED,
+      opts.apiKeyId,
+      'replace_spaces',
+    );
+    return { spaces: result };
+  }
+
   async updatePublicApiKey(opts: {
     apiKeyId: string;
     name: string;

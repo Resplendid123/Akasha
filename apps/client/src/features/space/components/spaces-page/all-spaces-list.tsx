@@ -9,6 +9,7 @@ import {
   Anchor,
   Tooltip,
   VisuallyHidden,
+  Select,
 } from "@mantine/core";
 import { IconDots, IconSettings, IconEye, IconEyeOff } from "@tabler/icons-react";
 import StarButton from "@/features/favorite/components/star-button";
@@ -22,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import React, { useState } from "react";
 import { useDisclosure } from "@mantine/hooks";
 import { formatMemberCount } from "@/lib";
+import { SpaceRole } from "@/lib/types";
 import { getSpaceUrl } from "@/lib/config";
 import { prefetchSpace } from "@/features/space/queries/space-query";
 import { SearchInput } from "@/components/common/search-input";
@@ -77,6 +79,8 @@ function WatchButton({ spaceId, watchedIds, size = 16 }: { spaceId: string; watc
 interface AllSpacesListProps {
   spaces: any[];
   onSearch: (query: string) => void;
+  role?: string | null;
+  onRoleChange?: (role: string | null) => void;
   hasPrevPage?: boolean;
   hasNextPage?: boolean;
   onNext: () => void;
@@ -86,12 +90,19 @@ interface AllSpacesListProps {
 export default function AllSpacesList({
   spaces,
   onSearch,
+  role,
+  onRoleChange,
   hasPrevPage,
   hasNextPage,
   onNext,
   onPrev,
 }: AllSpacesListProps) {
   const { t } = useTranslation();
+  const roleFilterData = [
+    { value: SpaceRole.ADMIN, label: t("Full access") },
+    { value: SpaceRole.WRITER, label: t("Can edit") },
+    { value: SpaceRole.READER, label: t("Can view") },
+  ];
   const watchedIds = useWatchedSpaceIds();
   const [settingsOpened, { open: openSettings, close: closeSettings }] =
     useDisclosure(false);
@@ -104,7 +115,20 @@ export default function AllSpacesList({
 
   return (
     <Box>
-      <SearchInput onSearch={onSearch} />
+      <Group align="center" gap="sm" wrap="nowrap">
+        <Box style={{ flex: 1 }}>
+          <SearchInput onSearch={onSearch} />
+        </Box>
+        <Select
+          data={roleFilterData}
+          value={role ?? null}
+          onChange={(value) => onRoleChange?.(value)}
+          placeholder={t("All permissions")}
+          aria-label={t("Filter by permission")}
+          clearable
+          w={160}
+        />
+      </Group>
 
       <Space h="md" />
 
