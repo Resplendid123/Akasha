@@ -7,14 +7,19 @@ import { dbOrTx } from '@akasha/db/utils';
 import { sql } from 'kysely';
 import {
   InsertableSpaceMember,
+  Space,
   SpaceMember,
   UpdatableSpaceMember,
 } from '@akasha/db/types/entity.types';
 import { PaginationOptions } from '../../pagination/pagination-options';
 import { MemberInfo, UserSpaceRole, UserSpaceRoleWithSpaceId } from './types';
-import { executeWithCursorPagination } from '@akasha/db/pagination/cursor-pagination';
+import {
+  emptyCursorPaginationResult,
+  executeWithCursorPagination,
+} from '@akasha/db/pagination/cursor-pagination';
 import { GroupRepo } from '@akasha/db/repos/group/group.repo';
 import { SpaceRepo } from '@akasha/db/repos/space/space.repo';
+import { findHighestUserSpaceRole } from '@akasha/db/repos/space/utils';
 import { withCache } from '../../../common/helpers/with-cache';
 import {
   CacheKey,
@@ -386,12 +391,58 @@ export class SpaceMemberRepo {
       .execute();
   }
 
+  // Space IDs where the user's highest effective role (across direct and
+  // group memberships) equals the given role.
+  async getUserSpaceIdsByHighestRole(
+    userId: string,
+    role: string,
+  ): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom('spaceMembers')
+      .select(['spaceId', 'role'])
+      .where('userId', '=', userId)
+      .unionAll(
+        this.db
+          .selectFrom('spaceMembers')
+          .innerJoin('groupUsers', 'groupUsers.groupId', 'spaceMembers.groupId')
+          .select(['spaceMembers.spaceId', 'spaceMembers.role'])
+          .where('groupUsers.userId', '=', userId),
+      )
+      .execute();
+
+    const rolesBySpace = new Map<string, UserSpaceRole[]>();
+    for (const row of rows) {
+      const existing = rolesBySpace.get(row.spaceId) || [];
+      existing.push({ userId, role: row.role });
+      rolesBySpace.set(row.spaceId, existing);
+    }
+
+    const spaceIds: string[] = [];
+    for (const [spaceId, spaceRoles] of rolesBySpace) {
+      if (findHighestUserSpaceRole(spaceRoles) === role) {
+        spaceIds.push(spaceId);
+      }
+    }
+    return spaceIds;
+  }
+
   async getUserSpaces(userId: string, pagination: PaginationOptions) {
     let query = this.db
       .selectFrom('spaces')
       .selectAll()
       .select((eb) => [this.spaceRepo.withMemberCount(eb)])
       .where('id', 'in', this.getUserSpaceIdsQuery(userId));
+
+    if (pagination.role) {
+      const roleSpaceIds = await this.getUserSpaceIdsByHighestRole(
+        userId,
+        pagination.role,
+      );
+      if (roleSpaceIds.length === 0) {
+        return emptyCursorPaginationResult<Space>(pagination.limit);
+      }
+      query = query.where('id', 'in', roleSpaceIds);
+    }
 
     if (pagination.query) {
       query = query.where((eb) =>

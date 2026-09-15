@@ -69,12 +69,17 @@ export class SpaceController {
   ) {
     const isOwner = user.role === UserRole.OWNER;
 
-    const result = isOwner
+    // Owners normally see every space in the workspace as ADMIN. When a role
+    // filter is applied, fall back to their actual space memberships so the
+    // filter matches the roles shown in the space members panel.
+    const useOwnerView = isOwner && !pagination.role;
+
+    const result = useOwnerView
       ? await this.spaceService.getWorkspaceSpaces(workspace.id, pagination)
       : await this.spaceMemberService.getUserSpaces(user.id, pagination);
 
     if (result.items.length > 0) {
-      if (isOwner) {
+      if (useOwnerView) {
         result.items = result.items.map((space) => ({
           ...space,
           membership: { userId: user.id, role: SpaceRole.ADMIN },
