@@ -3,7 +3,7 @@ import { IncomingMessage } from 'http';
 import WebSocket from 'ws';
 import { AuthenticationExtension } from './extensions/authentication.extension';
 import { PersistenceExtension } from './extensions/persistence.extension';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EnvironmentService } from '../integrations/environment/environment.service';
 import {
   createRetryStrategy,
@@ -28,6 +28,7 @@ import {
 
 @Injectable()
 export class CollaborationGateway {
+  private readonly logger = new Logger(CollaborationGateway.name);
   private readonly hocuspocus: Hocuspocus;
   private redisConfig: RedisConfig;
   // @ts-ignore
@@ -179,7 +180,10 @@ export class CollaborationGateway {
         if (this.hocuspocus.getDocumentsCount() === 0) resolve('');
         this.hocuspocus.closeConnections();
       } catch (error) {
-        console.error(error);
+        this.logger.error(
+          { op: 'destroy', err: error },
+          'Failed to shut down collaboration connections',
+        );
       }
     });
 

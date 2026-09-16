@@ -12,7 +12,7 @@ import { getHTMLFromFragment } from './getHTMLFromFragment';
  * @example
  * ```js
  * const html = generateHTML(doc, extensions)
- * console.log(html)
+ * html
  * ```
  */
 export function generateHTML(doc: JSONContent, extensions: Extensions): string {

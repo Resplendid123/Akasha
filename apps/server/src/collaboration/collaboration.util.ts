@@ -54,7 +54,7 @@ import { generateHTML, generateJSON } from '../common/helpers/prosemirror/html';
 //import { generateJSON } from '@tiptap/html';
 import { Node, Schema } from '@tiptap/pm/model';
 import * as Y from 'yjs';
-import { Logger } from '@nestjs/common';
+import { Logger, LoggerService } from '@nestjs/common';
 import {
   hasTableNode,
   serializeTableNode,
@@ -123,13 +123,19 @@ export function jsonToHtml(tiptapJson: any) {
   return generateHTML(tiptapJson, tiptapExtensions);
 }
 
-export function htmlToJson(html: string) {
+export function htmlToJson(
+  html: string,
+  logger: LoggerService = new Logger('CollaborationUtil'),
+) {
   const pmJson = generateJSON(html, tiptapExtensions);
 
   try {
     return addUniqueIdsToDoc(pmJson, tiptapExtensions);
   } catch (error) {
-    console.warn('failed to add unique ids to doc', error);
+    logger.warn(
+      { err: error },
+      'Failed to add unique ids to doc, using document without unique ids',
+    );
     return pmJson;
   }
 }
