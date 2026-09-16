@@ -612,6 +612,32 @@ export class WorkspaceService {
     return this.userRepo.getUsersPaginated(workspaceId, pagination);
   }
 
+  async GetWorkspaceMember(userId: string, workspaceId: string) {
+    const user = await this.userRepo.findById(userId, workspaceId);
+
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('Workspace member not found');
+    }
+
+    const groups = await this.groupRepo.ListUserGroup(userId, workspaceId);
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+        locale: user.locale,
+        timezone: user.timezone,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
+        deactivatedAt: user.deactivatedAt,
+      },
+      groups,
+    };
+  }
+
   async updateWorkspaceUserRole(
     authUser: User,
     userRoleDto: UpdateWorkspaceUserRoleDto,

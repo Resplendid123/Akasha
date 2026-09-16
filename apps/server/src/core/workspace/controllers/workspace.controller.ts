@@ -40,6 +40,7 @@ import { RemoveWorkspaceUserDto } from '../dto/remove-workspace-user.dto';
 import { WorkspaceRepo } from '@akasha/db/repos/workspace/workspace.repo';
 import { Feature } from '../../../common/features';
 import { UpdateSkillSettingsDto } from '../dto/skill-settings.dto';
+import { GetWorkspaceMemberDto } from '../dto/get-workspace-member.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('workspace')
@@ -188,6 +189,21 @@ export class WorkspaceController {
     }
 
     return this.workspaceService.getWorkspaceUsers(workspace.id, pagination);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('members/info')
+  async GetWorkspaceMember(
+    @Body() dto: GetWorkspaceMemberDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    const ability = this.workspaceAbility.createForUser(user, workspace);
+    if (ability.cannot(WorkspaceCaslAction.Read, WorkspaceCaslSubject.Member)) {
+      throw new ForbiddenException();
+    }
+
+    return this.workspaceService.GetWorkspaceMember(dto.userId, workspace.id);
   }
 
   @HttpCode(HttpStatus.OK)
