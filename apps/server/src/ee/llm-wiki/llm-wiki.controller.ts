@@ -191,7 +191,12 @@ export class LlmWikiController {
         : { generalKnowledgeEnabled: false }),
     });
     const queryHash = hashQuery(dto.query);
-    const { retrievalDiagnostics, retrievalScope, ...response } = result;
+    // attachmentHitContext is an internal retrieval detail (§7.1): the regular
+    // query API never resolves top-level attachments, so strip it here too so it
+    // can never leak through `...response` as a public field.
+    const { retrievalDiagnostics, retrievalScope, attachmentHitContext, ...response } =
+      result;
+    void attachmentHitContext;
     // The knowledge path always returns a scope. Keep audit recording
     // defensive for the legacy pure-general path and older service mocks.
     const requestedSpaceIds = retrievalScope?.requestedSpaceIds ?? dto.spaceIds;

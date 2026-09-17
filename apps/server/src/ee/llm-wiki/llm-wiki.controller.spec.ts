@@ -75,6 +75,9 @@ describe('LlmWikiController', () => {
           requestedSpaceIds: ['space-1'],
           effectiveSpaceIds: ['space-1'],
         },
+        // Internal retrieval detail the shared chat service attaches on every
+        // branch; the regular query API must strip it, never expose it (§7.1).
+        attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
       }),
     };
     const auditService = {
@@ -89,6 +92,8 @@ describe('LlmWikiController', () => {
       queryAuditRepo,
     });
 
+    // Exact match: proves attachmentHitContext/retrievalDiagnostics/retrievalScope
+    // are all stripped, not just absent from the mock.
     await expect(
       controller.queryKnowledge(
         { query: 'How do we use Kafka?', spaceIds: ['space-1'] },

@@ -25,6 +25,9 @@ import {
 export const KNOWLEDGE_COMPLETENESS_NOTICE =
   'Some knowledge may be unavailable because access is permission-scoped.';
 
+/** Whether a chunk entered the result via direct recall or graph expansion. */
+export type KnowledgeRetrievalOrigin = 'direct' | 'graph';
+
 export type KnowledgeRetrievalResult = {
   mode: 'high_completeness' | 'high_completeness_fallback';
   chunks: Array<{
@@ -32,12 +35,19 @@ export type KnowledgeRetrievalResult = {
     page: KnowledgePage;
     sourcePageIds: string[];
     rankReasons: KnowledgeRetrievalRankReason[];
+    // Recorded before direct/graph merge so downstream consumers never have to
+    // infer the source from rankReasons text (§7.1).
+    origin: KnowledgeRetrievalOrigin;
     parentSection?: KnowledgeParentSection;
   }>;
   capsules: KnowledgePage[];
   completenessNotice: typeof KNOWLEDGE_COMPLETENESS_NOTICE;
   scope: KnowledgeRetrievalScope;
   diagnostics: KnowledgeRetrievalDiagnostics;
+  // Direct-hit chunk ids that survived final selection, in retrieval-rank
+  // order. Populated before citation resolution rewrites parent bodies or the
+  // context budget truncates chunks (§7.1).
+  directHitChunkIds: string[];
 };
 
 export type KnowledgeRetrievalScope = {
@@ -379,6 +389,7 @@ export class KnowledgeRetrievalService {
           page: candidate.page,
           sourcePageIds,
           rankReasons: candidate.rankReasons,
+          origin: 'direct',
           ...(candidate.parentSection
             ? { parentSection: candidate.parentSection }
             : {}),
@@ -414,6 +425,11 @@ export class KnowledgeRetrievalService {
     const finalAuthorizedSourceCount = unique(
       selectedChunks.flatMap((candidate) => candidate.sourcePageIds),
     ).length;
+    // Direct hits that survived blending, in their final rank order. Graph-only
+    // chunks never contribute attachments (§7.1 / §1.2).
+    const directHitChunkIds = selectedChunks
+      .filter((candidate) => candidate.origin === 'direct')
+      .map((candidate) => candidate.chunk.id);
 
     return {
       mode: accessPolicyFallbackUsed
@@ -421,6 +437,7 @@ export class KnowledgeRetrievalService {
         : 'high_completeness',
       chunks: selectedChunks,
       capsules: [],
+      directHitChunkIds,
       completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
       scope: {
         requestedSpaceIds,
@@ -563,6 +580,7 @@ export class KnowledgeRetrievalService {
           'graph-neighbor' as const,
           'sidecar-prefiltered' as const,
         ],
+        origin: 'graph' as const,
         ...(candidate.parentSection
           ? { parentSection: candidate.parentSection }
           : {}),
@@ -585,6 +603,7 @@ function emptyResult(input: {
     mode: input.mode ?? 'high_completeness',
     chunks: [],
     capsules: [],
+    directHitChunkIds: [],
     completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
     scope: input.scope,
     diagnostics: {
@@ -728,8 +747,38 @@ function blendDirectAndGraph(
   limit: number,
 ): KnowledgeRetrievalResult['chunks'] {
   if (limit <= 0) return [];
+
+  const selected: KnowledgeRetrievalResult['chunks'] = [];
+  const selectedChunkIds = new Set<string>();
+  const directByChunkId = new Map<
+    string,
+    KnowledgeRetrievalResult['chunks'][number]
+  >();
+  for (const candidate of direct) {
+    if (!directByChunkId.has(candidate.chunk.id)) {
+      directByChunkId.set(candidate.chunk.id, candidate);
+    }
+  }
+  // Dedup is enforced here rather than assumed from the callers: a chunk that
+  // surfaces in both direct and graph is kept once (as its first, direct-origin
+  // entry) and never counted twice, so a duplicate can never burn a graph slot
+  // at the expense of a real direct hit.
+  const take = (
+    candidate: KnowledgeRetrievalResult['chunks'][number],
+  ): boolean => {
+    if (selected.length >= limit) return false;
+    if (selectedChunkIds.has(candidate.chunk.id)) return false;
+    selected.push(candidate);
+    selectedChunkIds.add(candidate.chunk.id);
+    return true;
+  };
+
   if (graph.length === 0 || direct.length === 0 || limit === 1) {
-    return (direct.length > 0 ? direct : graph).slice(0, limit);
+    for (const candidate of direct.length > 0 ? direct : graph) {
+      if (selected.length >= limit) break;
+      take(candidate);
+    }
+    return selected;
   }
 
   const graphQuota = Math.min(
@@ -737,18 +786,24 @@ function blendDirectAndGraph(
     Math.max(1, Math.floor(limit / 4)),
     limit - 1,
   );
-  const selected = [
-    ...direct.slice(0, limit - graphQuota),
-    ...graph.slice(0, graphQuota),
-  ];
-  const selectedChunkIds = new Set(
-    selected.map((candidate) => candidate.chunk.id),
-  );
+  // Preserve the original blend policy: reserve the direct slice, then inspect
+  // only the graph quota slice. Mapping a graph candidate back to its direct
+  // copy preserves origin without promoting deeper graph candidates and
+  // changing unrelated retrieval results.
+  for (const candidate of direct.slice(0, limit - graphQuota)) {
+    take(candidate);
+  }
+  // When graph expansion rediscovers any direct candidate, including one below
+  // the direct cutoff, keep the direct copy so attachment eligibility is not
+  // lost. Duplicate slots are removed and handled by the existing direct-first
+  // backfill below.
+  for (const candidate of graph.slice(0, graphQuota)) {
+    take(directByChunkId.get(candidate.chunk.id) ?? candidate);
+  }
+  // Backfill any remaining slots, direct first then graph.
   for (const candidate of [...direct, ...graph]) {
     if (selected.length >= limit) break;
-    if (selectedChunkIds.has(candidate.chunk.id)) continue;
-    selected.push(candidate);
-    selectedChunkIds.add(candidate.chunk.id);
+    take(candidate);
   }
   return selected;
 }

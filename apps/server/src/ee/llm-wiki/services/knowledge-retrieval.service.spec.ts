@@ -144,9 +144,11 @@ describe('KnowledgeRetrievalService', () => {
           page: candidate('kp-visible', 'space-1'),
           sourcePageIds: ['source-visible'],
           rankReasons: ['semantic', 'sidecar-prefiltered'],
+          origin: 'direct',
         },
       ],
       capsules: [],
+      directHitChunkIds: ['chunk-visible'],
       completenessNotice:
         'Some knowledge may be unavailable because access is permission-scoped.',
       scope: {
@@ -225,6 +227,7 @@ describe('KnowledgeRetrievalService', () => {
       mode: 'high_completeness',
       chunks: [],
       capsules: [],
+      directHitChunkIds: [],
       completenessNotice:
         'Some knowledge may be unavailable because access is permission-scoped.',
       scope: {
@@ -356,9 +359,11 @@ describe('KnowledgeRetrievalService', () => {
           page: candidate('kp-lexical', 'space-1'),
           sourcePageIds: ['source-lexical'],
           rankReasons: ['lexical', 'sidecar-prefiltered'],
+          origin: 'direct',
         },
       ],
       capsules: [],
+      directHitChunkIds: ['chunk-lexical'],
       completenessNotice:
         'Some knowledge may be unavailable because access is permission-scoped.',
       scope: {
@@ -659,6 +664,310 @@ describe('KnowledgeRetrievalService', () => {
 
     expect(result.chunks).toHaveLength(1);
     expect(capsuleRepo.findGraphChunkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('tags direct hits with origin=direct and graph hits with origin=graph, and only direct hits enter directHitChunkIds', async () => {
+    const direct = chunkCandidate(
+      'chunk-seed',
+      'kp-seed',
+      ['source-seed'],
+      ['lexical'],
+      null,
+      'Seed result',
+    );
+    const neighbor = chunkCandidate(
+      'chunk-neighbor',
+      'kp-neighbor',
+      ['source-neighbor'],
+      ['graph-neighbor'],
+      null,
+      'Graph neighbor',
+    );
+    const capsuleRepo = {
+      findDenseChunkCandidates: jest.fn().mockResolvedValue([]),
+      findLexicalChunkCandidates: jest.fn().mockResolvedValue([direct]),
+      findExactTitleChunkCandidates: jest.fn().mockResolvedValue([]),
+      findChunkSourcePageIdsByChunkIds: jest
+        .fn()
+        .mockResolvedValue([
+          { chunkId: 'chunk-seed', sourcePageIds: ['source-seed'] },
+        ]),
+      findGraphTraversalEdges: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'edge-1',
+            fromKnowledgePageId: 'kp-seed',
+            toKnowledgePageId: 'kp-neighbor',
+            type: 'link',
+            weight: 3,
+            sourcePageIds: ['source-edge'],
+          },
+        ])
+        .mockResolvedValue([]),
+      findGraphChunkCandidates: jest.fn().mockResolvedValue([neighbor]),
+    };
+    const sourceAuthorization = {
+      filterReadableSources: jest
+        .fn()
+        .mockImplementation(({ sourcePageIds }) =>
+          Promise.resolve(sourcePageIds),
+        ),
+    };
+    const service = createService({ capsuleRepo, sourceAuthorization });
+
+    const result = await service.retrieve({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'seed',
+      spaceIds: ['space-1'],
+      candidateLimit: 4,
+    });
+
+    expect(
+      result.chunks.map(({ chunk, origin }) => ({ id: chunk.id, origin })),
+    ).toEqual([
+      { id: 'chunk-seed', origin: 'direct' },
+      { id: 'chunk-neighbor', origin: 'graph' },
+    ]);
+    // Graph-only chunks never contribute attachments (§7.1 / §1.2).
+    expect(result.directHitChunkIds).toEqual(['chunk-seed']);
+  });
+
+  it('keeps origin=direct on final-authorization-fallback hits without relying on rankReasons', async () => {
+    const fallbackCandidate = chunkCandidate(
+      'chunk-fallback',
+      'kp-fallback',
+      ['source-fallback'],
+      ['semantic'],
+      [1, 0],
+      'Fallback candidate',
+    );
+    const capsuleRepo = {
+      findDenseChunkCandidates: jest
+        .fn()
+        .mockImplementation(({ authorizationMode }) =>
+          Promise.resolve(
+            authorizationMode === 'final-authorization-fallback'
+              ? [fallbackCandidate]
+              : [],
+          ),
+        ),
+      findLexicalChunkCandidates: jest.fn().mockResolvedValue([]),
+      findExactTitleChunkCandidates: jest.fn().mockResolvedValue([]),
+      findChunkSourcePageIdsByChunkIds: jest
+        .fn()
+        .mockResolvedValue([
+          { chunkId: 'chunk-fallback', sourcePageIds: ['source-fallback'] },
+        ]),
+    };
+    const service = createService({
+      capsuleRepo,
+      sourceAuthorization: {
+        filterReadableSources: jest.fn().mockResolvedValue(['source-fallback']),
+      },
+    });
+
+    const result = await service.retrieve({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'fallback',
+      spaceIds: ['space-1'],
+    });
+
+    expect(result.chunks[0].origin).toBe('direct');
+    // rankReasons no longer carries 'sidecar-prefiltered', proving origin is
+    // recorded independently of the reason text.
+    expect(result.chunks[0].rankReasons).toEqual([
+      'semantic',
+      'final-authorization-fallback',
+    ]);
+    expect(result.directHitChunkIds).toEqual(['chunk-fallback']);
+  });
+
+  it('treats a chunk that is both a direct hit and a graph neighbor as direct', async () => {
+    const shared = chunkCandidate(
+      'chunk-shared',
+      'kp-shared',
+      ['source-shared'],
+      ['lexical'],
+      null,
+      'Shared result',
+    );
+    // Graph expansion rediscovers the same chunk id (e.g. reached via a
+    // neighbor page); blend must keep the direct copy.
+    const graphView = chunkCandidate(
+      'chunk-shared',
+      'kp-other',
+      ['source-other'],
+      ['graph-neighbor'],
+      null,
+      'Shared result',
+    );
+    const capsuleRepo = {
+      findDenseChunkCandidates: jest.fn().mockResolvedValue([]),
+      findLexicalChunkCandidates: jest.fn().mockResolvedValue([shared]),
+      findExactTitleChunkCandidates: jest.fn().mockResolvedValue([]),
+      findChunkSourcePageIdsByChunkIds: jest
+        .fn()
+        .mockResolvedValue([
+          { chunkId: 'chunk-shared', sourcePageIds: ['source-shared'] },
+        ]),
+      findGraphTraversalEdges: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'edge-1',
+            fromKnowledgePageId: 'kp-shared',
+            toKnowledgePageId: 'kp-other',
+            type: 'link',
+            weight: 3,
+            sourcePageIds: ['source-other'],
+          },
+        ])
+        .mockResolvedValue([]),
+      findGraphChunkCandidates: jest.fn().mockResolvedValue([graphView]),
+    };
+    const sourceAuthorization = {
+      filterReadableSources: jest
+        .fn()
+        .mockImplementation(({ sourcePageIds }) =>
+          Promise.resolve(sourcePageIds),
+        ),
+    };
+    const service = createService({ capsuleRepo, sourceAuthorization });
+
+    const result = await service.retrieve({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'shared',
+      spaceIds: ['space-1'],
+      candidateLimit: 4,
+    });
+
+    // The direct copy is ordered first (blend keeps direct priority), so the
+    // first occurrence of the shared id carries origin='direct'.
+    expect(
+      result.chunks.find((c) => c.chunk.id === 'chunk-shared')?.origin,
+    ).toBe('direct');
+    // Only the direct-origin entry feeds attachment resolution, so the shared
+    // id appears exactly once in directHitChunkIds even though graph expansion
+    // also surfaced it (§1.2: "既 direct 又 graph 按 direct").
+    expect(result.directHitChunkIds).toEqual(['chunk-shared']);
+    // The shared chunk must appear exactly once in the blended result: blend
+    // dedups on its own, so a duplicate can never occupy two slots (which would
+    // otherwise burn a graph slot and drop a real direct hit).
+    const sharedOccurrences = result.chunks.filter(
+      (c) => c.chunk.id === 'chunk-shared',
+    );
+    expect(sharedOccurrences).toHaveLength(1);
+    // No chunk id is duplicated anywhere in the blended result.
+    const chunkIds = result.chunks.map((c) => c.chunk.id);
+    expect(new Set(chunkIds).size).toBe(chunkIds.length);
+  });
+
+  it('keeps direct origin when graph selects a direct hit below the reserved direct cutoff', async () => {
+    const direct = [
+      chunkCandidate(
+        'chunk-a',
+        'kp-a',
+        ['source-a'],
+        ['lexical'],
+        null,
+        'Shared query result A',
+      ),
+      chunkCandidate(
+        'chunk-b',
+        'kp-b',
+        ['source-b'],
+        ['lexical'],
+        null,
+        'Shared query result B',
+      ),
+      chunkCandidate(
+        'chunk-c',
+        'kp-c',
+        ['source-c'],
+        ['lexical'],
+        null,
+        'Shared query result C',
+      ),
+      chunkCandidate(
+        'chunk-z-shared',
+        'kp-shared',
+        ['source-shared'],
+        ['lexical'],
+        null,
+        'Shared query result Z',
+      ),
+    ];
+    const graphView = chunkCandidate(
+      'chunk-z-shared',
+      'kp-neighbor',
+      ['source-neighbor'],
+      ['graph-neighbor'],
+      null,
+      'Shared query result Z',
+    );
+    const capsuleRepo = {
+      findDenseChunkCandidates: jest.fn().mockResolvedValue([]),
+      findLexicalChunkCandidates: jest.fn().mockResolvedValue(direct),
+      findExactTitleChunkCandidates: jest.fn().mockResolvedValue([]),
+      findChunkSourcePageIdsByChunkIds: jest.fn().mockResolvedValue(
+        direct.map((candidate) => ({
+          chunkId: candidate.chunk.id,
+          sourcePageIds: candidate.sourcePageIds,
+        })),
+      ),
+      findGraphTraversalEdges: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'edge-1',
+            fromKnowledgePageId: 'kp-a',
+            toKnowledgePageId: 'kp-neighbor',
+            type: 'link',
+            weight: 3,
+            sourcePageIds: ['source-edge'],
+          },
+        ])
+        .mockResolvedValue([]),
+      findGraphChunkCandidates: jest.fn().mockResolvedValue([graphView]),
+    };
+    const service = createService({
+      capsuleRepo,
+      sourceAuthorization: {
+        filterReadableSources: jest
+          .fn()
+          .mockImplementation(({ sourcePageIds }) =>
+            Promise.resolve(sourcePageIds),
+          ),
+      },
+    });
+
+    const result = await service.retrieve({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'shared query',
+      spaceIds: ['space-1'],
+      candidateLimit: 4,
+    });
+
+    expect(
+      result.chunks.map(({ chunk, origin }) => ({ id: chunk.id, origin })),
+    ).toEqual([
+      { id: 'chunk-a', origin: 'direct' },
+      { id: 'chunk-b', origin: 'direct' },
+      { id: 'chunk-c', origin: 'direct' },
+      { id: 'chunk-z-shared', origin: 'direct' },
+    ]);
+    expect(result.directHitChunkIds).toEqual([
+      'chunk-a',
+      'chunk-b',
+      'chunk-c',
+      'chunk-z-shared',
+    ]);
+    expect(new Set(result.directHitChunkIds).size).toBe(4);
   });
 });
 

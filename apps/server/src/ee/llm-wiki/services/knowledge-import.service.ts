@@ -375,6 +375,23 @@ export class KnowledgeImportService {
           attachmentId: null,
         })),
       );
+      // Chunk id reuses the same deterministic key as the chunk row so the
+      // relation rows publish in the same transaction; occurrence_order keeps
+      // the in-block order for repeated attachments (§6.1 / §6.2).
+      const chunkAttachments = chunks.flatMap((chunk, index) =>
+        (artifact.chunks?.[index]?.attachmentOccurrences ?? []).map(
+          (occurrence, occurrenceOrder) => ({
+            workspaceId: artifact.workspaceId,
+            chunkId: chunk.id,
+            occurrenceOrder,
+            attachmentId: occurrence.attachmentId,
+            sourcePageId: occurrence.sourcePageId,
+            sourceVersion: occurrence.sourceVersion,
+            sourceContentHash: occurrence.sourceContentHash,
+            attachmentUpdatedAt: new Date(occurrence.attachmentUpdatedAt),
+          }),
+        ),
+      );
       const links = (artifact.links ?? []).map((link, index) => {
         const linkId = stableUuid(`${artifact.artifactId}:link:${index}`);
 
@@ -483,6 +500,7 @@ export class KnowledgeImportService {
         claimSources,
         chunks,
         chunkSources,
+        chunkAttachments,
         links,
         linkSources,
         graphEdges,
@@ -845,6 +863,14 @@ const QUARANTINE_REASON_CODES = new Map<string, string>([
   ['link source is not in compile input', 'link_source_outside_compile_input'],
   ['link source range is invalid', 'link_source_range_invalid'],
   ['link quote hash does not match source range', 'link_quote_hash_mismatch'],
+  [
+    'chunk attachment occurrence is not backed by a deterministic source block',
+    'chunk_attachment_occurrence_unverifiable',
+  ],
+  [
+    'chunk attachment occurrence does not match source snapshot',
+    'chunk_attachment_occurrence_snapshot_mismatch',
+  ],
   ['graph edge target id must be a UUID', 'graph_edge_target_id_invalid'],
   ['graph edge lineage is incomplete', 'graph_edge_lineage_incomplete'],
   [

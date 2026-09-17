@@ -21,9 +21,11 @@ describe('AiKnowledgeChatService', () => {
             page: capsule('kp-1', 'Chaterm'),
             sourcePageIds: ['page-1'],
             rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+            origin: 'direct',
           },
         ],
         capsules: [],
+        directHitChunkIds: ['chunk-1'],
         completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
         diagnostics: {
           queryEmbeddingAvailable: true,
@@ -179,6 +181,7 @@ describe('AiKnowledgeChatService', () => {
         authorizedChunkCount: 1,
         filteredChunkCount: 0,
       },
+      attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
     });
 
     expect(retrieval.retrieve).toHaveBeenCalledWith(
@@ -228,6 +231,7 @@ describe('AiKnowledgeChatService', () => {
           page: capsule('kp-1', 'Chaterm'),
           sourcePageIds: ['page-1'],
           rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+          origin: 'direct',
         },
       ],
     });

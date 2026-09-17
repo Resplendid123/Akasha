@@ -59,15 +59,15 @@ request:
         required: false
         default: false
         description: >-
-          传入 true 时，在响应顶层返回 attachments 列表，包含引用页面的所有附件
-          及签名下载地址。未传入或传入 false 时，不返回 attachments 字段。
+          传入 true 时，在响应顶层返回 attachments 列表，仅包含本次最终直接命中块内
+          关联的有效非图片附件及签名下载地址，最多 5 个。未传入或传入 false 时，
+          不返回 attachments 字段。该字段不受 includeCitations 影响。
       includeCitations:
         type: boolean
         required: false
         default: false
         description: >-
-          是否附带引用资料。传入 true 时返回顶层 attachments 列表及签名下载
-          地址，与 attachments: true 等效；原有 citations 页面引用链接仍会返回。
+          是否附带引用资料，只控制 citations 相关内容。不会开启顶层 attachments 列表。
       generalKnowledgeEnabled:
         type: boolean
         required: false
@@ -168,9 +168,12 @@ response:
         type: string
       attachments:
         required: false
-        description: 仅当请求参数 attachments 或 includeCitations 为 true 时返回。
+        description: >-
+          仅当请求参数 attachments 为 true 时返回。包含本次最终直接命中块内关联的
+          有效非图片附件，最多 5 个；不包含同页其他位置、同步块归属附件或扩展上下文
+          中的附件。sourcePageId 未必出现在模型最终选择的 citations 中。
         type: array
-        maxItems: 15
+        maxItems: 5
         items:
           $ref: '#/definitions/attachment'
 

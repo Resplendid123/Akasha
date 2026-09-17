@@ -10,6 +10,7 @@ import {
   KnowledgeSourceSnapshot,
 } from '../types/source-snapshot.types';
 import { AttachmentType } from '../../../core/attachment/attachment.constants';
+import { serializeKnowledgeSource } from './knowledge-source-serializer';
 import { InjectKysely } from 'nestjs-kysely';
 import {
   KyselyDB,
@@ -90,6 +91,14 @@ export class KnowledgeSourceExporterService {
     const attachmentById = new Map(
       attachments.map((attachment) => [attachment.id, attachment]),
     );
+    const pageIds = pages.map((page) => page.id);
+    const pageAttachments = trx
+      ? await this.attachmentRepo.findByPageIds(pageIds, workspaceId, { trx })
+      : await this.attachmentRepo.findByPageIds(pageIds, workspaceId);
+    const attachmentsByPageId = groupBy(
+      pageAttachments,
+      (attachment) => attachment.pageId ?? '',
+    );
     const referenceQuery = {
       workspaceId,
       sourcePageIds: pages.map((page) => page.id),
@@ -139,16 +148,58 @@ export class KnowledgeSourceExporterService {
           ];
         },
       );
+      const pageAttachmentsById = new Map(
+        (attachmentsByPageId.get(page.id) ?? []).map((attachment) => [
+          attachment.id,
+          attachment,
+        ]),
+      );
+      const {
+        text: attachmentSerializedText,
+        attachmentOccurrences,
+        blocks: attachmentSerializedBlocks,
+      } = serializeKnowledgeSource({
+        page: {
+          id: page.id,
+          workspaceId: page.workspaceId,
+          spaceId: page.spaceId,
+          content: page.content,
+        },
+        attachmentsByPage: attachmentsByPageId.get(page.id) ?? [],
+      });
+      // §9.1: fingerprint the page-owned, non-image File attachments that the
+      // serializer resolved to real nodes so their add/remove/move/replace and
+      // file-name/updated_at changes fail source reuse. Pages without such
+      // attachments keep an empty fingerprint and a byte-identical contentHash
+      // (§9.2.5), so this never triggers a needless rebuild.
+      const attachmentFingerprint = attachmentOccurrences.map(
+        (occurrence, order) => ({
+          attachmentId: occurrence.attachmentId,
+          order,
+          startOffset: occurrence.startOffset,
+          endOffset: occurrence.endOffset,
+          fileName:
+            pageAttachmentsById.get(occurrence.attachmentId)?.fileName ?? '',
+          attachmentUpdatedAt: occurrence.attachmentUpdatedAt,
+        }),
+      );
       return {
         workspaceId: page.workspaceId,
         spaceId: page.spaceId,
         sourcePageId: page.id,
         sourceVersion: page.updatedAt.toISOString(),
-        contentHash: `sha256:${hashSource(title, text, page.content, images)}`,
+        contentHash: `sha256:${hashSource(title, text, page.content, images, attachmentFingerprint)}`,
         title,
         text,
         content: page.content ?? undefined,
         ...(images.length > 0 ? { images } : {}),
+        ...(attachmentOccurrences.length > 0
+          ? {
+              attachmentOccurrences,
+              attachmentSerializedText,
+              attachmentSerializedBlocks,
+            }
+          : {}),
         references: (referencesBySourcePageId.get(page.id) ?? []).map(
           (reference) => ({
             sourcePageId: page.id,
@@ -189,17 +240,27 @@ function groupBy<T>(
   return grouped;
 }
 
+type SourceAttachmentFingerprint = {
+  attachmentId: string;
+  order: number;
+  startOffset: number;
+  endOffset: number;
+  fileName: string;
+  attachmentUpdatedAt: string;
+};
+
 function hashSource(
   title: string,
   text: string,
   content: unknown,
   images: KnowledgeSourceImage[],
+  attachmentFingerprint: SourceAttachmentFingerprint[],
 ): string {
   const canonicalContent = canonicalKnowledgeContent(
     content,
     new Set(images.map((image) => image.attachmentId)),
   );
-  return createHash('sha256')
+  const hash = createHash('sha256')
     .update(title)
     .update('\n')
     .update(text)
@@ -214,8 +275,15 @@ function hashSource(
           fileSize: image.fileSize,
         })),
       ),
-    )
-    .digest('hex');
+    );
+  // Only mix the attachment fingerprint in when the page actually has trusted,
+  // page-owned non-image File occurrences. An empty list leaves the digest
+  // byte-identical to the previous behavior so attachment-free pages never lose
+  // reuse from this change (§9.2.5).
+  if (attachmentFingerprint.length > 0) {
+    hash.update('\n').update(JSON.stringify(attachmentFingerprint));
+  }
+  return hash.digest('hex');
 }
 
 const IGNORED_ATTACHMENT_NODE_TYPES = new Set([

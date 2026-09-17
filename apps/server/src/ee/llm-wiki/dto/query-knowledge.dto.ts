@@ -26,12 +26,15 @@ export class QueryKnowledgeDto {
   @IsBoolean()
   generalKnowledgeEnabled?: boolean;
 
-  /** Return signed URLs for attachments belonging to cited pages. */
+  /**
+   * Return signed URLs for non-image attachments that live inside the final
+   * direct-hit blocks of this retrieval, up to 5 items.
+   */
   @IsOptional()
   @IsBoolean()
   attachments?: boolean;
 
-  /** Return citation materials, including signed attachment download URLs. */
+  /** Return citation materials. Does not control top-level attachments. */
   @IsOptional()
   @IsBoolean()
   includeCitations?: boolean;

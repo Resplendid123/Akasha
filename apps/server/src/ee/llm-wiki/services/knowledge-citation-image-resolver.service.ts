@@ -273,7 +273,15 @@ export class KnowledgeCitationImageResolverService {
         });
       }
 
-      // Weak association: score only strong-uncovered run-image candidates,
+      // A validated strong association is grounded in this citation's own
+      // evidence. Do not append a weaker same-page candidate: term-only weak
+      // matching can otherwise surface an unrelated image whose OCR/caption
+      // merely mentions the query (including in a negated sentence). Signing
+      // remains a later, isolated step; a strong-image signing failure does not
+      // reopen weak selection for this citation.
+      if (strongCovered.size > 0) return;
+
+      // Weak association is a fallback only when no valid strong image exists:
       // keep the single highest-scoring image (>= threshold) per citation.
       const matchText = `${answerText}\n${evidenceTextByPage.get(pageId) ?? ''}`;
       const queryTerms = informativeTerms(matchText).filter(
@@ -285,7 +293,6 @@ export class KnowledgeCitationImageResolverService {
 
       let best: SelectedImage | null = null;
       for (const runImage of runImagesByPage.get(pageId) ?? []) {
-        if (strongCovered.has(runImage.attachmentId)) continue;
         const attachment = this.validateAttachment(
           attachmentById.get(runImage.attachmentId),
           pageId,

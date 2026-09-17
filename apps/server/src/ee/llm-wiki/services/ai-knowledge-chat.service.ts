@@ -128,6 +128,11 @@ export type AiKnowledgeChatResult = {
       : never;
   };
   retrievalScope?: KnowledgeRetrievalScope;
+  // Internal-only: the final direct-hit chunk ids from retrieval, carried on
+  // every normal return path so the controller can resolve hit-chunk
+  // attachments independently of the answer branch (§7.1). Never serialized to
+  // the API response; the controller strips it before assembling the payload.
+  attachmentHitContext?: { directHitChunkIds: string[] };
 };
 
 /** Result returned to external agents that perform their own answer judgment. */
@@ -262,7 +267,17 @@ export class AiKnowledgeChatService {
 
     const thinking = new AiChatThinkingProgress(input.onThinking);
     if (input.responseMode === 'general') {
-      return this.answerFromGeneralKnowledge(input, thinking, 'preparing');
+      // No retrieval runs on this path, so there is no hit set; keep the field
+      // present and empty for a uniform internal contract (§7.1).
+      const generalAnswer = await this.answerFromGeneralKnowledge(
+        input,
+        thinking,
+        'preparing',
+      );
+      return {
+        ...generalAnswer,
+        attachmentHitContext: { directHitChunkIds: [] },
+      };
     }
 
     // One request-scoped authorization cache, bound to this (workspace, user),
@@ -388,6 +403,11 @@ export class AiKnowledgeChatService {
       ...retrieval.diagnostics,
     };
     const retrievalScope = retrieval.scope;
+    // Carried on every normal return path below (§1.2: retrieval hits are
+    // resolved by the hit set regardless of the answer branch).
+    const attachmentHitContext = {
+      directHitChunkIds: retrieval.directHitChunkIds,
+    };
     const hasKnowledgeEvidence =
       explicit.context.trim().length > 0 ||
       pack.primary.some((entry) => entry.sourceWindows.length > 0);
@@ -415,6 +435,7 @@ export class AiKnowledgeChatService {
             : {}),
           retrievalDiagnostics,
           ...(retrievalScope ? { retrievalScope } : {}),
+          attachmentHitContext,
         };
       }
       const generalAnswer = await this.answerFromGeneralKnowledge(
@@ -429,6 +450,7 @@ export class AiKnowledgeChatService {
           : {}),
         retrievalDiagnostics,
         ...(retrievalScope ? { retrievalScope } : {}),
+        attachmentHitContext,
       };
     }
 
@@ -500,6 +522,7 @@ export class AiKnowledgeChatService {
             : {}),
           retrievalDiagnostics,
           ...(retrievalScope ? { retrievalScope } : {}),
+          attachmentHitContext,
         };
       }
       const generalAnswer = await this.answerFromGeneralKnowledge(
@@ -517,6 +540,7 @@ export class AiKnowledgeChatService {
           : {}),
         retrievalDiagnostics,
         ...(retrievalScope ? { retrievalScope } : {}),
+        attachmentHitContext,
       };
     }
     let cleanAnswer = stripCitationMarkers(generatedAnswer.content);
@@ -559,6 +583,7 @@ export class AiKnowledgeChatService {
       completenessNotice: pack.completenessNotice,
       retrievalDiagnostics,
       ...(retrievalScope ? { retrievalScope } : {}),
+      attachmentHitContext,
     };
   }
 
