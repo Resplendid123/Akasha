@@ -1,5 +1,5 @@
 import api from "@/lib/api-client";
-import { IGroup } from "@/features/group/types/group.types";
+import { IGroup, IGroupTreeNode } from "@/features/group/types/group.types";
 import { IPagination, QueryParams } from "@/lib/types.ts";
 import { IUser } from "@/features/user/types/user.types.ts";
 
@@ -7,6 +7,11 @@ export async function getGroups(
   params?: QueryParams,
 ): Promise<IPagination<IGroup>> {
   const req = await api.post("/groups", params);
+  return req.data;
+}
+
+export async function getGroupTree(): Promise<IGroupTreeNode[]> {
+  const req = await api.post<IGroupTreeNode[]>("/groups/tree");
   return req.data;
 }
 

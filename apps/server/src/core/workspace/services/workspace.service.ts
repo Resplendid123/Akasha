@@ -613,6 +613,32 @@ export class WorkspaceService {
     return this.userRepo.getUsersPaginated(workspaceId, pagination);
   }
 
+  async GetWorkspaceMember(userId: string, workspaceId: string) {
+    const user = await this.userRepo.findById(userId, workspaceId);
+
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('Workspace member not found');
+    }
+
+    const groups = await this.groupRepo.ListUserGroup(userId, workspaceId);
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+        locale: user.locale,
+        timezone: user.timezone,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
+        deactivatedAt: user.deactivatedAt,
+      },
+      groups,
+    };
+  }
+
   async updateWorkspaceUserRole(
     authUser: User,
     userRoleDto: UpdateWorkspaceUserRoleDto,
@@ -864,6 +890,41 @@ export class WorkspaceService {
     }
 
     await this.deleteUserInternal(user, userId, workspaceId);
+  }
+
+  async deactivateUserBySso(
+    userId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const user = await this.userRepo.findById(userId, workspaceId);
+
+    if (!user || user.deletedAt || user.deactivatedAt) return;
+    if (user.role === UserRole.OWNER) {
+      throw new ConflictException('SSO cannot deactivate a workspace owner');
+    }
+
+    await executeTx(this.db, async (trx) => {
+      await this.userRepo.updateUser(
+        { deactivatedAt: new Date() },
+        userId,
+        workspaceId,
+        trx,
+      );
+      await this.userSessionRepo.revokeByUserId(userId, workspaceId, trx);
+    });
+
+    this.auditService.log({
+      event: AuditEvent.USER_DEACTIVATED,
+      resourceType: AuditResource.USER,
+      resourceId: user.id,
+      changes: {
+        before: {
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+    });
   }
 
   private async deleteUserInternal(
