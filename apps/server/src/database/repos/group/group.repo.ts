@@ -200,6 +200,21 @@ export class GroupRepo {
       .execute();
   }
 
+  async findAllByWorkspace(workspaceId: string) {
+    return this.db
+      .selectFrom('groups')
+      .select([
+        'groups.id',
+        'groups.name',
+        'groups.description',
+        'groups.isDefault',
+        'groups.isExternal',
+      ])
+      .select((eb) => this.withMemberCount(eb))
+      .where('workspaceId', '=', workspaceId)
+      .execute();
+  }
+
   async delete(
     groupId: string,
     workspaceId: string,

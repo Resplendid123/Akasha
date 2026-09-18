@@ -50,6 +50,20 @@ export class GroupController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Post('tree')
+  getGroupTree(
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    const ability = this.workspaceAbility.createForUser(user, workspace);
+    if (ability.cannot(WorkspaceCaslAction.Read, WorkspaceCaslSubject.Group)) {
+      throw new ForbiddenException();
+    }
+
+    return this.groupService.getGroupTree(workspace.id);
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Post('/info')
   getGroup(
     @Body() groupIdDto: GroupIdDto,

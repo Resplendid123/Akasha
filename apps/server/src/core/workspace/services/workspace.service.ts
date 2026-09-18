@@ -886,6 +886,41 @@ export class WorkspaceService {
     await this.deleteUserInternal(user, userId, workspaceId);
   }
 
+  async deactivateUserBySso(
+    userId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const user = await this.userRepo.findById(userId, workspaceId);
+
+    if (!user || user.deletedAt || user.deactivatedAt) return;
+    if (user.role === UserRole.OWNER) {
+      throw new ConflictException('SSO cannot deactivate a workspace owner');
+    }
+
+    await executeTx(this.db, async (trx) => {
+      await this.userRepo.updateUser(
+        { deactivatedAt: new Date() },
+        userId,
+        workspaceId,
+        trx,
+      );
+      await this.userSessionRepo.revokeByUserId(userId, workspaceId, trx);
+    });
+
+    this.auditService.log({
+      event: AuditEvent.USER_DEACTIVATED,
+      resourceType: AuditResource.USER,
+      resourceId: user.id,
+      changes: {
+        before: {
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+    });
+  }
+
   private async deleteUserInternal(
     user: User,
     userId: string,

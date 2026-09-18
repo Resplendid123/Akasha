@@ -5,7 +5,7 @@ import {
   UseQueryResult,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { IGroup } from "@/features/group/types/group.types";
+import { IGroup, IGroupTreeNode } from "@/features/group/types/group.types";
 import {
   addGroupMember,
   createGroup,
@@ -13,6 +13,7 @@ import {
   getGroupById,
   getGroupMembers,
   getGroups,
+  getGroupTree,
   removeGroupMember,
   updateGroup,
 } from "@/features/group/services/group-service";
@@ -44,6 +45,14 @@ export function useGetGroupsQuery(
   }, [query.data]);
 
   return query;
+}
+
+export function useGroupTreeQuery(): UseQueryResult<IGroupTreeNode[], Error> {
+  return useQuery({
+    queryKey: ["groupTree"],
+    queryFn: () => getGroupTree(),
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 export function useGroupQuery(groupId: string): UseQueryResult<IGroup, Error> {
