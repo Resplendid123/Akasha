@@ -6,14 +6,18 @@ import {
   IsBoolean,
   IsOptional,
   IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Max,
   Min,
   MinLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { normalizeLabelName } from '../../../core/label/utils';
 
 export enum KnowledgeQueryType {
   USER = 'user',
@@ -83,6 +87,28 @@ export class QueryKnowledgeDto {
   @ArrayUnique()
   @IsUUID('all', { each: true })
   spaceIds: string[];
+
+  /**
+   * Restrict retrieval to source pages that have at least one of these labels.
+   * Multiple labels use OR semantics.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(25)
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  @Transform(({ value }) =>
+    Array.isArray(value)
+      ? value.map((name) =>
+          typeof name === 'string' ? normalizeLabelName(name) : name,
+        )
+      : value,
+  )
+  @ArrayUnique()
+  @MaxLength(100, { each: true })
+  @Matches(/^[\p{L}\p{N}_-][\p{L}\p{N}_~-]*$/u, { each: true })
+  labels?: string[];
 
   @IsOptional()
   @IsArray()

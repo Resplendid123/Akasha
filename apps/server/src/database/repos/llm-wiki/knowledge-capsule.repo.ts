@@ -88,6 +88,8 @@ export type AuthorizedCandidateInput = {
   workspaceId: string;
   spaceIds: string[];
   principals: KnowledgeAccessPrincipal[];
+  /** Normalized page label names. A source page may match any supplied label. */
+  labelNames?: string[];
   retrievalChannel?: 'evidence' | 'memory';
   authorizationMode?: 'policy' | 'final-authorization-fallback';
 };
@@ -1657,12 +1659,36 @@ export class KnowledgeCapsuleRepo {
           AND source_presence.chunk_id = knowledge_chunks.id
       )
     `;
+    const labelScope =
+      input.labelNames && input.labelNames.length > 0
+        ? sql<boolean>`
+            NOT EXISTS (
+              SELECT 1
+              FROM knowledge_chunk_sources AS label_source
+              WHERE label_source.workspace_id = ${input.workspaceId}
+                AND label_source.chunk_id = knowledge_chunks.id
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM page_labels AS matching_page_label
+                  INNER JOIN labels AS matching_label
+                    ON matching_label.id = matching_page_label.label_id
+                  WHERE matching_page_label.page_id = label_source.source_page_id
+                    AND matching_label.workspace_id = ${input.workspaceId}
+                    AND matching_label.type = 'page'
+                    AND matching_label.name IN (${sql.join(input.labelNames)})
+                )
+            )
+          `
+        : sql<boolean>`TRUE`;
     if (input.authorizationMode === 'final-authorization-fallback') {
-      return (query as any).where(sourcePresence);
+      return (query as any).where(sql<boolean>`
+        ${sourcePresence} AND ${labelScope}
+      `);
     }
 
     return (query as any).where(sql<boolean>`
       ${sourcePresence}
+      AND ${labelScope}
       AND NOT EXISTS (
         SELECT 1
         FROM knowledge_chunk_sources AS acl_source

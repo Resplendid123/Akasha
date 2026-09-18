@@ -1,4 +1,5 @@
 import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { QueryKnowledgeDto } from './query-knowledge.dto';
 import { KnowledgeQueryType } from './query-knowledge.dto';
 
@@ -43,6 +44,36 @@ describe('QueryKnowledgeDto', () => {
     await expect(validate(createDto({ scoreThreshold: 0.6 }))).resolves.toEqual(
       [],
     );
+  });
+
+  it('accepts and normalizes multiple Unicode page labels', async () => {
+    const dto = plainToInstance(QueryKnowledgeDto, {
+      query: 'How do we use Kafka?',
+      spaceIds: ['00000000-0000-4000-8000-000000000001'],
+      labels: [' 项目 计划 ', 'Kafka'],
+    });
+
+    await expect(validate(dto)).resolves.toEqual([]);
+    expect(dto.labels).toEqual(['项目-计划', 'kafka']);
+  });
+
+  it.each([
+    ['an empty list', []],
+    ['duplicate normalized labels', ['Kafka', 'kafka']],
+    [
+      'more than twenty-five labels',
+      Array.from({ length: 26 }, (_, index) => `label-${index}`),
+    ],
+    ['an invalid label', ['项目!']],
+    ['a non-string label', ['kafka', 42]],
+  ])('rejects %s', async (_label, labels) => {
+    const dto = plainToInstance(QueryKnowledgeDto, {
+      query: 'How do we use Kafka?',
+      spaceIds: ['00000000-0000-4000-8000-000000000001'],
+      labels,
+    });
+
+    await expect(validate(dto)).resolves.not.toEqual([]);
   });
 
   it('accepts the raw results opt-in flag', async () => {

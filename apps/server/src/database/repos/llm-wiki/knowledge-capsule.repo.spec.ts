@@ -320,6 +320,30 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(sql.indexOf('not exists')).toBeLessThan(sql.indexOf('limit'));
   });
 
+  it('applies OR page-label filtering to every chunk source before candidate limits', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      labelNames: ['项目计划', 'kafka'],
+      query: 'Akasha wiki',
+      limit: 10,
+    });
+
+    const compiled = queries[0];
+    const sql = compiled.sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_chunk_sources as label_source');
+    expect(sql).toContain('page_labels as matching_page_label');
+    expect(sql).toContain('labels as matching_label');
+    expect(sql).toContain('matching_label.name in');
+    expect(sql.indexOf('label_source')).toBeLessThan(sql.indexOf('limit'));
+    expect(compiled.parameters).toEqual(
+      expect.arrayContaining(['项目计划', 'kafka']),
+    );
+  });
+
   it('normalizes titles and authorizes every source before title limits', async () => {
     const { repo, queries } = createSqlRepo();
 

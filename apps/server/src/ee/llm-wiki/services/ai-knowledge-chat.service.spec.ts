@@ -127,6 +127,7 @@ describe('AiKnowledgeChatService', () => {
         chatId: 'chat-1',
         query: 'Chaterm 登记批准日期',
         spaceIds: ['space-1'],
+        labelNames: ['项目计划', 'kafka'],
         chatContext: ['Previous turn'],
         onThinking,
       }),
@@ -190,6 +191,7 @@ describe('AiKnowledgeChatService', () => {
         userId: 'user-1',
         query: 'Chaterm 登记批准日期',
         spaceIds: ['space-1'],
+        labelNames: ['项目计划', 'kafka'],
       }),
     );
     // The request-scoped cache must actually be created and threaded into

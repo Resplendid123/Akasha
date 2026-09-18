@@ -184,6 +184,7 @@ export class LlmWikiController {
       userId: user.id,
       query: dto.query,
       spaceIds: dto.spaceIds,
+      ...(dto.labels?.length ? { labelNames: dto.labels } : {}),
       chatContext: dto.chatContext,
       workspace,
       ...(isGeneralKnowledgeEnabledForUser(user)
@@ -212,6 +213,7 @@ export class LlmWikiController {
         queryHash,
         ...(queryType === KnowledgeQueryType.ROBOT ? { type: queryType } : {}),
         spaceIds: dto.spaceIds,
+        ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
@@ -231,6 +233,7 @@ export class LlmWikiController {
         origin: 'knowledge_query',
         ...(queryType === KnowledgeQueryType.ROBOT ? { type: queryType } : {}),
         spaceIds: dto.spaceIds,
+        ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
