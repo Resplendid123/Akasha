@@ -580,6 +580,7 @@ describe('KnowledgeRetrievalService', () => {
       userId: 'user-1',
       query: 'seed',
       spaceIds: ['space-1'],
+      labelNames: ['项目计划', 'kafka'],
       candidateLimit: 4,
     });
 
@@ -607,7 +608,11 @@ describe('KnowledgeRetrievalService', () => {
       expect.objectContaining({
         knowledgePageIds: ['kp-neighbor-1', 'kp-neighbor-2'],
         principals: [{ principalType: 'user', principalId: 'user-1' }],
+        labelNames: ['项目计划', 'kafka'],
       }),
+    );
+    expect(capsuleRepo.findLexicalChunkCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({ labelNames: ['项目计划', 'kafka'] }),
     );
   });
 

@@ -91,6 +91,7 @@ export class KnowledgeRetrievalService {
     supplementalUserId?: string;
     query: string;
     spaceIds: string[];
+    labelNames?: string[];
     candidateLimit?: number;
     /** Maximum semantic cosine distance accepted during recall. */
     maxCosineDistance?: number;
@@ -206,6 +207,7 @@ export class KnowledgeRetrievalService {
       spaceIds: readableSpaceIds,
       principals,
       limit: sourceCandidateLimit,
+      ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
     };
     const recallChannel = (
       retrievalChannel: 'evidence' | 'memory',
@@ -411,6 +413,7 @@ export class KnowledgeRetrievalService {
           ),
           candidateLimit,
           authCache,
+          ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
         }),
       (result) => ({
         graphCandidateCount: result.candidateCount,
@@ -479,6 +482,7 @@ export class KnowledgeRetrievalService {
     seedPageIds: string[];
     candidateLimit: number;
     authCache: KnowledgeAuthorizationCache;
+    labelNames?: string[];
   }): Promise<GraphExpansionResult> {
     if (input.seedPageIds.length === 0 || input.candidateLimit <= 1) {
       return { chunks: [], candidateCount: 0 };
@@ -543,6 +547,7 @@ export class KnowledgeRetrievalService {
       principals: input.principals,
       knowledgePageIds: expandedPageIds,
       limit: Math.max(input.candidateLimit * 4, input.candidateLimit),
+      ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
     });
     if (candidates.length === 0) {
       return { chunks: [], candidateCount: 0 };

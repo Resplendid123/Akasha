@@ -163,28 +163,57 @@ export class KnowledgeCitationResolverService {
       (result) => ({ sourceWithWindowCount: result.size }),
     );
 
-    return input.chunks.map((entry) => ({
-      chunk: entry.parentSection
-        ? { ...entry.chunk, text: entry.parentSection.text }
-        : entry.chunk,
-      pageTitle: entry.page.title,
-      retrievalReasons: entry.rankReasons,
-      warnings: [],
-      citations: entry.sourcePageIds
-        .map((sourcePageId) => pagesById.get(sourcePageId))
-        .filter(Boolean)
-        .map((page) => citationForPage(page)),
-      sourceWindows: mergeSourceWindows([
-        ...buildSourceWindows(
+    const exactSourceWindowsByChunkId = new Map(
+      input.chunks.map((entry) => [
+        entry.chunk.id,
+        buildSourceWindows(
           sourceRefsByChunkId.get(entry.chunk.id) ?? [],
           pagesById,
           evidenceTextByPageId,
         ),
-        ...entry.sourcePageIds.flatMap(
-          (sourcePageId) => rawSourceWindowsByPageId.get(sourcePageId) ?? [],
-        ),
       ]),
-    }));
+    );
+    const exactTableRowWindows = input.chunks.flatMap((entry) =>
+      entry.chunk.stableKey?.startsWith('table-row:')
+        ? (exactSourceWindowsByChunkId.get(entry.chunk.id) ?? [])
+        : [],
+    );
+    const relevantTableRowWindows = selectRelevantTableRowWindows(
+      input.query ?? '',
+      exactTableRowWindows,
+    );
+
+    return input.chunks.map((entry) => {
+      const exactSourceWindows =
+        exactSourceWindowsByChunkId.get(entry.chunk.id) ?? [];
+      const exactSourcePageIds = new Set(
+        exactSourceWindows.map((window) => window.sourcePageId),
+      );
+      const isTableRow = entry.chunk.stableKey?.startsWith('table-row:');
+      const rawSourceWindows = entry.sourcePageIds.flatMap((sourcePageId) =>
+        isTableRow && exactSourcePageIds.has(sourcePageId)
+          ? []
+          : (rawSourceWindowsByPageId.get(sourcePageId) ?? []),
+      );
+
+      return {
+        chunk: entry.parentSection
+          ? { ...entry.chunk, text: entry.parentSection.text }
+          : entry.chunk,
+        pageTitle: entry.page.title,
+        retrievalReasons: entry.rankReasons,
+        warnings: [],
+        citations: entry.sourcePageIds
+          .map((sourcePageId) => pagesById.get(sourcePageId))
+          .filter(Boolean)
+          .map((page) => citationForPage(page)),
+        sourceWindows: narrowContainingWindowsToTableRows(
+          mergeSourceWindows([...exactSourceWindows, ...rawSourceWindows]),
+          relevantTableRowWindows,
+          exactTableRowWindows,
+        ),
+      };
+    });
   }
 
   private async findRawSourceWindows(input: {
@@ -475,6 +504,78 @@ function mergeSourceWindows(
     seen.add(key);
     return true;
   });
+}
+
+function narrowContainingWindowsToTableRows(
+  windows: KnowledgeSourceWindow[],
+  relevantTableRowWindows: KnowledgeSourceWindow[],
+  exactTableRowWindows: KnowledgeSourceWindow[],
+): KnowledgeSourceWindow[] {
+  return mergeSourceWindows(
+    windows.flatMap((window) => {
+      const isTableRowWindow = exactTableRowWindows.some((row) =>
+        isSameSourceWindow(row, window),
+      );
+      if (isTableRowWindow) {
+        return relevantTableRowWindows.some((row) =>
+          isSameSourceWindow(row, window),
+        )
+          ? [window]
+          : [];
+      }
+
+      const containedRows = relevantTableRowWindows.filter(
+        (row) =>
+          row.sourcePageId === window.sourcePageId &&
+          window.sourceRange.startOffset <= row.sourceRange.startOffset &&
+          window.sourceRange.endOffset >= row.sourceRange.endOffset &&
+          (window.sourceRange.startOffset !== row.sourceRange.startOffset ||
+            window.sourceRange.endOffset !== row.sourceRange.endOffset),
+      );
+      return containedRows.length > 0 ? containedRows : [window];
+    }),
+  );
+}
+
+function selectRelevantTableRowWindows(
+  query: string,
+  windows: KnowledgeSourceWindow[],
+): KnowledgeSourceWindow[] {
+  const queryTerms = extractSearchTerms(query);
+  const windowsBySourceId = new Map<string, KnowledgeSourceWindow[]>();
+  for (const window of mergeSourceWindows(windows)) {
+    const sourceWindows = windowsBySourceId.get(window.sourcePageId) ?? [];
+    sourceWindows.push(window);
+    windowsBySourceId.set(window.sourcePageId, sourceWindows);
+  }
+
+  return [...windowsBySourceId.values()].flatMap((sourceWindows) => {
+    const ranked = sourceWindows
+      .map((window, index) => ({
+        window,
+        index,
+        score: scoreSearchText(queryTerms, window.text),
+      }))
+      .sort(
+        (left, right) => right.score - left.score || left.index - right.index,
+      );
+    const bestScore = ranked[0]?.score ?? 0;
+    return ranked
+      .filter((entry) => entry.score === bestScore)
+      .map((entry) => entry.window);
+  });
+}
+
+function isSameSourceWindow(
+  left: KnowledgeSourceWindow,
+  right: KnowledgeSourceWindow,
+): boolean {
+  return (
+    left.sourcePageId === right.sourcePageId &&
+    left.sourceRange.startOffset === right.sourceRange.startOffset &&
+    left.sourceRange.endOffset === right.sourceRange.endOffset &&
+    left.quoteHash === right.quoteHash
+  );
 }
 
 function citationForPage(page: ReadableSourcePage): KnowledgeCitation {

@@ -130,6 +130,7 @@ describe('IsElfLlmWikiController', () => {
         {
           query: 'How do we use Kafka?',
           spaceIds: ['space-1'],
+          labels: ['项目计划', 'kafka'],
           chatContext: ['Previous turn'],
         },
         user,
@@ -184,6 +185,7 @@ describe('IsElfLlmWikiController', () => {
       supplementalUserId: 'delegated-user-1',
       query: 'How do we use Kafka?',
       spaceIds: ['space-1'],
+      labelNames: ['项目计划', 'kafka'],
       chatContext: ['Previous turn'],
       workspace,
       generalKnowledgeEnabled: false,
@@ -196,13 +198,17 @@ describe('IsElfLlmWikiController', () => {
         metadata: expect.objectContaining({
           origin: 'iself_knowledge_query',
           publicApiKeyId: 'public-key-1',
+          labelCount: 2,
         }),
       }),
     );
     expect(queryAuditRepo.recordQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         retrievalMode: 'high_completeness',
-        metadata: expect.objectContaining({ origin: 'iself_knowledge_query' }),
+        metadata: expect.objectContaining({
+          origin: 'iself_knowledge_query',
+          labelCount: 2,
+        }),
       }),
     );
     expect(attachmentResolver.resolveAttachments).not.toHaveBeenCalled();

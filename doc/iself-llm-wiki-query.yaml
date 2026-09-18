@@ -46,6 +46,20 @@ request:
           format: uuid
         description: >-
           要检索的知识空间。每个空间都必须位于公共检索 API Key 的授权范围内。
+      labels:
+        type: array
+        required: false
+        uniqueItems: true
+        minItems: 1
+        maxItems: 25
+        items:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description: >-
+          可选的页面标签过滤条件。支持中文；多个标签按 OR 匹配，即页面命中任一标签
+          即可。标签会自动去除首尾空格、将内部空格转换为连字符，并将英文字母转为小写。
+          为避免混合编译内容越过过滤范围，知识块的所有源页面都必须命中至少一个指定标签。
       chatContext:
         type: array
         required: false
@@ -112,6 +126,9 @@ examples:
       query: 如何配置 Kafka？
       spaceIds:
         - 00000000-0000-4000-8000-000000000001
+      labels:
+        - 项目计划
+        - kafka
       includeCitations: true
       generalKnowledgeEnabled: false
       scoreThreshold: 0.6

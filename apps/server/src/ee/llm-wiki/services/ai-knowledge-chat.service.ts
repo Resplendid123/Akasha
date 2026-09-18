@@ -45,6 +45,8 @@ type AiKnowledgeChatInput = {
   chatId?: string;
   query: string;
   spaceIds: string[];
+  /** Normalized page label names; multiple values use OR semantics. */
+  labelNames?: string[];
   chatContext?: string[];
   workspace?: Workspace;
   mentionedPageIds?: string[];
@@ -320,6 +322,7 @@ export class AiKnowledgeChatService {
           supplementalUserId: input.supplementalUserId,
           query: retrievalQuery,
           spaceIds: input.spaceIds,
+          ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
           authCache,
           ...(input.scoreThreshold !== undefined
             ? { maxCosineDistance: input.scoreThreshold }

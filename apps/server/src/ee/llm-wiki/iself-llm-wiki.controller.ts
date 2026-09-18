@@ -86,6 +86,7 @@ export class IsElfLlmWikiController {
       supplementalUserId: agentAccess.delegatedUser!.id,
       query: dto.query,
       spaceIds: dto.spaceIds,
+      ...(dto.labels?.length ? { labelNames: dto.labels } : {}),
       chatContext: dto.chatContext,
       workspace,
       // iself is intentionally fail-closed for general knowledge. The caller
@@ -121,6 +122,7 @@ export class IsElfLlmWikiController {
         origin: 'iself_knowledge_query',
         queryHash,
         spaceIds: dto.spaceIds,
+        ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
@@ -138,6 +140,7 @@ export class IsElfLlmWikiController {
       metadata: {
         origin: 'iself_knowledge_query',
         spaceIds: dto.spaceIds,
+        ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
