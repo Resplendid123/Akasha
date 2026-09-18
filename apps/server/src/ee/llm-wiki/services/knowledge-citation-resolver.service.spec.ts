@@ -459,6 +459,143 @@ describe('KnowledgeCitationResolverService', () => {
     });
   });
 
+  it('keeps all equally relevant exact table rows while removing a neighbor and broader raw chunk', async () => {
+    const rows = [
+      'Service=target-api-a; Version=9.7; Owner=owner-a',
+      'Service=target-api-b; Version=9.8; Owner=owner-b',
+      'Service=target-api-c; Version=9.9; Owner=owner-c',
+      'Service=omega; Version=3.0; Owner=owner-z',
+    ];
+    const sourceText = ['Headers: Service; Version; Owner', ...rows].join('\n');
+    const relevantRows = rows.slice(0, 3);
+    const neighborRow = rows[3];
+    const rangeFor = (row: string) => ({
+      startOffset: sourceText.indexOf(row),
+      endOffset: sourceText.indexOf(row) + row.length,
+    });
+    const service = new KnowledgeCitationResolverService(
+      {
+        findChunkSourceRefsByChunkIds: jest.fn().mockResolvedValue([
+          {
+            chunkId: 'chunk-summary',
+            sources: [
+              {
+                sourcePageId: 'source-table',
+                sourceVersion: 'v1',
+                contentHash: quoteHash(sourceText),
+                sourceRange: { startOffset: 0, endOffset: sourceText.length },
+                quoteHash: quoteHash(sourceText),
+              },
+            ],
+          },
+          ...relevantRows.map((row, index) => ({
+            chunkId: `chunk-table-row-${index}`,
+            sources: [
+              {
+                sourcePageId: 'source-table',
+                sourceVersion: 'v1',
+                contentHash: quoteHash(sourceText),
+                sourceRange: rangeFor(row),
+                quoteHash: quoteHash(row),
+              },
+            ],
+          })),
+          {
+            chunkId: 'chunk-neighbor-row',
+            sources: [
+              {
+                sourcePageId: 'source-table',
+                sourceVersion: 'v1',
+                contentHash: quoteHash(sourceText),
+                sourceRange: rangeFor(neighborRow),
+                quoteHash: quoteHash(neighborRow),
+              },
+            ],
+          },
+        ]),
+      } as unknown as KnowledgeCapsuleRepo,
+      {
+        filterReadableSources: jest.fn(),
+      } as unknown as KnowledgeSourceAuthorizationService,
+      {
+        findManyByIds: jest
+          .fn()
+          .mockResolvedValue([
+            page('source-table', 'Service inventory', 'services', sourceText),
+          ]),
+      } as unknown as PageRepo,
+      {
+        findActiveSourceTextsByPageIds: jest
+          .fn()
+          .mockResolvedValue([
+            { sourcePageId: 'source-table', extractedText: sourceText },
+          ]),
+        findSourceChunksByPageIds: jest.fn().mockResolvedValue([
+          {
+            id: 'raw-table-chunk',
+            workspaceId: 'workspace-1',
+            sourceId: 'source-row-table',
+            sourcePageId: 'source-table',
+            text: sourceText,
+            contentHash: quoteHash(sourceText),
+            sourceRange: { startOffset: 0, endOffset: sourceText.length },
+            quoteHash: quoteHash(sourceText),
+            createdAt: new Date('2026-09-18T00:00:00.000Z'),
+          },
+        ]),
+      } as never,
+    );
+
+    const result = await service.resolveForChunks({
+      workspaceId: 'workspace-1',
+      query: '列出所有 target-api 服务的版本和负责人',
+      chunks: [
+        {
+          chunk: chunk('chunk-summary', 'kp-table'),
+          page: capsule('kp-table', 'Service inventory'),
+          sourcePageIds: ['source-table'],
+          rankReasons: ['semantic'],
+          origin: 'direct' as const,
+        },
+        ...relevantRows.map((_, index) => ({
+          chunk: {
+            ...chunk(`chunk-table-row-${index}`, 'kp-table'),
+            stableKey: `table-row:0:${index + 1}`,
+          },
+          page: capsule('kp-table', 'Service inventory'),
+          sourcePageIds: ['source-table'],
+          rankReasons: ['lexical' as const, 'sidecar-prefiltered' as const],
+          origin: 'direct' as const,
+        })),
+        {
+          chunk: {
+            ...chunk('chunk-neighbor-row', 'kp-table'),
+            stableKey: 'table-row:0:4',
+          },
+          page: capsule('kp-table', 'Service inventory'),
+          sourcePageIds: ['source-table'],
+          rankReasons: ['semantic'],
+          origin: 'direct' as const,
+        },
+      ],
+    });
+
+    const relevantWindows = relevantRows.map((row) => ({
+      sourcePageId: 'source-table',
+      title: 'Service inventory',
+      url: '/p/services',
+      text: row,
+      sourceRange: rangeFor(row),
+      quoteHash: quoteHash(row),
+    }));
+    expect(result).toHaveLength(5);
+    expect(result[0].sourceWindows).toEqual(relevantWindows);
+    expect(result[1].sourceWindows).toEqual([relevantWindows[0]]);
+    expect(result[2].sourceWindows).toEqual([relevantWindows[1]]);
+    expect(result[3].sourceWindows).toEqual([relevantWindows[2]]);
+    expect(result[4].sourceWindows).toEqual([]);
+  });
+
   it('does not treat one generic Chinese bigram as relevant raw evidence', async () => {
     const sourceText = '这是页面上的查询条件，与知识库使用说明有关。';
     const service = new KnowledgeCitationResolverService(
