@@ -49,6 +49,7 @@ import KnowledgeGraphPage from "@/ee/llm-wiki/pages/knowledge-graph";
 import VerifyEmail from "@/ee/pages/verify-email.tsx";
 import LabelPage from "@/pages/label/label-page";
 import { ThemeFavicon } from "@/components/common/brand-logo.tsx";
+import ImageViewer from "@/components/ui/image-viewer.tsx";
 
 export default function App() {
   const { t } = useTranslation();
@@ -58,6 +59,7 @@ export default function App() {
   return (
     <>
       <ThemeFavicon />
+      <ImageViewer />
       <Routes>
         <Route index element={<Navigate to="/home" />} />
         <Route path={"/login"} element={<LoginPage />} />

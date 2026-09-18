@@ -47,12 +47,15 @@ export class GroupUserRepo {
       .executeTakeFirst();
   }
 
-  async getGroupUsersPaginated(groupId: string, pagination: PaginationOptions) {
+  async getGroupUsersPaginated(
+    groupId: string,
+    pagination: PaginationOptions,
+  ) {
     let query = this.db
       .selectFrom('groupUsers')
       .innerJoin('users', 'users.id', 'groupUsers.userId')
       .selectAll('users')
-      .where('groupId', '=', groupId);
+      .where('groupUsers.groupId', '=', groupId);
 
     if (pagination.query) {
       query = query.where((eb) =>

@@ -2,7 +2,7 @@ import { Button, Divider, Group, Modal, Stack } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import React, { useId, useState } from "react";
 import { useAddSpaceMemberMutation } from "@/features/space/queries/space-query.ts";
-import { MultiMemberSelect } from "@/features/space/components/multi-member-select.tsx";
+import { OrgTreePicker } from "@/features/space/components/org-tree-picker.tsx";
 import { SpaceMemberRole } from "@/features/space/components/space-member-role.tsx";
 import { SpaceRole } from "@/lib/types.ts";
 import { useTranslation } from "react-i18next";
@@ -52,7 +52,7 @@ export default function AddSpaceMembersModal({
   return (
     <>
       <Button onClick={open}>{t("Add space members")}</Button>
-      <Modal.Root opened={opened} onClose={close}>
+      <Modal.Root opened={opened} onClose={close} size="lg">
         <Modal.Overlay />
         <Modal.Content aria-labelledby={titleId}>
           <Modal.Header>
@@ -63,7 +63,10 @@ export default function AddSpaceMembersModal({
             <Divider size="xs" mb="xs" />
 
             <Stack>
-              <MultiMemberSelect onChange={handleMultiSelectChange} />
+              <OrgTreePicker
+                value={memberIds}
+                onChange={handleMultiSelectChange}
+              />
               <SpaceMemberRole
                 onSelect={handleRoleSelection}
                 defaultRole={role}

@@ -9,6 +9,7 @@ import {
   IInvitationLink,
   IVersion,
   IWorkspaceSkillSettings,
+  IWorkspaceMemberDetail,
 } from "../types/workspace.types";
 import { IPagination, QueryParams } from "@/lib/types.ts";
 import { ISetupWorkspace } from "@/features/auth/types/auth.types.ts";
@@ -34,6 +35,16 @@ export async function getWorkspaceMembers(
   params?: QueryParams,
 ): Promise<IPagination<IUser>> {
   const req = await api.post("/workspace/members", params);
+  return req.data;
+}
+
+export async function GetWorkspaceMember(
+  userId: string,
+): Promise<IWorkspaceMemberDetail> {
+  const req = await api.post<IWorkspaceMemberDetail>(
+    "/workspace/members/info",
+    { userId },
+  );
   return req.data;
 }
 
