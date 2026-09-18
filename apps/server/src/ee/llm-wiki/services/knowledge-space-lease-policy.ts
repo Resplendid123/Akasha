@@ -1,14 +1,14 @@
-export type SpaceSliceCheckpointDecision =
+export type LeaseCheckpointDecision =
   | { yield: false }
   | { yield: true; reason: 'page_limit' | 'time_limit' };
 
-export function decideSpaceSliceCheckpoint(input: {
+export function decideLeaseCheckpoint(input: {
   completedPages: number;
   elapsedMs: number;
   remainingPages: number;
   maxPages: number;
   maxMs: number;
-}): SpaceSliceCheckpointDecision {
+}): LeaseCheckpointDecision {
   if (input.remainingPages <= 0) return { yield: false };
   if (input.completedPages >= input.maxPages) {
     return { yield: true, reason: 'page_limit' };
@@ -20,13 +20,13 @@ export function decideSpaceSliceCheckpoint(input: {
 }
 
 export function calculateSpaceSlotReleaseUpperBoundMs(input: {
-  sliceMaxMs: number;
+  leaseMaxMs: number;
   pageDeadlineMs: number;
   aggregateDeadlineMs: number;
   outboxIntervalMs: number;
 }): number {
   return (
-    input.sliceMaxMs +
+    input.leaseMaxMs +
     input.pageDeadlineMs +
     input.aggregateDeadlineMs +
     input.outboxIntervalMs

@@ -174,6 +174,7 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       succeeded_page_count integer not null default 0, failed_page_count integer not null default 0,
       skipped_page_count integer not null default 0, compiler_version varchar not null,
       prompt_version varchar not null, catalog_snapshot jsonb not null, catalog_hash varchar not null,
+      aggregate_required boolean not null default true,
       aggregate_job_id varchar, imported_artifact_count integer not null default 0,
       quarantined_artifact_count integer not null default 0, error_code varchar, error_message varchar,
       queued_at timestamptz not null, started_at timestamptz, aggregate_started_at timestamptz,
@@ -194,7 +195,9 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       image_status varchar not null default 'not_required',
       image_job_id varchar, merge_status varchar not null default 'not_required', merge_job_id varchar,
       target_effective_knowledge_hash varchar, merged_effective_knowledge_hash varchar,
-      status varchar not null, job_id varchar, error_code varchar, error_message varchar,
+      status varchar not null, attempt_count integer not null default 0,
+      merge_attempt_count integer not null default 0,
+      job_id varchar, error_code varchar, error_message varchar,
       queued_at timestamptz, started_at timestamptz, finished_at timestamptz,
       created_at timestamptz not null default now(), updated_at timestamptz not null default now()
     );

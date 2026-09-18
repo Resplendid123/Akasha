@@ -104,13 +104,6 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     return results;
   }
 
-  async resetGenerationAttemptBudget(input: {
-    workspaceId: string;
-    sourcePageIds: string[];
-  }): Promise<number> {
-    return this.compilationRepo.resetGenerationAttemptBudget(input);
-  }
-
   async requestImmediatePagePublish(input: {
     workspaceId: string;
     spaceId: string;
@@ -519,7 +512,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     this.dispatching = true;
     try {
       await this.promoteDuePageSchedules();
-      await this.dispatchPendingSpaceSlices();
+      await this.dispatchPendingSpaceJobs();
       await this.dispatchPendingRunImages();
     } finally {
       this.dispatching = false;
@@ -547,12 +540,12 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     }
   }
 
-  private async dispatchPendingSpaceSlices(): Promise<void> {
-    const candidates = await this.runRepo.findSpaceSliceReservationCandidates();
+  private async dispatchPendingSpaceJobs(): Promise<void> {
+    const candidates = await this.runRepo.findSpaceJobReservationCandidates();
     for (const candidate of candidates) {
-      await this.runRepo.reserveNextSpaceSlice({ runId: candidate.id });
+      await this.runRepo.reserveNextSpaceJob({ runId: candidate.id });
     }
-    const slices = await this.runRepo.findUndispatchedSpaceSlices();
+    const slices = await this.runRepo.findUndispatchedSpaceJobs();
     for (const slice of slices) {
       const jobName =
         slice.jobPhase === 'text'
@@ -571,10 +564,10 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
           },
           {
             jobId: slice.spaceJobId,
-            priority: knowledgeSpaceSlicePriority(slice),
+            priority: knowledgeSpaceJobPriority(slice),
           },
         );
-        await this.runRepo.markSpaceSliceDispatched(slice);
+        await this.runRepo.markSpaceJobDispatched(slice);
       } catch {
         this.logger.warn(
           `Knowledge Space outbox dispatch will retry reservation ${slice.spaceJobId}.`,
@@ -673,7 +666,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
   }
 }
 
-function knowledgeSpaceSlicePriority(slice: {
+function knowledgeSpaceJobPriority(slice: {
   trigger?: string;
   jobPhase: 'text' | 'image_merge';
 }): number {

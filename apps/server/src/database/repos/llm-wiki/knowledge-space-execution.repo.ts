@@ -24,7 +24,7 @@ export interface SpaceExecutionLease {
   executionToken: string;
 }
 
-export interface SpaceSliceReservation extends Omit<
+export interface SpaceJobReservation extends Omit<
   SpaceExecutionLease,
   'executionToken'
 > {}
@@ -60,6 +60,8 @@ export interface RunImageInitializationPlan {
   extractionId?: string | null;
 }
 
+export const PAGE_ATTEMPT_BUDGET = 2;
+
 const NONTERMINAL_RUN_STATUSES: KnowledgeSpaceCompileRunStatus[] = [
   'queued',
   'compiling',
@@ -85,7 +87,7 @@ export function runPhaseToJobPhase(
   throw new Error(`Run phase ${phase} does not use the Space queue.`);
 }
 
-export function buildSpaceSliceJobId(
+export function buildSpaceJobId(
   runId: string,
   phase: SpaceJobPhase,
   sequence: number,
@@ -154,6 +156,7 @@ export class KnowledgeSpaceExecutionRepo {
           'id',
           'sourcePageId',
           'bindingStatus',
+          'attemptCount',
           'expectedSourceVersion',
           'expectedSourceContentHash',
           'createdAt',
@@ -166,33 +169,32 @@ export class KnowledgeSpaceExecutionRepo {
         .forUpdate()
         .executeTakeFirst();
       if (!page) return undefined;
-      if (page.bindingStatus === 'unbound') {
-        const updated = await trx
-          .updateTable('knowledgeSpaceCompileRunPages')
-          .set({ bindingStatus: 'binding', updatedAt: new Date() })
-          .where('id', '=', page.id)
-          .where('bindingStatus', '=', 'unbound')
-          .returning('id')
-          .executeTakeFirst();
-        if (!updated) return undefined;
-        return { ...page, bindingStatus: 'binding' as const };
-      }
-      return page;
+      const unbound = page.bindingStatus === 'unbound';
+      const claimed = await trx
+        .updateTable('knowledgeSpaceCompileRunPages')
+        .set({
+          attemptCount: page.attemptCount + 1,
+          ...(unbound ? { bindingStatus: 'binding' as const } : {}),
+          updatedAt: new Date(),
+        })
+        .where('id', '=', page.id)
+        .$if(unbound, (query) => query.where('bindingStatus', '=', 'unbound'))
+        .returning('id')
+        .executeTakeFirst();
+      if (!claimed) return undefined;
+      return {
+        ...page,
+        attemptCount: page.attemptCount + 1,
+        ...(unbound ? { bindingStatus: 'binding' as const } : {}),
+      };
     });
   }
 
   async findPendingMergePages(lease: SpaceExecutionLease) {
-    const pages = await this.db
+    return this.db
       .selectFrom('knowledgeSpaceCompileRunPages as page')
       .innerJoin('knowledgeSpaceCompileRuns as run', 'run.id', 'page.runId')
-      .select([
-        'page.id',
-        'page.sourcePageId',
-        'page.expectedSourceVersion',
-        'page.expectedSourceContentHash',
-        'page.targetEffectiveKnowledgeHash',
-        'page.createdAt',
-      ])
+      .select(['page.sourcePageId', 'page.createdAt'])
       .where('run.id', '=', lease.runId)
       .where('run.knowledgeGeneration', '=', lease.knowledgeGeneration)
       .where('run.spaceJobSequence', '=', lease.spaceJobSequence)
@@ -205,6 +207,43 @@ export class KnowledgeSpaceExecutionRepo {
       .orderBy('page.sourcePageId', 'asc')
       .limit(1)
       .execute();
+  }
+
+  async claimNextMergePage(lease: SpaceExecutionLease) {
+    const pages = await executeTx(this.db, async (trx) => {
+      const run = await this.lockLeasedRun(trx, lease);
+      if (!run || run.phase !== 'image_merge') return [];
+      const page = await trx
+        .selectFrom('knowledgeSpaceCompileRunPages')
+        .select([
+          'id',
+          'sourcePageId',
+          'mergeAttemptCount',
+          'expectedSourceVersion',
+          'expectedSourceContentHash',
+          'targetEffectiveKnowledgeHash',
+          'createdAt',
+        ])
+        .where('runId', '=', lease.runId)
+        .where('mergeStatus', 'in', ['pending', 'queued', 'running'])
+        .orderBy('createdAt', 'asc')
+        .orderBy('sourcePageId', 'asc')
+        .limit(1)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!page) return [];
+      const claimed = await trx
+        .updateTable('knowledgeSpaceCompileRunPages')
+        .set({
+          mergeAttemptCount: page.mergeAttemptCount + 1,
+          updatedAt: new Date(),
+        })
+        .where('id', '=', page.id)
+        .returning('id')
+        .executeTakeFirst();
+      if (!claimed) return [];
+      return [{ ...page, mergeAttemptCount: page.mergeAttemptCount + 1 }];
+    });
     if (pages.length === 0) return [];
     const images = await this.db
       .selectFrom('knowledgeSpaceCompileRunImages')
@@ -497,8 +536,8 @@ export class KnowledgeSpaceExecutionRepo {
     return Boolean(row);
   }
 
-  async claimSpaceSlice(
-    input: SpaceSliceReservation & {
+  async claimSpaceLease(
+    input: SpaceJobReservation & {
       workerId: string;
       executionToken?: string;
       executionLeaseExpiresAt: Date;
@@ -538,7 +577,7 @@ export class KnowledgeSpaceExecutionRepo {
   }
 
   async claimRecoveryLease(
-    input: SpaceSliceReservation & {
+    input: SpaceJobReservation & {
       workerId: string;
       executionToken?: string;
       leaseExpiredBefore: Date;
@@ -591,7 +630,7 @@ export class KnowledgeSpaceExecutionRepo {
     });
   }
 
-  async heartbeatSpaceSlice(
+  async heartbeatSpaceLease(
     lease: SpaceExecutionLease,
     input: { executionLeaseExpiresAt: Date },
   ): Promise<boolean> {
@@ -852,6 +891,7 @@ export class KnowledgeSpaceExecutionRepo {
         KnowledgeSpaceCompileRunPageStatus,
         'succeeded' | 'failed' | 'skipped'
       >;
+      retryable?: boolean;
       errorCode?: string | null;
       errorMessage?: string | null;
       qualityStatus?: 'normal' | 'degraded' | 'partial_image';
@@ -878,9 +918,12 @@ export class KnowledgeSpaceExecutionRepo {
           .updateTable('knowledgeSpaceCompileRunPages')
           .set({
             status: input.status,
+            ...(input.status === 'failed' && input.retryable === false
+              ? { attemptCount: PAGE_ATTEMPT_BUDGET }
+              : {}),
             errorCode: diagnostic(input.errorCode, 80),
             errorMessage: diagnostic(input.errorMessage, 500),
-            ...(input.qualityStatus
+            ...(input.qualityStatus && page.qualityStatus !== 'partial_image'
               ? { qualityStatus: input.qualityStatus }
               : {}),
             finishedAt: now,
@@ -943,6 +986,7 @@ export class KnowledgeSpaceExecutionRepo {
           barrierComplete: true,
           imagesRequired: false,
           readyToFinalize: true,
+          reclaimed: false,
           ...counts,
         };
       }
@@ -955,8 +999,51 @@ export class KnowledgeSpaceExecutionRepo {
           barrierComplete: false,
           imagesRequired: false,
           readyToFinalize: false,
+          reclaimed: false,
           ...counts,
         };
+      }
+      const now = new Date();
+
+      if (run.phase === 'text') {
+        const reclaimed = await trx
+          .updateTable('knowledgeSpaceCompileRunPages')
+          .set({
+            status: 'pending',
+            errorCode: null,
+            errorMessage: null,
+            finishedAt: null,
+            updatedAt: now,
+          })
+          .where('runId', '=', lease.runId)
+          .where('status', '=', 'failed')
+          .where('attemptCount', '<', PAGE_ATTEMPT_BUDGET)
+          .returning('id')
+          .execute();
+        if (reclaimed.length > 0) {
+          const recounted = await this.recountPagesFromRows(trx, lease.runId);
+          const settled = await trx
+            .updateTable('knowledgeSpaceCompileRuns')
+            .set({ ...recounted, updatedAt: now })
+            .$call((query) => this.whereLease(query, lease))
+            .where('phase', '=', 'text')
+            .returning('id')
+            .executeTakeFirst();
+          if (!settled) {
+            throw new Error(
+              `Knowledge Run ${lease.runId} lost its lease inside text settlement.`,
+            );
+          }
+          return {
+            barrierComplete: false,
+            imagesRequired: false,
+            readyToFinalize: false,
+            reclaimed: true,
+            succeeded: recounted.succeededPageCount,
+            failed: recounted.failedPageCount,
+            skipped: recounted.skippedPageCount,
+          };
+        }
       }
 
       const imageWork = await trx
@@ -989,7 +1076,6 @@ export class KnowledgeSpaceExecutionRepo {
           ? 'images'
           : 'image_merge'
         : 'finalizing';
-      const now = new Date();
       const updated = await trx
         .updateTable('knowledgeSpaceCompileRuns')
         .set({
@@ -1027,10 +1113,28 @@ export class KnowledgeSpaceExecutionRepo {
             barrierComplete: true,
             imagesRequired: Boolean(imageWork),
             readyToFinalize: !imageWork,
+            reclaimed: false,
             ...counts,
           }
         : undefined;
     });
+  }
+
+  private async recountPagesFromRows(trx: KyselyTransaction, runId: string) {
+    const rows = await trx
+      .selectFrom('knowledgeSpaceCompileRunPages')
+      .select(['status'])
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .where('runId', '=', runId)
+      .groupBy('status')
+      .execute();
+    const countFor = (status: KnowledgeSpaceCompileRunPageStatus) =>
+      Number(rows.find((row) => row.status === status)?.count ?? 0);
+    return {
+      succeededPageCount: countFor('succeeded'),
+      failedPageCount: countFor('failed'),
+      skippedPageCount: countFor('skipped'),
+    };
   }
 
   async completeMergePagePublication(
@@ -1055,6 +1159,7 @@ export class KnowledgeSpaceExecutionRepo {
       sourcePageId: string;
       sourceVersion: string;
       sourceContentHash: string;
+      retryable?: boolean;
       errorCode?: string | null;
       errorMessage?: string | null;
     },
@@ -1075,7 +1180,7 @@ export class KnowledgeSpaceExecutionRepo {
     return this.finishMergePage(lease, { ...input, status: 'skipped' });
   }
 
-  async yieldSpaceSlice(
+  async yieldSpaceLease(
     lease: SpaceExecutionLease,
     input: { reason: 'page_limit' | 'time_limit' },
   ): Promise<boolean> {
@@ -1120,7 +1225,7 @@ export class KnowledgeSpaceExecutionRepo {
     });
   }
 
-  async requeueMissingSpaceSlice(lease: SpaceExecutionLease): Promise<boolean> {
+  async requeueMissingSpaceJob(lease: SpaceExecutionLease): Promise<boolean> {
     return executeTx(this.db, async (trx) => {
       const run = await this.lockLeasedRun(trx, lease);
       if (!run || run.spaceJobRecoveryCount >= 3) return false;
@@ -1130,7 +1235,7 @@ export class KnowledgeSpaceExecutionRepo {
         .set({
           status: 'skipped',
           errorCode: 'run_superseded',
-          errorMessage: 'Knowledge Space slice was requeued after recovery.',
+          errorMessage: 'Knowledge Space job was requeued after recovery.',
           finishedAt: now,
           updatedAt: now,
         })
@@ -1257,6 +1362,7 @@ export class KnowledgeSpaceExecutionRepo {
       sourceContentHash: string;
       effectiveKnowledgeHash?: string;
       status: 'succeeded' | 'skipped' | 'failed';
+      retryable?: boolean;
       errorCode?: string | null;
       errorMessage?: string | null;
     },
@@ -1327,7 +1433,7 @@ export class KnowledgeSpaceExecutionRepo {
 
   private async lockReservedRun(
     trx: KyselyTransaction,
-    reservation: SpaceSliceReservation,
+    reservation: SpaceJobReservation,
   ) {
     const scope = await trx
       .selectFrom('knowledgeSpaceCompileRuns')
@@ -1388,7 +1494,7 @@ export class KnowledgeSpaceExecutionRepo {
     };
   }
 
-  private whereReservation<Query>(query: Query, input: SpaceSliceReservation) {
+  private whereReservation<Query>(query: Query, input: SpaceJobReservation) {
     return (query as any)
       .where('id', '=', input.runId)
       .where('knowledgeGeneration', '=', input.knowledgeGeneration)
@@ -1405,8 +1511,8 @@ export class KnowledgeSpaceExecutionRepo {
   }
 
   private reservationIdentity(
-    input: SpaceSliceReservation,
-  ): SpaceSliceReservation {
+    input: SpaceJobReservation,
+  ): SpaceJobReservation {
     return {
       runId: input.runId,
       knowledgeGeneration: input.knowledgeGeneration,

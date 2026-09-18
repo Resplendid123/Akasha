@@ -4,8 +4,8 @@ export interface KnowledgeWorkerSettings {
   databaseMaxPool: number;
   spaceConcurrency: number;
   imageConcurrency: number;
-  sliceMaxPages: number;
-  sliceMaxMs: number;
+  leaseMaxPages: number;
+  leaseMaxMs: number;
   heartbeatMs: number;
   executionLeaseTtlMs: number;
   queueLockDurationMs: number;
@@ -36,14 +36,14 @@ export function parseKnowledgeWorkerSettings(
       1,
       10,
     ),
-    sliceMaxPages: integerSetting(
+    leaseMaxPages: integerSetting(
       environment,
       'KNOWLEDGE_SPACE_SLICE_MAX_PAGES',
       5,
       1,
       50,
     ),
-    sliceMaxMs: integerSetting(
+    leaseMaxMs: integerSetting(
       environment,
       'KNOWLEDGE_SPACE_SLICE_MAX_MS',
       300_000,

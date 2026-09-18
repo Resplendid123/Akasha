@@ -1360,7 +1360,6 @@ describe('LlmWikiController', () => {
         { disposition: 'created', run: { id: 'run-space-1' } },
         { disposition: 'coalesced', run: { id: 'run-space-2' } },
       ]),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
     };
     const controller = createController({
       pageRepo,
@@ -1397,10 +1396,9 @@ describe('LlmWikiController', () => {
         targetSourcePageIds: ['page-2'],
       },
     ]);
-    expect(spaceCompilation.resetGenerationAttemptBudget).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      sourcePageIds: ['page-1', 'page-2'],
-    });
+    expect(spaceCompilation).not.toHaveProperty(
+      'resetGenerationAttemptBudget',
+    );
   });
 
   it('rejects a retry selection when a page has never been compiled', async () => {
@@ -1421,10 +1419,7 @@ describe('LlmWikiController', () => {
       ]),
     };
     const sourceExporter = { exportPageSources: jest.fn() };
-    const spaceCompilation = {
-      requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
-    };
+    const spaceCompilation = { requestRuns: jest.fn() };
     const controller = createController({
       pageRepo,
       sourceExporter,
@@ -1476,7 +1471,6 @@ describe('LlmWikiController', () => {
         { disposition: 'coalesced', run: { id: 'run-1' } },
         { disposition: 'rerun_requested', run: { id: 'run-2' } },
       ]),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
     };
     const controller = createController({
       pageRepo,
@@ -1505,10 +1499,7 @@ describe('LlmWikiController', () => {
     const pageRepo = { findExistingPageRefs: jest.fn() };
     const diagnosticsService = { findCompiledPageIds: jest.fn() };
     const sourceExporter = { exportPageSources: jest.fn() };
-    const spaceCompilation = {
-      requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
-    };
+    const spaceCompilation = { requestRuns: jest.fn() };
     const controller = createController({
       pageRepo,
       diagnosticsService,
@@ -1762,7 +1753,6 @@ function createController(
     {
       requestRuns: jest.fn(),
       requestImmediatePagePublish: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(0),
       ...overrides.spaceCompilation,
     } as unknown as KnowledgeSpaceCompilationService,
     {

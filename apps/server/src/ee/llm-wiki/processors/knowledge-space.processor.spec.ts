@@ -43,9 +43,9 @@ describe('KnowledgeSpaceProcessor', () => {
     }
   });
 
-  it('delegates one physical text slice without enqueuing a continuation', async () => {
+  it('delegates one physical text lease without enqueuing a continuation', async () => {
     const runner = {
-      runTextSlice: jest
+      runTextLease: jest
         .fn()
         .mockResolvedValue({ outcome: 'yielded', completedPages: 5 }),
     };
@@ -59,13 +59,16 @@ describe('KnowledgeSpaceProcessor', () => {
       outcome: 'yielded',
       completedPages: 5,
     });
-    expect(runner.runTextSlice).toHaveBeenCalledWith(
+    expect(runner.runTextLease).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceRunId: 'run-1',
         spaceJobSequence: 2,
         spaceJobId: 'space-job-2',
       }),
-      expect.objectContaining({ finalAttempt: false }),
+      expect.objectContaining({ workerId: expect.any(String) }),
+    );
+    expect(runner.runTextLease.mock.calls[0][1]).not.toHaveProperty(
+      'finalAttempt',
     );
   });
 
@@ -81,7 +84,7 @@ describe('KnowledgeSpaceProcessor', () => {
     const executionRepo = createExecutionRepo();
     executionRepo.claimRecoveryLease.mockResolvedValue(recoveryLease);
     const processor = new KnowledgeSpaceProcessor(
-      { runTextSlice: jest.fn() } as never,
+      { runTextLease: jest.fn() } as never,
       executionRepo as never,
     );
 
@@ -106,10 +109,10 @@ describe('KnowledgeSpaceProcessor', () => {
     );
   });
 
-  it('delegates image merge slices to the image merge runner', async () => {
+  it('delegates image merge leases to the image merge runner', async () => {
     const runner = {
-      runTextSlice: jest.fn(),
-      runImageMergeSlice: jest
+      runTextLease: jest.fn(),
+      runImageMergeLease: jest
         .fn()
         .mockResolvedValue({ outcome: 'completed', completedPages: 2 }),
     };
@@ -130,14 +133,17 @@ describe('KnowledgeSpaceProcessor', () => {
       outcome: 'completed',
       completedPages: 2,
     });
-    expect(runner.runImageMergeSlice).toHaveBeenCalledWith(
+    expect(runner.runImageMergeLease).toHaveBeenCalledWith(
       expect.objectContaining({
         phase: 'image_merge',
         spaceJobId: 'space-job-2',
       }),
-      expect.objectContaining({ finalAttempt: false }),
+      expect.objectContaining({ workerId: expect.any(String) }),
     );
-    expect(runner.runTextSlice).not.toHaveBeenCalled();
+    expect(runner.runImageMergeLease.mock.calls[0][1]).not.toHaveProperty(
+      'finalAttempt',
+    );
+    expect(runner.runTextLease).not.toHaveBeenCalled();
   });
 });
 

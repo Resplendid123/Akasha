@@ -45,7 +45,6 @@ describe('KnowledgePageCompilationService contract', () => {
             images: [],
           },
           compileTaskId: 'merge-1',
-          finalAttempt: false,
           execution,
         },
         new AbortController().signal,
@@ -54,7 +53,7 @@ describe('KnowledgePageCompilationService contract', () => {
     expect(execution.isActive).toHaveBeenCalled();
   });
 
-  it('recomputes generation and schedules self-healing for degraded output', async () => {
+  it('records degraded output without re-enqueuing the page for self-healing', async () => {
     const source = {
       workspaceId: 'workspace-1',
       spaceId: 'space-1',
@@ -91,7 +90,6 @@ describe('KnowledgePageCompilationService contract', () => {
         artifacts: [artifact],
         compilerRunId: 'fresh-compiler-run',
         resultQuality: 'degraded',
-        generationAttemptCount: 1,
       }),
     };
     const importService = {
@@ -144,7 +142,6 @@ describe('KnowledgePageCompilationService contract', () => {
             knowledgeGeneration: 1,
           },
           compileTaskId: 'retry-task',
-          finalAttempt: true,
           execution,
         },
         new AbortController().signal,
@@ -170,18 +167,7 @@ describe('KnowledgePageCompilationService contract', () => {
       status: 'succeeded',
       qualityStatus: 'degraded',
     });
-    expect(runRepo.requestRuns).toHaveBeenCalledWith({
-      requests: [
-        {
-          workspaceId: 'workspace-1',
-          spaceId: 'space-1',
-          trigger: 'page_retry',
-          targetSourcePageIds: ['page-1'],
-        },
-      ],
-      compilerVersion: expect.any(String),
-      promptVersion: expect.any(String),
-    });
+    expect(runRepo.requestRuns).not.toHaveBeenCalled();
   });
 
   it('logs provider diagnostics when compiler failures carry diagnostic metadata', async () => {
@@ -247,7 +233,6 @@ describe('KnowledgePageCompilationService contract', () => {
             knowledgeGeneration: 1,
           },
           compileTaskId: 'task-1',
-          finalAttempt: true,
           execution,
         },
         new AbortController().signal,
