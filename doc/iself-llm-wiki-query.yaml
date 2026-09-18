@@ -84,6 +84,24 @@ request:
         description: >-
           语义召回允许的最大 cosine distance。值越小，召回越严格；值越大，召回
           越宽松。该参数只影响语义候选，词法匹配和标题精确匹配仍使用原有规则。
+      rawResultsOnly:
+        type: boolean
+        required: false
+        default: false
+        description: >-
+          传入 true 时，跳过答案生成大模型，直接返回检索与打包后的原始结果
+          （citations / retrievedSources / snippets / citationEvidence 等字段照常填充），
+          此时 answer 恒为空字符串，answerMode 仅为 knowledge（有命中）或 no_match
+          （无命中），且不会触发通用知识兜底（即使 generalKnowledgeEnabled 为 true）。
+          适用于希望自行处理检索证据、对响应延迟敏感的调用方。查询改写仍会执行，
+          除非通过 queryRewriteEnabled 显式关闭。
+      queryRewriteEnabled:
+        type: boolean
+        required: false
+        default: true
+        description: >-
+          是否执行大模型查询改写（将 chatContext 合并为独立的检索查询）。默认开启。
+          传入 false 时跳过改写，直接使用原始 query 检索，此时响应不返回 retrievalQuery。
 
 examples:
   request:
@@ -105,16 +123,23 @@ response:
     properties:
       answer:
         type: string
+        description: >-
+          答案正文。当请求参数 rawResultsOnly 为 true 时，此字段恒为空字符串。
       answerMode:
         type: string
         enum:
           - knowledge
           - no_match
           - general
+        description: >-
+          答案来源模式。rawResultsOnly 为 true 时只可能是 knowledge（有检索证据）
+          或 no_match（无检索证据），不会出现 general。
       retrievalQuery:
         type: string
         required: false
-        description: 如果发生查询改写，返回实际用于检索的查询文本。
+        description: >-
+          如果发生查询改写，返回实际用于检索的查询文本。当 queryRewriteEnabled 为
+          false 或未发生改写时不返回该字段。
       citations:
         type: array
         items:

@@ -242,6 +242,25 @@ describe('IsElfLlmWikiController', () => {
       }),
     );
 
+    // rawResultsOnly and queryRewriteEnabled pass through to the service.
+    await controller.queryKnowledge(
+      {
+        query: 'How do we use Kafka?',
+        spaceIds: ['space-1'],
+        rawResultsOnly: true,
+        queryRewriteEnabled: false,
+      },
+      user,
+      workspace,
+      agentAccess,
+    );
+    expect(chatService.chat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rawResultsOnly: true,
+        queryRewriteEnabled: false,
+      }),
+    );
+
     // includeCitations must not open top-level attachments (§8.1).
     attachmentResolver.resolveAttachments.mockClear();
     const withCitationsOnly = await controller.queryKnowledge(

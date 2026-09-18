@@ -95,6 +95,10 @@ export class IsElfLlmWikiController {
       ...(dto.scoreThreshold !== undefined
         ? { scoreThreshold: dto.scoreThreshold }
         : {}),
+      ...(dto.rawResultsOnly === true ? { rawResultsOnly: true } : {}),
+      ...(dto.queryRewriteEnabled !== undefined
+        ? { queryRewriteEnabled: dto.queryRewriteEnabled }
+        : {}),
     });
     const queryHash = hashQuery(dto.query);
     // Strip internal-only fields so they never leak through `...response`.

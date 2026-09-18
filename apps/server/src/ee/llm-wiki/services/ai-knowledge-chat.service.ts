@@ -55,6 +55,16 @@ type AiKnowledgeChatInput = {
   generalKnowledgeEnabled?: boolean;
   /** Maximum semantic cosine distance accepted during recall. */
   scoreThreshold?: number;
+  /**
+   * Skip the answer-generation LLM and return the packed retrieval results
+   * directly. No general-knowledge fallback is attempted in this mode.
+   */
+  rawResultsOnly?: boolean;
+  /**
+   * Whether to run the LLM query-rewrite step. Defaults to enabled; set false
+   * to retrieve with the original query verbatim.
+   */
+  queryRewriteEnabled?: boolean;
   onToken?: (token: string) => void;
   onStage?: (stage: 'understanding' | 'retrieval' | 'generation') => void;
   onThinking?: (event: AiChatThinkingEvent) => void;
@@ -421,6 +431,40 @@ export class AiKnowledgeChatService {
       hasKnowledgeEvidence ? 'knowledge' : 'insufficient',
     );
 
+    if (input.rawResultsOnly) {
+      // Skip the answer-generation LLM entirely and return the packed retrieval
+      // results. No general-knowledge fallback runs here (that would invoke an
+      // LLM, defeating the purpose); citations carry the full retrieved set
+      // since no model selects which sources were actually cited.
+      const rawSourceWindows = pack.primary.flatMap(
+        (entry) => entry.sourceWindows,
+      );
+      return {
+        answer: '',
+        answerMode: hasKnowledgeEvidence ? 'knowledge' : 'no_match',
+        ...(contextualRetrievalQuery
+          ? { retrievalQuery: contextualRetrievalQuery }
+          : {}),
+        citations: allCitations,
+        citationEvidence: buildCitationEvidence(allCitations, rawSourceWindows),
+        retrievedSources: allCitations,
+        snippets: pack.primary.map((entry) => ({
+          id: entry.id,
+          title: entry.title,
+          text: entry.text,
+          retrievalReasons: entry.retrievalReasons,
+          sourceWindows: entry.sourceWindows,
+        })),
+        warnings: pack.warnings,
+        retrievalReasons: pack.retrievalReasons,
+        budget: pack.budget,
+        completenessNotice: pack.completenessNotice,
+        retrievalDiagnostics,
+        ...(retrievalScope ? { retrievalScope } : {}),
+        attachmentHitContext,
+      };
+    }
+
     if (!hasKnowledgeEvidence) {
       if (input.generalKnowledgeEnabled === false) {
         return {
@@ -705,6 +749,12 @@ export class AiKnowledgeChatService {
   private async rewriteRetrievalQuery(
     input: AiKnowledgeChatInput,
   ): Promise<string> {
+    if (input.queryRewriteEnabled === false) {
+      input.debugTiming?.mark('context.rewrite_skipped', {
+        reason: 'disabled_by_request',
+      });
+      return input.query;
+    }
     if (!input.chatContext?.length || !this.answerProvider.rewriteQuery) {
       input.debugTiming?.mark('context.rewrite_skipped', {
         reason: !input.chatContext?.length

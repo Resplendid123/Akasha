@@ -27,6 +27,26 @@ export class QueryKnowledgeDto {
   generalKnowledgeEnabled?: boolean;
 
   /**
+   * Skip the answer-generation LLM and return raw retrieval results directly
+   * (snippets/sources/citations/evidence) for lower latency. Query rewrite
+   * still runs unless disabled via `queryRewriteEnabled`. When enabled, no
+   * general-knowledge fallback is attempted regardless of
+   * `generalKnowledgeEnabled`. Defaults to false (full answer generation).
+   */
+  @IsOptional()
+  @IsBoolean()
+  rawResultsOnly?: boolean;
+
+  /**
+   * Whether to run the LLM query-rewrite step, which merges `chatContext` into
+   * a standalone retrieval query. Defaults to true. Set false to skip rewrite
+   * and retrieve with the original query verbatim.
+   */
+  @IsOptional()
+  @IsBoolean()
+  queryRewriteEnabled?: boolean;
+
+  /**
    * Return signed URLs for non-image attachments that live inside the final
    * direct-hit blocks of this retrieval, up to 5 items.
    */
