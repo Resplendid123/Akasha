@@ -1365,7 +1365,6 @@ describe('LlmWikiController', () => {
         { disposition: 'created', run: { id: 'run-space-1' } },
         { disposition: 'coalesced', run: { id: 'run-space-2' } },
       ]),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
       clearImageExtractionCache: jest.fn().mockResolvedValue(3),
       findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),
     };
@@ -1404,10 +1403,9 @@ describe('LlmWikiController', () => {
         targetSourcePageIds: ['page-2'],
       },
     ]);
-    expect(spaceCompilation.resetGenerationAttemptBudget).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      sourcePageIds: ['page-1', 'page-2'],
-    });
+    expect(spaceCompilation).not.toHaveProperty(
+      'resetGenerationAttemptBudget',
+    );
     expect(spaceCompilation.clearImageExtractionCache).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       sourcePageIds: ['page-1', 'page-2'],
@@ -1432,10 +1430,7 @@ describe('LlmWikiController', () => {
       ]),
     };
     const sourceExporter = { exportPageSources: jest.fn() };
-    const spaceCompilation = {
-      requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
-    };
+    const spaceCompilation = { requestRuns: jest.fn() };
     const controller = createController({
       pageRepo,
       sourceExporter,
@@ -1484,7 +1479,6 @@ describe('LlmWikiController', () => {
     };
     const spaceCompilation = {
       requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
       clearImageExtractionCache: jest.fn(),
       // space-2 still has a live Run; the whole retry must be refused.
       findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue(['space-2']),
@@ -1509,9 +1503,6 @@ describe('LlmWikiController', () => {
       spaceIds: ['space-1', 'space-2'],
     });
     // No mutation may run once the guard trips.
-    expect(
-      spaceCompilation.resetGenerationAttemptBudget,
-    ).not.toHaveBeenCalled();
     expect(spaceCompilation.clearImageExtractionCache).not.toHaveBeenCalled();
     expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
     expect(sourceExporter.exportPageSources).not.toHaveBeenCalled();
@@ -1521,10 +1512,7 @@ describe('LlmWikiController', () => {
     const pageRepo = { findExistingPageRefs: jest.fn() };
     const diagnosticsService = { findCompiledPageIds: jest.fn() };
     const sourceExporter = { exportPageSources: jest.fn() };
-    const spaceCompilation = {
-      requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
-    };
+    const spaceCompilation = { requestRuns: jest.fn() };
     const controller = createController({
       pageRepo,
       diagnosticsService,
@@ -1778,7 +1766,6 @@ function createController(
     {
       requestRuns: jest.fn(),
       requestImmediatePagePublish: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(0),
       clearImageExtractionCache: jest.fn().mockResolvedValue(0),
       findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),
       ...overrides.spaceCompilation,

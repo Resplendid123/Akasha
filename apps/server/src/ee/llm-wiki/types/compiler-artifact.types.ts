@@ -137,5 +137,4 @@ export interface CompileSpaceResult extends KnowledgeScope {
   artifacts: CompiledKnowledgeArtifact[];
   diagnostics: CompileDiagnostics;
   resultQuality?: 'normal' | 'degraded';
-  generationAttemptCount?: number;
 }

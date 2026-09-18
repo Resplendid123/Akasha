@@ -122,12 +122,15 @@ describe('reliable knowledge compilation migration sequence', () => {
     expect(runPages).toContain('skippedImageCount: Generated<number>;');
     expect(runPages).toContain('imageStatus: Generated<string>;');
     expect(runPages).toContain('mergeStatus: Generated<string>;');
+    expect(runPages).toContain('attemptCount: Generated<number>;');
+    expect(runPages).toContain('mergeAttemptCount: Generated<number>;');
     expect(runImages).toContain('imageOrdinal: number;');
     expect(runImages).toContain('expectedAttachmentVersion: Timestamp;');
     expect(attempts).toContain('effectiveKnowledgeHash: string | null;');
     expect(attempts).toContain('lastSuccessfulEffectiveHash: string | null;');
     expect(attempts).toContain('compilerModel: string | null;');
-    expect(attempts).toContain('generationAttemptCount: Generated<number>;');
+    expect(attempts).not.toContain('generationAttemptCount');
+    expect(attempts).not.toContain('generationAttemptSourceHash');
     expect(extractions).toContain('attachmentVersion: Timestamp | null;');
 
     expect(entityTypes).toContain('Selectable<KnowledgeSpaceCompileRunPages>');

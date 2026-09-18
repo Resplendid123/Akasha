@@ -24,12 +24,12 @@ describe('KnowledgeSpaceCompilationService', () => {
   it('dispatches a DB-reserved Space slice and never fans out page jobs', async () => {
     const fixture = createService({
       reservationCandidates: [{ id: 'run-space' }],
-      undispatchedSpaceSlices: [spaceSlice()],
+      undispatchedSpaceJobs: [spaceSlice()],
     });
 
     await fixture.service.dispatchPending();
 
-    expect(fixture.repo.reserveNextSpaceSlice).toHaveBeenCalledWith({
+    expect(fixture.repo.reserveNextSpaceJob).toHaveBeenCalledWith({
       runId: 'run-space',
     });
     expect(fixture.spaceQueue.add).toHaveBeenCalledWith(
@@ -44,7 +44,7 @@ describe('KnowledgeSpaceCompilationService', () => {
         priority: 5,
       },
     );
-    expect(fixture.repo.markSpaceSliceDispatched).toHaveBeenCalledWith(
+    expect(fixture.repo.markSpaceJobDispatched).toHaveBeenCalledWith(
       expect.objectContaining({ spaceJobId: spaceSlice().spaceJobId }),
     );
   });
@@ -76,7 +76,7 @@ describe('KnowledgeSpaceCompilationService', () => {
 
   it('gives image merge slices priority over newly queued text slices', async () => {
     const fixture = createService({
-      undispatchedSpaceSlices: [
+      undispatchedSpaceJobs: [
         {
           ...spaceSlice(),
           runId: 'run-image-merge',
@@ -99,7 +99,7 @@ describe('KnowledgeSpaceCompilationService', () => {
 
   it('dispatches manual page publish slices ahead of regular text work', async () => {
     const fixture = createService({
-      undispatchedSpaceSlices: [
+      undispatchedSpaceJobs: [
         {
           ...spaceSlice(),
           trigger: KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER,
@@ -485,7 +485,7 @@ describe('KnowledgeSpaceCompilationService', () => {
 function createService(
   overrides: {
     reservationCandidates?: unknown[];
-    undispatchedSpaceSlices?: unknown[];
+    undispatchedSpaceJobs?: unknown[];
     exportedSources?: ReturnType<typeof sourceSnapshot>[];
     reuseCandidates?: unknown[];
     readyExtractions?: unknown[];
@@ -504,14 +504,14 @@ function createService(
       promotedPageCount: 0,
       runRequestCount: 0,
     }),
-    findSpaceSliceReservationCandidates: jest
+    findSpaceJobReservationCandidates: jest
       .fn()
       .mockResolvedValue(overrides.reservationCandidates ?? []),
-    reserveNextSpaceSlice: jest.fn().mockResolvedValue(undefined),
-    findUndispatchedSpaceSlices: jest
+    reserveNextSpaceJob: jest.fn().mockResolvedValue(undefined),
+    findUndispatchedSpaceJobs: jest
       .fn()
-      .mockResolvedValue(overrides.undispatchedSpaceSlices ?? []),
-    markSpaceSliceDispatched: jest.fn().mockResolvedValue(true),
+      .mockResolvedValue(overrides.undispatchedSpaceJobs ?? []),
+    markSpaceJobDispatched: jest.fn().mockResolvedValue(true),
     reserveRunImagesFairly: jest.fn().mockResolvedValue([]),
     findUndispatchedRunImages: jest.fn().mockResolvedValue([]),
     markRunImageDispatched: jest.fn().mockResolvedValue(true),

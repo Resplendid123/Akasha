@@ -4,7 +4,7 @@ import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { KnowledgeSpaceExecutionRepo } from '@akasha/db/repos/llm-wiki/knowledge-space-execution.repo';
 import { QueueJob, QueueName } from '../../../integrations/queue/constants';
-import { IKnowledgeSpaceSliceJob } from '../../../integrations/queue/constants/queue.interface';
+import { IKnowledgeSpaceJob } from '../../../integrations/queue/constants/queue.interface';
 import { KnowledgeSpaceRunnerService } from '../services/knowledge-space-runner.service';
 import {
   KNOWLEDGE_SPACE_WORKER_OPTIONS,
@@ -36,20 +36,17 @@ export class KnowledgeSpaceProcessor
     ) {
       throw new Error(`Unsupported Knowledge Space job ${job.name}.`);
     }
-    const data = job.data as IKnowledgeSpaceSliceJob;
-    const runSlice =
+    const data = job.data as IKnowledgeSpaceJob;
+    const runLease =
       job.name === QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES
-        ? this.runner.runImageMergeSlice.bind(this.runner)
-        : this.runner.runTextSlice.bind(this.runner);
-    return runSlice(
+        ? this.runner.runImageMergeLease.bind(this.runner)
+        : this.runner.runTextLease.bind(this.runner);
+    return runLease(
       {
         ...data,
         spaceJobId: String(job.id),
       },
-      {
-        workerId: this.workerId,
-        finalAttempt: isCurrentExecutionFinalAttempt(job),
-      },
+      { workerId: this.workerId },
     );
   }
 
@@ -93,7 +90,7 @@ export class KnowledgeSpaceProcessor
       finalAttempt: isFinalAttempt(job),
     });
     if (!isFinalAttempt(job)) return;
-    const data = job.data as IKnowledgeSpaceSliceJob;
+    const data = job.data as IKnowledgeSpaceJob;
     const recoveryLease = await this.executionRepo.claimRecoveryLease({
       runId: data.spaceRunId,
       knowledgeGeneration: data.knowledgeGeneration,
@@ -134,13 +131,8 @@ function isFinalAttempt(job: Job): boolean {
   return Number(job.attemptsMade ?? 0) >= attempts;
 }
 
-function isCurrentExecutionFinalAttempt(job: Job): boolean {
-  const attempts = Math.max(Number(job.opts?.attempts ?? 1), 1);
-  return Number(job.attemptsMade ?? 0) + 1 >= attempts;
-}
-
 function jobIdentity(job: Job) {
-  const data = job.data as Partial<IKnowledgeSpaceSliceJob>;
+  const data = job.data as Partial<IKnowledgeSpaceJob>;
   return {
     jobId: String(job.id),
     jobName: job.name,

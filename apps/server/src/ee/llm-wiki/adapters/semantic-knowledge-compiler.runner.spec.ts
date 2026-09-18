@@ -442,66 +442,9 @@ describe('SemanticKnowledgeCompilerRunner', () => {
 
     expect(compilationRepo.findAnalysis).not.toHaveBeenCalled();
     expect(provider.analyze).toHaveBeenCalledTimes(1);
-    expect(compilationRepo.checkGenerationAttemptBudget).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceContentHash: 'hash-1',
-        reset: true,
-      }),
-    );
-    expect(compilationRepo.reserveGenerationAttempt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceContentHash: 'hash-1',
-        reset: true,
-      }),
-    );
   });
 
-  it('stops before generation when the source-content retry budget is exhausted', async () => {
-    const provider = createProvider();
-    const compilationRepo = createCompilationRepo();
-    compilationRepo.checkGenerationAttemptBudget.mockResolvedValue({
-      allowed: false,
-      attemptCount: 3,
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      compilationRepo,
-    );
-
-    await expect(runner.compileSpace(compileInput())).rejects.toMatchObject({
-      code: 'invalid_output',
-      retryable: false,
-    });
-    expect(provider.generate).not.toHaveBeenCalled();
-    expect(compilationRepo.reserveGenerationAttempt).not.toHaveBeenCalled();
-  });
-
-  it('does not spend generation retry budget on retryable provider failures', async () => {
-    const provider = createProvider();
-    provider.generate.mockRejectedValueOnce(
-      new KnowledgeCompilerLlmError(
-        'timeout',
-        'Knowledge compiler provider timed out.',
-        true,
-      ),
-    );
-    const compilationRepo = createCompilationRepo();
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      compilationRepo,
-    );
-
-    await expect(runner.compileSpace(compileInput())).rejects.toMatchObject({
-      code: 'timeout',
-      retryable: true,
-    });
-    expect(compilationRepo.checkGenerationAttemptBudget).toHaveBeenCalledTimes(
-      1,
-    );
-    expect(compilationRepo.reserveGenerationAttempt).not.toHaveBeenCalled();
-  });
-
-  it('spends generation retry budget on invalid model output failures', async () => {
+  it('surfaces a provider failure without consuming a durable budget', async () => {
     const provider = createProvider();
     provider.generate.mockRejectedValueOnce(
       new KnowledgeCompilerLlmError(
@@ -520,7 +463,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
       code: 'invalid_output',
       retryable: true,
     });
-    expect(compilationRepo.reserveGenerationAttempt).toHaveBeenCalledTimes(1);
   });
 
   it('includes final enriched source text in the compatibility cache key', async () => {
@@ -1016,14 +958,6 @@ function createCompilationRepo(cachedAnalysis?: SemanticAnalysis) {
     saveAnalysis: jest.fn().mockResolvedValue(undefined),
     updateStage: jest.fn().mockResolvedValue(undefined),
     recordCompilerCandidates: jest.fn().mockResolvedValue(undefined),
-    checkGenerationAttemptBudget: jest.fn().mockResolvedValue({
-      allowed: true,
-      attemptCount: 0,
-    }),
-    reserveGenerationAttempt: jest.fn().mockResolvedValue({
-      allowed: true,
-      attemptCount: 1,
-    }),
   } as unknown as jest.Mocked<KnowledgeCompilationRepo>;
 }
 

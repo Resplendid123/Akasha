@@ -1,12 +1,12 @@
 import {
   calculateSpaceSlotReleaseUpperBoundMs,
-  decideSpaceSliceCheckpoint,
-} from './knowledge-space-slice-policy';
+  decideLeaseCheckpoint,
+} from './knowledge-space-lease-policy';
 
 describe('knowledge space slice policy', () => {
   it('yields after the fifth terminal page only when work remains', () => {
     expect(
-      decideSpaceSliceCheckpoint({
+      decideLeaseCheckpoint({
         completedPages: 5,
         elapsedMs: 100,
         remainingPages: 1,
@@ -15,7 +15,7 @@ describe('knowledge space slice policy', () => {
       }),
     ).toEqual({ yield: true, reason: 'page_limit' });
     expect(
-      decideSpaceSliceCheckpoint({
+      decideLeaseCheckpoint({
         completedPages: 5,
         elapsedMs: 100,
         remainingPages: 0,
@@ -27,7 +27,7 @@ describe('knowledge space slice policy', () => {
 
   it('uses elapsed monotonic time at the page checkpoint', () => {
     expect(
-      decideSpaceSliceCheckpoint({
+      decideLeaseCheckpoint({
         completedPages: 1,
         elapsedMs: 300_000,
         remainingPages: 2,
@@ -40,7 +40,7 @@ describe('knowledge space slice policy', () => {
   it('documents the default worst-case slot release bound', () => {
     expect(
       calculateSpaceSlotReleaseUpperBoundMs({
-        sliceMaxMs: 300_000,
+        leaseMaxMs: 300_000,
         pageDeadlineMs: 900_000,
         aggregateDeadlineMs: 300_000,
         outboxIntervalMs: 5_000,

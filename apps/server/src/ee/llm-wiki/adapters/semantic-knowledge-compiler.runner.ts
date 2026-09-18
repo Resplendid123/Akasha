@@ -116,12 +116,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           generationCatalog.candidateHash,
       },
     });
-    const generationBudget = await this.checkGenerationAttemptBudget({
-      input,
-      source,
-      compileTaskId,
-    });
-    assertGenerationAttemptAllowed(generationBudget);
     const generationFallback = input.hasLastSuccess
       ? undefined
       : {
@@ -129,33 +123,11 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           title: source.title.slice(0, 300),
           markdown: buildBoundedFallbackMarkdown(analysis),
         };
-    let generation: Awaited<
-      ReturnType<KnowledgeCompilerLlmProvider['generate']>
-    >;
-    let reservedGeneration = generationBudget;
-    try {
-      generation = operationBudget.signal
-        ? await this.provider.generate(generationMessages, generationFallback, {
-            abortSignal: operationBudget.signal,
-          })
-        : await this.provider.generate(generationMessages, generationFallback);
-    } catch (error) {
-      if (shouldCountGenerationFailure(error)) {
-        reservedGeneration = await this.reserveGenerationAttempt({
-          input,
-          source,
-          compileTaskId,
-        });
-        assertGenerationAttemptAllowed(reservedGeneration);
-      }
-      throw error;
-    }
-    reservedGeneration = await this.reserveGenerationAttempt({
-      input,
-      source,
-      compileTaskId,
-    });
-    assertGenerationAttemptAllowed(reservedGeneration);
+    const generation = operationBudget.signal
+      ? await this.provider.generate(generationMessages, generationFallback, {
+          abortSignal: operationBudget.signal,
+        })
+      : await this.provider.generate(generationMessages, generationFallback);
     operationBudget.assertArtifactCount(generation.artifacts.length);
     if (generation.compilerRecovery) {
       warnings.push({
@@ -240,7 +212,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         generation.compilerRecovery === 'source_summary_fallback'
           ? 'degraded'
           : 'normal',
-      generationAttemptCount: reservedGeneration.attemptCount,
     };
   }
 
@@ -345,43 +316,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
     });
   }
 
-  private async reserveGenerationAttempt(input: {
-    input: CompileSpaceInput;
-    source: KnowledgeSourceSnapshot;
-    compileTaskId: string;
-  }): Promise<{ allowed: boolean; attemptCount: number }> {
-    const repo = this.compilationRepo as KnowledgeCompilationRepo & {
-      reserveGenerationAttempt?: KnowledgeCompilationRepo['reserveGenerationAttempt'];
-    };
-    return (
-      (await repo.reserveGenerationAttempt?.({
-        workspaceId: input.input.workspaceId,
-        sourcePageId: input.source.sourcePageId,
-        compileTaskId: input.compileTaskId,
-        sourceContentHash: input.source.contentHash,
-        reset: input.input.bypassCache === true,
-      })) ?? { allowed: true, attemptCount: 1 }
-    );
-  }
-
-  private async checkGenerationAttemptBudget(input: {
-    input: CompileSpaceInput;
-    source: KnowledgeSourceSnapshot;
-    compileTaskId: string;
-  }): Promise<{ allowed: boolean; attemptCount: number }> {
-    const repo = this.compilationRepo as KnowledgeCompilationRepo & {
-      checkGenerationAttemptBudget?: KnowledgeCompilationRepo['checkGenerationAttemptBudget'];
-    };
-    return (
-      (await repo.checkGenerationAttemptBudget?.({
-        workspaceId: input.input.workspaceId,
-        sourcePageId: input.source.sourcePageId,
-        compileTaskId: input.compileTaskId,
-        sourceContentHash: input.source.contentHash,
-        reset: input.input.bypassCache === true,
-      })) ?? { allowed: true, attemptCount: 0 }
-    );
-  }
 }
 
 function attachmentHints(
@@ -410,25 +344,6 @@ function attachmentHints(
         .slice(0, 320);
       return { ordinal: index + 1, fileName, context };
     });
-}
-
-function assertGenerationAttemptAllowed(input: {
-  allowed: boolean;
-  attemptCount: number;
-}): void {
-  if (input.allowed) return;
-  throw new KnowledgeCompilerLlmError(
-    'invalid_output',
-    'Knowledge generation retry budget is exhausted for this source content.',
-    false,
-  );
-}
-
-function shouldCountGenerationFailure(error: unknown): boolean {
-  return (
-    error instanceof KnowledgeCompilerLlmError &&
-    error.code === 'invalid_output'
-  );
 }
 
 function legacyCatalogSelection(

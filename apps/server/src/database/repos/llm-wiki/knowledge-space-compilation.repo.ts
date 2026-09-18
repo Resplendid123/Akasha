@@ -5,7 +5,7 @@ import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';
 import { executeTx } from '@akasha/db/utils';
 import { sql } from 'kysely';
 import {
-  buildSpaceSliceJobId,
+  buildSpaceJobId,
   runPhaseToJobPhase,
 } from './knowledge-space-execution.repo';
 
@@ -181,11 +181,20 @@ const NONTERMINAL_RUN_STATUSES: KnowledgeSpaceCompileRunStatus[] = [
   'aggregating',
 ];
 
+const IMAGE_WORK_RUN_PHASES: KnowledgeSpaceCompileRunPhase[] = [
+  'text',
+  'images',
+];
+const IMAGE_WORK_RUN_STATUSES: KnowledgeSpaceCompileRunStatus[] = [
+  'queued',
+  'compiling',
+];
+
 @Injectable()
 export class KnowledgeSpaceCompilationRepo {
   constructor(@InjectKysely() private readonly db: KyselyDB) {}
 
-  async findSpaceSliceReservationCandidates(limit = 100) {
+  async findSpaceJobReservationCandidates(limit = 100) {
     return this.db
       .selectFrom('knowledgeSpaceCompileRuns')
       .select([
@@ -220,7 +229,7 @@ export class KnowledgeSpaceCompilationRepo {
       .execute();
   }
 
-  async findUndispatchedSpaceSlices(limit = 100) {
+  async findUndispatchedSpaceJobs(limit = 100) {
     const rows = await this.db
       .selectFrom('knowledgeSpaceCompileRuns')
       .select([
@@ -270,7 +279,7 @@ export class KnowledgeSpaceCompilationRepo {
     }));
   }
 
-  async markSpaceSliceDispatched(input: {
+  async markSpaceJobDispatched(input: {
     runId: string;
     knowledgeGeneration: number;
     jobPhase: 'text' | 'image_merge';
@@ -296,7 +305,7 @@ export class KnowledgeSpaceCompilationRepo {
     return Boolean(updated);
   }
 
-  async reserveNextSpaceSlice(input: { runId: string }) {
+  async reserveNextSpaceJob(input: { runId: string }) {
     return executeTx(this.db, async (trx) => {
       const scope = await trx
         .selectFrom('knowledgeSpaceCompileRuns')
@@ -341,7 +350,7 @@ export class KnowledgeSpaceCompilationRepo {
         return undefined;
       }
       const spaceJobSequence = run.spaceJobSequence + 1;
-      const spaceJobId = buildSpaceSliceJobId(
+      const spaceJobId = buildSpaceJobId(
         run.id,
         jobPhase,
         spaceJobSequence,
@@ -1291,8 +1300,6 @@ export class KnowledgeSpaceCompilationRepo {
           lastSuccessfulEffectiveHash: null,
           lastSuccessfulSourceVersion: null,
           lastSuccessfulSourceHash: null,
-          generationAttemptSourceHash: null,
-          generationAttemptCount: 0,
           pendingImport: null,
           pendingSpaceId: null,
           pendingSourceVersion: null,
@@ -1424,8 +1431,8 @@ export class KnowledgeSpaceCompilationRepo {
     const runs = await this.db
       .selectFrom('knowledgeSpaceCompileRuns as run')
       .select(['run.id'])
-      .where('run.phase', '=', 'images')
-      .where('run.status', '=', 'compiling')
+      .where('run.phase', 'in', IMAGE_WORK_RUN_PHASES)
+      .where('run.status', 'in', IMAGE_WORK_RUN_STATUSES)
       .where((expression) =>
         expression.exists(
           expression
@@ -1463,8 +1470,8 @@ export class KnowledgeSpaceCompilationRepo {
       .where('image.status', '=', 'queued')
       .where('image.jobId', 'is not', null)
       .where('image.dispatchedAt', 'is', null)
-      .where('run.phase', '=', 'images')
-      .where('run.status', '=', 'compiling')
+      .where('run.phase', 'in', IMAGE_WORK_RUN_PHASES)
+      .where('run.status', 'in', IMAGE_WORK_RUN_STATUSES)
       .orderBy('run.updatedAt', 'asc')
       .orderBy('image.createdAt', 'asc')
       .orderBy('image.id', 'asc')
@@ -1494,8 +1501,8 @@ export class KnowledgeSpaceCompilationRepo {
           .select('id')
           .where('id', '=', input.runId)
           .where('knowledgeGeneration', '=', input.knowledgeGeneration)
-          .where('phase', '=', 'images')
-          .where('status', '=', 'compiling'),
+          .where('phase', 'in', IMAGE_WORK_RUN_PHASES)
+          .where('status', 'in', IMAGE_WORK_RUN_STATUSES),
       )
       .returning('id')
       .executeTakeFirst();
@@ -1521,8 +1528,8 @@ export class KnowledgeSpaceCompilationRepo {
         'run.knowledgeGeneration',
       ])
       .where('image.jobId', 'is not', null)
-      .where('run.phase', '=', 'images')
-      .where('run.status', '=', 'compiling')
+      .where('run.phase', 'in', IMAGE_WORK_RUN_PHASES)
+      .where('run.status', 'in', IMAGE_WORK_RUN_STATUSES)
       .where((expression) =>
         expression.or([
           expression.and([
@@ -1837,8 +1844,8 @@ export class KnowledgeSpaceCompilationRepo {
         .selectAll()
         .where('id', '=', runId)
         .where('knowledgeGeneration', '=', space.knowledgeGeneration)
-        .where('phase', '=', 'images')
-        .where('status', '=', 'compiling')
+        .where('phase', 'in', IMAGE_WORK_RUN_PHASES)
+        .where('status', 'in', IMAGE_WORK_RUN_STATUSES)
         .forUpdate()
         .executeTakeFirst();
       if (!run) return [];
@@ -1949,8 +1956,8 @@ export class KnowledgeSpaceCompilationRepo {
       .where('workspaceId', '=', identity.workspaceId)
       .where('spaceId', '=', identity.spaceId)
       .where('knowledgeGeneration', '=', input.knowledgeGeneration)
-      .where('phase', '=', 'images')
-      .where('status', '=', 'compiling')
+      .where('phase', 'in', IMAGE_WORK_RUN_PHASES)
+      .where('status', 'in', IMAGE_WORK_RUN_STATUSES)
       .forUpdate()
       .executeTakeFirst();
     if (!run) return undefined;

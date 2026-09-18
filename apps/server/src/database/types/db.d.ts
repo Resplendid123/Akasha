@@ -383,8 +383,6 @@ export interface KnowledgeCompilationAttempts {
   errorCode: string | null;
   errorMessage: string | null;
   finishedAt: Timestamp | null;
-  generationAttemptCount: Generated<number>;
-  generationAttemptSourceHash: string | null;
   generationCandidateHash: string | null;
   generationCandidateIds: Generated<Json>;
   id: Generated<string>;
@@ -692,6 +690,7 @@ export interface KnowledgeSpaceCompileRunImages {
 }
 
 export interface KnowledgeSpaceCompileRunPages {
+  attemptCount: Generated<number>;
   bindingStatus: Generated<string>;
   boundAt: Generated<Timestamp | null>;
   createdAt: Generated<Timestamp>;
@@ -707,6 +706,7 @@ export interface KnowledgeSpaceCompileRunPages {
   imageJobId: string | null;
   imageStatus: Generated<string>;
   jobId: string | null;
+  mergeAttemptCount: Generated<number>;
   mergedEffectiveKnowledgeHash: string | null;
   mergeJobId: string | null;
   mergeStatus: Generated<string>;

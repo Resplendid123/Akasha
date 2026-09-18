@@ -47,7 +47,6 @@ export type PageCompilationOutcome =
 export interface TextPageCompilationInput {
   data: KnowledgeTextPageData;
   compileTaskId: string;
-  finalAttempt: boolean;
   startedAt?: number;
   execution: TextPageExecutionContext;
 }
@@ -57,6 +56,7 @@ export interface TextPageExecutionContext {
   markRunning?(): Promise<void>;
   completePage(input: {
     status: 'succeeded' | 'failed' | 'skipped';
+    retryable?: boolean;
     qualityStatus?: 'normal' | 'degraded' | 'partial_image';
     errorCode?: string | null;
     errorMessage?: string | null;
@@ -69,7 +69,6 @@ export interface TextPageExecutionContext {
 export interface ImagePageMergeInput {
   data: KnowledgeImageMergePageData;
   compileTaskId: string;
-  finalAttempt: boolean;
   startedAt?: number;
   execution: ImagePageExecutionContext;
 }
@@ -78,6 +77,7 @@ export interface ImagePageExecutionContext {
   isActive(): Promise<boolean>;
   completePage(input: {
     status: 'failed' | 'skipped';
+    retryable?: boolean;
     errorCode?: string | null;
     errorMessage?: string | null;
   }): Promise<unknown>;
@@ -395,23 +395,6 @@ export class KnowledgePageCompilationService {
         status: 'succeeded',
         qualityStatus: resultQuality,
       });
-      if (
-        resultQuality === 'degraded' &&
-        (compileResult.generationAttemptCount ?? 3) < 3
-      ) {
-        await this.runRepo?.requestRuns({
-          requests: [
-            {
-              workspaceId: data.workspaceId,
-              spaceId: data.spaceId,
-              trigger: 'page_retry',
-              targetSourcePageIds: [sourcePageId],
-            },
-          ],
-          compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
-          promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
-        });
-      }
       return {
         outcome: 'succeeded',
         result: {
@@ -449,13 +432,12 @@ export class KnowledgePageCompilationService {
         errorCode: failure.code,
         errorMessage: failure.message,
       });
-      if (!failure.retryable || input.finalAttempt) {
-        await this.completeTextPage(input, {
-          status: 'failed',
-          errorCode: failure.code,
-          errorMessage: failure.message,
-        });
-      }
+      await this.completeTextPage(input, {
+        status: 'failed',
+        retryable: failure.retryable,
+        errorCode: failure.code,
+        errorMessage: failure.message,
+      });
       return failureOutcome(
         failure.retryable,
         failure.code,
@@ -488,6 +470,7 @@ export class KnowledgePageCompilationService {
     if (!isSameImageMergeSnapshot(data, exportedSource, true)) {
       await this.completeImageMergePage(input, {
         status: 'failed',
+        retryable: false,
         errorCode: 'source_changed',
         errorMessage: 'Page source or frozen image snapshot changed.',
       });
@@ -623,6 +606,7 @@ export class KnowledgePageCompilationService {
         });
         await this.completeImageMergePage(input, {
           status: 'failed',
+          retryable: false,
           errorCode: 'source_changed',
           errorMessage: error.message,
         });
@@ -646,13 +630,12 @@ export class KnowledgePageCompilationService {
         errorCode: failure.code,
         errorMessage: failure.message,
       });
-      if (!failure.retryable || input.finalAttempt) {
-        await this.completeImageMergePage(input, {
-          status: 'failed',
-          errorCode: failure.code,
-          errorMessage: failure.message,
-        });
-      }
+      await this.completeImageMergePage(input, {
+        status: 'failed',
+        retryable: failure.retryable,
+        errorCode: failure.code,
+        errorMessage: failure.message,
+      });
       return failureOutcome(
         failure.retryable,
         failure.code,
@@ -666,6 +649,7 @@ export class KnowledgePageCompilationService {
     input: ImagePageMergeInput,
     outcome: {
       status: 'failed' | 'skipped';
+      retryable?: boolean;
       errorCode?: string | null;
       errorMessage?: string | null;
     },
@@ -677,6 +661,7 @@ export class KnowledgePageCompilationService {
     input: TextPageCompilationInput,
     outcome: {
       status: 'succeeded' | 'failed' | 'skipped';
+      retryable?: boolean;
       qualityStatus?: 'normal' | 'degraded' | 'partial_image';
       errorCode?: string | null;
       errorMessage?: string | null;
