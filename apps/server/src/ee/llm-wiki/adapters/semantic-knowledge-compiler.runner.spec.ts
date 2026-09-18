@@ -68,6 +68,30 @@ const generation = {
   ],
 };
 
+const ATTACHMENT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+/**
+ * Adds a marker-carrying serialized text and one trusted occurrence to the
+ * single compile source, mirroring what the exporter mounts for a page with a
+ * real non-image File attachment node.
+ */
+function withAttachmentSource(input: CompileSpaceInput): CompileSpaceInput {
+  const marker = `[[AKASHA_ATTACHMENT:v1:${ATTACHMENT_ID}]]`;
+  const serialized = `Event sourcing overview.\nconfig.xlsx ${marker}`;
+  const fileNameStart = serialized.indexOf('config.xlsx');
+  input.sources[0].attachmentSerializedText = serialized;
+  input.sources[0].attachmentOccurrences = [
+    {
+      attachmentId: ATTACHMENT_ID,
+      sourcePageId: 'page-1',
+      attachmentUpdatedAt: '2026-01-01T00:00:00.000Z',
+      startOffset: fileNameStart,
+      endOffset: fileNameStart + `config.xlsx ${marker}`.length,
+    },
+  ];
+  return input;
+}
+
 describe('SemanticKnowledgeCompilerRunner', () => {
   it('uses the queue task identity when updating fenced compilation stages', async () => {
     const provider = createProvider();
@@ -159,6 +183,158 @@ describe('SemanticKnowledgeCompilerRunner', () => {
       startOffset: input.sources[0].text.indexOf('Service=service-alpha'),
       endOffset: input.sources[0].text.length,
     });
+  });
+
+  it('emits source-namespaced attachment evidence blocks only on the summary', async () => {
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      createProvider(),
+      createCompilationRepo(),
+    );
+    const input = withAttachmentSource(compileInput());
+
+    const result = await runner.compileSpace(input);
+    const summary = result.artifacts.find(
+      (artifact) => artifact.artifactKind === 'source_summary',
+    );
+    const concept = result.artifacts.find(
+      (artifact) => artifact.artifactKind === 'concept',
+    );
+    const attachmentChunk = summary?.chunks?.find(
+      (chunk) => (chunk.attachmentOccurrences?.length ?? 0) > 0,
+    );
+
+    expect(attachmentChunk).toEqual(
+      expect.objectContaining({
+        chunkRole: 'child',
+        retrievalChannel: 'evidence',
+        text: expect.stringContaining('config.xlsx'),
+      }),
+    );
+    // The marker never survives into stored text or embedding input.
+    expect(attachmentChunk?.text).not.toContain('AKASHA_ATTACHMENT');
+    expect(attachmentChunk?.embeddingText).not.toContain('AKASHA_ATTACHMENT');
+    expect(attachmentChunk?.attachmentOccurrences).toHaveLength(1);
+    const attachmentOccurrence = attachmentChunk?.attachmentOccurrences?.[0];
+    expect(attachmentOccurrence).toEqual(
+      expect.objectContaining({
+        attachmentId: ATTACHMENT_ID,
+        sourcePageId: 'page-1',
+        sourceVersion: 'v1',
+        sourceContentHash: 'hash-1',
+        attachmentUpdatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    );
+    // The occurrence carries its marker range so the validator can re-prove the
+    // marker is fully contained inside this chunk (§6.2).
+    expect(typeof attachmentOccurrence?.startOffset).toBe('number');
+    expect(typeof attachmentOccurrence?.endOffset).toBe('number');
+    expect(attachmentOccurrence!.endOffset).toBeGreaterThan(
+      attachmentOccurrence!.startOffset,
+    );
+    expect(attachmentOccurrence!.startOffset).toBeGreaterThanOrEqual(
+      attachmentChunk!.startOffset!,
+    );
+    expect(attachmentOccurrence!.endOffset).toBeLessThanOrEqual(
+      attachmentChunk!.endOffset!,
+    );
+    // A parent section is preserved for the kept attachment block.
+    expect(
+      summary?.parentSections?.some(
+        (section) => section.stableKey === attachmentChunk?.parentStableKey,
+      ),
+    ).toBe(true);
+    // Model-generated structural blocks never carry an attachment relation.
+    expect(
+      summary?.chunks?.some(
+        (chunk) =>
+          chunk.text.includes('event sourcing') &&
+          (chunk.attachmentOccurrences?.length ?? 0) > 0,
+      ),
+    ).toBe(false);
+    expect(
+      concept?.chunks?.some(
+        (chunk) => (chunk.attachmentOccurrences?.length ?? 0) > 0,
+      ),
+    ).toBe(false);
+  });
+
+  it('groups multiple attachments in one block with ordered occurrences', async () => {
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      createProvider(),
+      createCompilationRepo(),
+    );
+    const secondId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const markerA = `[[AKASHA_ATTACHMENT:v1:${ATTACHMENT_ID}]]`;
+    const markerB = `[[AKASHA_ATTACHMENT:v1:${secondId}]]`;
+    const serialized = `report.pdf ${markerA} and sheet.csv ${markerB}`;
+    const input = compileInput();
+    input.sources[0].attachmentSerializedText = serialized;
+    input.sources[0].attachmentOccurrences = [
+      {
+        attachmentId: ATTACHMENT_ID,
+        sourcePageId: 'page-1',
+        attachmentUpdatedAt: '2026-01-01T00:00:00.000Z',
+        startOffset: serialized.indexOf('report.pdf'),
+        endOffset: serialized.indexOf('report.pdf') + `report.pdf ${markerA}`.length,
+      },
+      {
+        attachmentId: secondId,
+        sourcePageId: 'page-1',
+        attachmentUpdatedAt: '2026-02-02T00:00:00.000Z',
+        startOffset: serialized.indexOf('sheet.csv'),
+        endOffset: serialized.indexOf('sheet.csv') + `sheet.csv ${markerB}`.length,
+      },
+    ];
+
+    const result = await runner.compileSpace(input);
+    const summary = result.artifacts.find(
+      (artifact) => artifact.artifactKind === 'source_summary',
+    );
+    const attachmentChunks = (summary?.chunks ?? []).filter(
+      (chunk) => (chunk.attachmentOccurrences?.length ?? 0) > 0,
+    );
+
+    expect(attachmentChunks).toHaveLength(1);
+    expect(
+      attachmentChunks[0].attachmentOccurrences?.map(
+        (occurrence) => occurrence.attachmentId,
+      ),
+    ).toEqual([ATTACHMENT_ID, secondId]);
+  });
+
+  it('keeps attachment evidence blocks on the raw fallback path', async () => {
+    const provider = createProvider();
+    provider.generate.mockResolvedValueOnce({
+      version: '1',
+      artifacts: [
+        {
+          kind: 'source_summary',
+          canonicalKey: 'page-1',
+          title: 'Architecture notes',
+          markdown: 'Event sourcing records changes as an append-only log.',
+          claims: [],
+          links: [],
+          tags: [],
+        },
+      ],
+      compilerRecovery: 'source_summary_fallback',
+    });
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      provider,
+      createCompilationRepo(),
+    );
+
+    const result = await runner.compileSpace(
+      withAttachmentSource(compileInput()),
+    );
+    const summary = result.artifacts[0];
+
+    expect(summary.generationMode).toBe('raw_fallback');
+    expect(
+      summary.chunks?.some(
+        (chunk) => (chunk.attachmentOccurrences?.length ?? 0) > 0,
+      ),
+    ).toBe(true);
   });
 
   it('reuses an exact cached analysis and skips the Stage 1 call', async () => {

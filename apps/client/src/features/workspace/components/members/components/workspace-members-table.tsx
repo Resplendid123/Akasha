@@ -1,4 +1,10 @@
-import { Group, Table, Text, Badge } from "@mantine/core";
+import {
+  Badge,
+  Group,
+  Table,
+  Text,
+  UnstyledButton,
+} from "@mantine/core";
 import {
   useChangeMemberRoleMutation,
   useWorkspaceMembersQuery,
@@ -18,17 +24,26 @@ import { SearchInput } from "@/components/common/search-input.tsx";
 import NoTableResults from "@/components/common/no-table-results.tsx";
 import { usePaginateAndSearch } from "@/hooks/use-paginate-and-search.tsx";
 import MemberActionMenu from "@/features/workspace/components/members/components/members-action-menu.tsx";
+import WorkspaceMemberDetailsModal from "@/features/workspace/components/members/components/workspace-member-details-modal.tsx";
 
 export default function WorkspaceMembersTable() {
   const { t } = useTranslation();
   const { search, cursor, goNext, goPrev, handleSearch } = usePaginateAndSearch();
-  const { data, isLoading } = useWorkspaceMembersQuery({
+  const { data } = useWorkspaceMembersQuery({
     cursor,
     limit: 100,
     query: search,
   });
   const changeMemberRoleMutation = useChangeMemberRoleMutation();
   const { isAdmin, isOwner } = useUserRole();
+  const [selectedUserId, setSelectedUserId] = React.useState<string | null>(null);
+  const [detailsOpened, setDetailsOpened] = React.useState(false);
+
+  const openDetailsModal = (userId: string) => {
+    setSelectedUserId(userId);
+    setDetailsOpened(true);
+  };
+  const closeDetailsModal = () => setDetailsOpened(false);
 
   const assignableUserRoles = isOwner
     ? userRoleData
@@ -71,10 +86,16 @@ export default function WorkspaceMembersTable() {
                 <Table.Tr key={index}>
                   <Table.Td>
                     <Group gap="sm" wrap="nowrap">
-                      <CustomAvatar
-                        avatarUrl={user.avatarUrl}
-                        name={user.name}
-                      />
+                      <UnstyledButton
+                        type="button"
+                        onClick={() => openDetailsModal(user.id)}
+                        aria-label={t("View member details")}
+                      >
+                        <CustomAvatar
+                          avatarUrl={user.avatarUrl}
+                          name={user.name}
+                        />
+                      </UnstyledButton>
                       <div>
                         <Text fz="sm" fw={500} lineClamp={1}>
                           {user.name}
@@ -132,6 +153,12 @@ export default function WorkspaceMembersTable() {
           onPrev={goPrev}
         />
       )}
+
+      <WorkspaceMemberDetailsModal
+        userId={selectedUserId}
+        opened={detailsOpened}
+        onClose={closeDetailsModal}
+      />
     </>
   );
 }

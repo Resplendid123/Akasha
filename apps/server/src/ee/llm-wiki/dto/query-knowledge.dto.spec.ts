@@ -45,6 +45,32 @@ describe('QueryKnowledgeDto', () => {
     );
   });
 
+  it('accepts the raw results opt-in flag', async () => {
+    await expect(
+      validate(createDto({ rawResultsOnly: true })),
+    ).resolves.toEqual([]);
+  });
+
+  it('accepts the query rewrite toggle', async () => {
+    await expect(
+      validate(createDto({ queryRewriteEnabled: false })),
+    ).resolves.toEqual([]);
+  });
+
+  it('rejects a non-boolean raw results flag', async () => {
+    const errors = await validate(
+      createDto({ rawResultsOnly: 'true' as never }),
+    );
+    expect(errors).not.toEqual([]);
+  });
+
+  it('rejects a non-boolean query rewrite flag', async () => {
+    const errors = await validate(
+      createDto({ queryRewriteEnabled: 'false' as never }),
+    );
+    expect(errors).not.toEqual([]);
+  });
+
   it.each([
     ['a non-number', '0.6' as never],
     ['a negative number', -0.1],

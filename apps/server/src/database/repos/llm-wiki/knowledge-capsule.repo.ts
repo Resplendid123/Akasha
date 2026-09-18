@@ -11,6 +11,7 @@ import {
   InsertableKnowledgeClaimSource,
   InsertableKnowledgeChunk,
   InsertableKnowledgeChunkSource,
+  InsertableKnowledgeChunkAttachment,
   InsertableKnowledgeLink,
   InsertableKnowledgeLinkSource,
   InsertableKnowledgeGraphEdge,
@@ -49,6 +50,7 @@ export type UpsertCompiledArtifactInput = {
   claimSources?: InsertableKnowledgeClaimSource[];
   chunks?: InsertableKnowledgeChunk[];
   chunkSources?: InsertableKnowledgeChunkSource[];
+  chunkAttachments?: InsertableKnowledgeChunkAttachment[];
   links?: InsertableKnowledgeLink[];
   linkSources?: InsertableKnowledgeLinkSource[];
   graphEdges?: InsertableKnowledgeGraphEdge[];
@@ -413,6 +415,11 @@ export class KnowledgeCapsuleRepo {
     );
     await this.insertArtifactChildren(
       db,
+      inputs.flatMap((input) => input.chunkAttachments ?? []),
+      'knowledgeChunkAttachments',
+    );
+    await this.insertArtifactChildren(
+      db,
       inputs.flatMap((input) => input.links ?? []),
       'knowledgeLinks',
     );
@@ -479,6 +486,7 @@ export class KnowledgeCapsuleRepo {
       | 'knowledgeClaimSources'
       | 'knowledgeChunks'
       | 'knowledgeChunkSources'
+      | 'knowledgeChunkAttachments'
       | 'knowledgeLinks'
       | 'knowledgeLinkSources'
       | 'knowledgeGraphEdges'
@@ -1393,6 +1401,57 @@ export class KnowledgeCapsuleRepo {
         sourceRange: row.sourceRange,
         quoteHash: row.quoteHash,
       })),
+    }));
+  }
+
+  async findChunkAttachmentsByChunkIds(
+    input: { workspaceId: string; chunkIds: string[] },
+    trx?: KyselyTransaction,
+  ): Promise<
+    Array<{
+      chunkId: string;
+      attachments: Array<{
+        occurrenceOrder: number;
+        attachmentId: string;
+        sourcePageId: string;
+        sourceVersion: string;
+        sourceContentHash: string;
+        attachmentUpdatedAt: Date;
+      }>;
+    }>
+  > {
+    if (input.chunkIds.length === 0) return [];
+
+    const rows = await dbOrTx(this.db, trx)
+      .selectFrom('knowledgeChunkAttachments')
+      .select([
+        'knowledgeChunkAttachments.chunkId',
+        'knowledgeChunkAttachments.occurrenceOrder',
+        'knowledgeChunkAttachments.attachmentId',
+        'knowledgeChunkAttachments.sourcePageId',
+        'knowledgeChunkAttachments.sourceVersion',
+        'knowledgeChunkAttachments.sourceContentHash',
+        'knowledgeChunkAttachments.attachmentUpdatedAt',
+      ])
+      .where('knowledgeChunkAttachments.workspaceId', '=', input.workspaceId)
+      .where('knowledgeChunkAttachments.chunkId', 'in', input.chunkIds)
+      .orderBy('knowledgeChunkAttachments.occurrenceOrder', 'asc')
+      .execute();
+    const attachmentsByChunkId = groupBy(rows, (row) => row.chunkId);
+
+    return input.chunkIds.map((chunkId) => ({
+      chunkId,
+      attachments: (attachmentsByChunkId.get(chunkId) ?? [])
+        .slice()
+        .sort((a, b) => a.occurrenceOrder - b.occurrenceOrder)
+        .map((row) => ({
+          occurrenceOrder: row.occurrenceOrder,
+          attachmentId: row.attachmentId,
+          sourcePageId: row.sourcePageId,
+          sourceVersion: row.sourceVersion,
+          sourceContentHash: row.sourceContentHash,
+          attachmentUpdatedAt: new Date(row.attachmentUpdatedAt),
+        })),
     }));
   }
 

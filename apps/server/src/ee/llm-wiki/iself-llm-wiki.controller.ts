@@ -95,9 +95,19 @@ export class IsElfLlmWikiController {
       ...(dto.scoreThreshold !== undefined
         ? { scoreThreshold: dto.scoreThreshold }
         : {}),
+      ...(dto.rawResultsOnly === true ? { rawResultsOnly: true } : {}),
+      ...(dto.queryRewriteEnabled !== undefined
+        ? { queryRewriteEnabled: dto.queryRewriteEnabled }
+        : {}),
     });
     const queryHash = hashQuery(dto.query);
-    const { retrievalDiagnostics, retrievalScope, ...response } = result;
+    // Strip internal-only fields so they never leak through `...response`.
+    const {
+      retrievalDiagnostics,
+      retrievalScope,
+      attachmentHitContext,
+      ...response
+    } = result;
     const requestedSpaceIds = retrievalScope?.requestedSpaceIds ?? dto.spaceIds;
     const effectiveSpaceIds =
       retrievalScope?.effectiveSpaceIds ?? requestedSpaceIds;
@@ -154,11 +164,13 @@ export class IsElfLlmWikiController {
       citations: response.citations,
       citationEvidence: response.citationEvidence,
     });
+    // Top-level attachments are gated strictly by `attachments: true`;
+    // `includeCitations` only controls citations (§8.1).
     const attachments =
-      dto.attachments === true || dto.includeCitations === true
+      dto.attachments === true
         ? await this.resolveAttachments({
             workspaceId: workspace.id,
-            citations: response.citations,
+            directHitChunkIds: attachmentHitContext?.directHitChunkIds ?? [],
           })
         : undefined;
     const appUrl = this.environmentService?.getAppUrl();
@@ -228,7 +240,7 @@ export class IsElfLlmWikiController {
 
   private async resolveAttachments(input: {
     workspaceId: string;
-    citations: AiKnowledgeChatResult['citations'];
+    directHitChunkIds: string[];
   }) {
     if (!this.attachmentResolver) return [];
     try {

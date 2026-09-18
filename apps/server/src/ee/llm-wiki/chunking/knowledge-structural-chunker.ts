@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { SerializedKnowledgeSourceBlock } from '../types/source-snapshot.types';
 
 export type StructuralChildChunk = {
   stableKey: string;
@@ -30,11 +31,17 @@ type SourceBlock = {
 
 const DEFAULT_MAX_CHILD_CHARACTERS = 900;
 
+type OccurrenceRange = { startOffset: number; endOffset: number };
+
 export function chunkKnowledgeSource(input: {
   pageTitle: string;
   text: string;
   content?: unknown;
   maxChildCharacters?: number;
+  attachmentOccurrences?: OccurrenceRange[];
+  /** Trusted structural blocks from the attachment serializer's text basis. */
+  sourceBlocks?: SerializedKnowledgeSourceBlock[];
+  stableKeyNamespace?: string;
 }): StructuralParentSection[] {
   const maxChildCharacters =
     input.maxChildCharacters ?? DEFAULT_MAX_CHILD_CHARACTERS;
@@ -43,11 +50,26 @@ export function chunkKnowledgeSource(input: {
   }
   if (input.text.length === 0) return [];
 
+  const occurrences = normalizeOccurrences(input.attachmentOccurrences);
+  const stableKeyOf = (identity: string): string => {
+    if (!input.stableKeyNamespace) return digest(identity);
+    // Stable keys are persisted in varchar(64). Preserve a readable source
+    // namespace for diagnostics while retaining a deterministic digest suffix.
+    const prefix = `${input.stableKeyNamespace}:`;
+    return `${prefix}${digest(identity).slice(0, 64 - prefix.length)}`;
+  };
+
+  const serializedBlocks = blocksFromSerializedSource(
+    input.sourceBlocks,
+    input.text,
+  );
   const structuredBlocks = blocksFromProseMirror(input.content, input.text);
   const blocks =
-    structuredBlocks.length > 0
-      ? structuredBlocks
-      : blocksFromMarkdown(input.text);
+    serializedBlocks.length > 0
+      ? serializedBlocks
+      : structuredBlocks.length > 0
+        ? structuredBlocks
+        : blocksFromMarkdown(input.text);
   const sections = sectionBlocks(blocks, input.text.length);
   const pathOccurrences = new Map<string, number>();
 
@@ -62,7 +84,7 @@ export function chunkKnowledgeSource(input: {
     const pathIdentity = section.headingPath.join('\u001f') || '(intro)';
     const occurrence = (pathOccurrences.get(pathIdentity) ?? 0) + 1;
     pathOccurrences.set(pathIdentity, occurrence);
-    const stableKey = digest(`parent|${pathIdentity}|${occurrence}`);
+    const stableKey = stableKeyOf(`parent|${pathIdentity}|${occurrence}`);
     const children = buildChildren({
       blocks: section.contentBlocks,
       source: input.text,
@@ -70,8 +92,15 @@ export function chunkKnowledgeSource(input: {
       headingPath: section.headingPath,
       parentStableKey: stableKey,
       maxChildCharacters,
+      occurrences,
+      stableKeyOf,
     });
-    const text = input.text.slice(bounds.startOffset, bounds.endOffset);
+    const text = cleanMarkers(
+      input.text,
+      bounds.startOffset,
+      bounds.endOffset,
+      occurrences,
+    );
 
     return [
       {
@@ -134,6 +163,8 @@ function buildChildren(input: {
   headingPath: string[];
   parentStableKey: string;
   maxChildCharacters: number;
+  occurrences: OccurrenceRange[];
+  stableKeyOf: (identity: string) => string;
 }): StructuralChildChunk[] {
   const ranges: Array<{ startOffset: number; endOffset: number }> = [];
   let group: { startOffset: number; endOffset: number } | undefined;
@@ -151,7 +182,12 @@ function buildChildren(input: {
     if (length > input.maxChildCharacters) {
       flush();
       ranges.push(
-        ...splitRange(input.source, bounds, input.maxChildCharacters),
+        ...splitRange(
+          input.source,
+          bounds,
+          input.maxChildCharacters,
+          input.occurrences,
+        ),
       );
       continue;
     }
@@ -172,11 +208,16 @@ function buildChildren(input: {
 
   const childOccurrences = new Map<string, number>();
   return ranges.map((range) => {
-    const text = input.source.slice(range.startOffset, range.endOffset);
+    const text = cleanMarkers(
+      input.source,
+      range.startOffset,
+      range.endOffset,
+      input.occurrences,
+    );
     const textIdentity = normalizeStableText(text);
     const occurrence = (childOccurrences.get(textIdentity) ?? 0) + 1;
     childOccurrences.set(textIdentity, occurrence);
-    const stableKey = digest(
+    const stableKey = input.stableKeyOf(
       `child|${input.parentStableKey}|${textIdentity}|${occurrence}`,
     );
     const breadcrumb = [input.pageTitle, ...input.headingPath]
@@ -198,6 +239,7 @@ function splitRange(
   source: string,
   range: { startOffset: number; endOffset: number },
   maxLength: number,
+  occurrences: OccurrenceRange[] = [],
 ): Array<{ startOffset: number; endOffset: number }> {
   const ranges: Array<{ startOffset: number; endOffset: number }> = [];
   let startOffset = range.startOffset;
@@ -216,12 +258,39 @@ function splitRange(
         endOffset = startOffset + preferredBreak;
       }
     }
+    // A marker is an unsplittable unit: never cut inside an occurrence. Move
+    // the boundary before the marker when possible, otherwise past it.
+    endOffset = avoidSplittingOccurrences(endOffset, startOffset, occurrences);
     const trimmed = trimRange(source, startOffset, endOffset);
     if (trimmed.startOffset < trimmed.endOffset) ranges.push(trimmed);
     startOffset = endOffset;
   }
 
   return ranges;
+}
+
+/**
+ * Returns an end boundary that does not fall strictly inside any occurrence. If
+ * a boundary lands inside `[start, end)`, it is pulled back to the
+ * occurrence's start; when that would produce an empty slice (the occurrence
+ * begins at or before the chunk start), it is pushed past the occurrence end
+ * so the whole marker stays in a single chunk.
+ */
+function avoidSplittingOccurrences(
+  endOffset: number,
+  startOffset: number,
+  occurrences: OccurrenceRange[],
+): number {
+  let adjusted = endOffset;
+  for (const occurrence of occurrences) {
+    if (adjusted > occurrence.startOffset && adjusted < occurrence.endOffset) {
+      adjusted =
+        occurrence.startOffset > startOffset
+          ? occurrence.startOffset
+          : occurrence.endOffset;
+    }
+  }
+  return adjusted;
 }
 
 function blocksFromProseMirror(
@@ -259,6 +328,37 @@ function blocksFromProseMirror(
   }
 
   return blocks;
+}
+
+function blocksFromSerializedSource(
+  blocks: SerializedKnowledgeSourceBlock[] | undefined,
+  source: string,
+): SourceBlock[] {
+  if (!blocks?.length) return [];
+
+  const result: SourceBlock[] = [];
+  let previousEnd = 0;
+  for (const block of blocks) {
+    if (
+      !Number.isInteger(block.startOffset) ||
+      !Number.isInteger(block.endOffset) ||
+      block.startOffset < previousEnd ||
+      block.endOffset <= block.startOffset ||
+      block.endOffset > source.length
+    ) {
+      return [];
+    }
+    result.push({
+      text: source.slice(block.startOffset, block.endOffset),
+      startOffset: block.startOffset,
+      endOffset: block.endOffset,
+      headingLevel: block.headingLevel,
+      headingText: block.headingText,
+      atomic: block.atomic,
+    });
+    previousEnd = block.endOffset;
+  }
+  return result;
 }
 
 function nodeText(node: Record<string, unknown>): string {
@@ -385,6 +485,53 @@ function trimRange(source: string, startOffset: number, endOffset: number) {
 
 function normalizeStableText(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
+}
+
+const ATTACHMENT_MARKER_PREFIX_WITH_SPACE = ' [[AKASHA_ATTACHMENT:v1:';
+const ATTACHMENT_MARKER_SUFFIX = ']]';
+
+/**
+ * Removes compile-time attachment markers only from trusted occurrence ranges,
+ * keeping the preceding file name and consuming the separator space. Marker-
+ * shaped text typed by a user outside a real attachment node remains ordinary
+ * content. Applied to both `text` and `embeddingText`; `quoteHash` is recomputed
+ * from the cleaned text so display, hash and vector input stay consistent.
+ */
+function cleanMarkers(
+  source: string,
+  startOffset: number,
+  endOffset: number,
+  occurrences: OccurrenceRange[],
+): string {
+  let value = source.slice(startOffset, endOffset);
+  const contained = occurrences
+    .filter(
+      (occurrence) =>
+        occurrence.startOffset >= startOffset &&
+        occurrence.endOffset <= endOffset,
+    )
+    .sort((a, b) => b.startOffset - a.startOffset);
+
+  for (const occurrence of contained) {
+    const localStart = occurrence.startOffset - startOffset;
+    const localEnd = occurrence.endOffset - startOffset;
+    const occurrenceText = value.slice(localStart, localEnd);
+    const markerStart = occurrenceText.lastIndexOf(
+      ATTACHMENT_MARKER_PREFIX_WITH_SPACE,
+    );
+    if (markerStart < 0 || !occurrenceText.endsWith(ATTACHMENT_MARKER_SUFFIX)) {
+      continue;
+    }
+    value = value.slice(0, localStart + markerStart) + value.slice(localEnd);
+  }
+  return value;
+}
+
+function normalizeOccurrences(
+  occurrences: OccurrenceRange[] | undefined,
+): OccurrenceRange[] {
+  if (!occurrences || occurrences.length === 0) return [];
+  return [...occurrences].sort((a, b) => a.startOffset - b.startOffset);
 }
 
 function quoteHash(value: string): string {

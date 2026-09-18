@@ -49,6 +49,31 @@ describe('KnowledgeSpaceCompilationService', () => {
     );
   });
 
+  it('reports only the Spaces that currently hold an active Run', async () => {
+    const fixture = createService();
+    fixture.repo.findActiveRun
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 'run-busy' });
+
+    await expect(
+      fixture.service.findSpaceIdsWithActiveRun({
+        workspaceId: 'workspace-1',
+        // duplicate is collapsed before probing the repo.
+        spaceIds: ['space-idle', 'space-busy', 'space-idle'],
+      }),
+    ).resolves.toEqual(['space-busy']);
+
+    expect(fixture.repo.findActiveRun).toHaveBeenCalledTimes(2);
+    expect(fixture.repo.findActiveRun).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-idle',
+    });
+    expect(fixture.repo.findActiveRun).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-busy',
+    });
+  });
+
   it('gives image merge slices priority over newly queued text slices', async () => {
     const fixture = createService({
       undispatchedSpaceJobs: [
@@ -490,6 +515,7 @@ function createService(
     reserveRunImagesFairly: jest.fn().mockResolvedValue([]),
     findUndispatchedRunImages: jest.fn().mockResolvedValue([]),
     markRunImageDispatched: jest.fn().mockResolvedValue(true),
+    findActiveRun: jest.fn().mockResolvedValue(undefined),
   };
   const spaceQueue = { add: jest.fn(), getJob: jest.fn() };
   const imageQueue = { add: jest.fn(), getJob: jest.fn() };

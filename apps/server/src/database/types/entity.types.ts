@@ -31,6 +31,7 @@ import {
   Favorites,
   FileTasks,
   KnowledgeChunks,
+  KnowledgeChunkAttachments,
   KnowledgeArtifactContributions,
   KnowledgeCompilationAttempts,
   KnowledgeChunkSources,
@@ -187,6 +188,10 @@ export type UpdatableKnowledgeChunk = Updateable<Omit<KnowledgeChunks, 'id'>>;
 
 export type KnowledgeChunkSource = Selectable<KnowledgeChunkSources>;
 export type InsertableKnowledgeChunkSource = Insertable<KnowledgeChunkSources>;
+
+export type KnowledgeChunkAttachment = Selectable<KnowledgeChunkAttachments>;
+export type InsertableKnowledgeChunkAttachment =
+  Insertable<KnowledgeChunkAttachments>;
 
 export type KnowledgeLink = Selectable<KnowledgeLinks>;
 export type InsertableKnowledgeLink = Insertable<KnowledgeLinks>;

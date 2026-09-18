@@ -10,6 +10,7 @@ import { KnowledgeSourceSnapshot } from '../types/source-snapshot.types';
 import { KnowledgeSourceRef } from '../types/knowledge.types';
 import { LlmWikiCompilerRunner } from './llm-wiki-file-compiler.runner';
 import { chunkKnowledgeSource } from '../chunking/knowledge-structural-chunker';
+import { buildAttachmentEvidenceContent } from './knowledge-attachment-evidence';
 
 const MIN_SEMANTIC_ANCHORS = 2;
 const MIN_SEMANTIC_SCORE = 6;
@@ -77,11 +78,24 @@ export class DocmostKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
   }): CompiledKnowledgeArtifact {
     const sourceRef = toSourceRef(input.source);
     const sourceClaim = buildSourceSummaryClaim(input.source);
-    const structuralParents = chunkKnowledgeSource({
+    // An attachment-bearing source has one canonical deterministic original
+    // chunk set: marker-aware serialized source blocks. Do not append a second
+    // marker-free copy of the same page, because a non-related duplicate could
+    // win retrieval and suppress the hit-block attachment result.
+    const attachmentEvidence = buildAttachmentEvidenceContent({
+      source: input.source,
+      sourceRef,
       pageTitle: input.source.title || 'Untitled',
-      text: input.source.text,
-      content: input.source.content,
+      includeAllChunks: true,
     });
+    const usesAttachmentSourceChunks = attachmentEvidence.chunks.length > 0;
+    const structuralParents = usesAttachmentSourceChunks
+      ? []
+      : chunkKnowledgeSource({
+          pageTitle: input.source.title || 'Untitled',
+          text: input.source.text,
+          content: input.source.content,
+        });
     const parentSections = structuralParents.map((parent) => ({
       stableKey: parent.stableKey,
       headingPath: parent.headingPath,
@@ -98,7 +112,7 @@ export class DocmostKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         ),
       ],
     }));
-    const chunks = structuralParents.flatMap((parent) =>
+    const structuralChunks = structuralParents.flatMap((parent) =>
       parent.children.map((child) => ({
         text: child.text,
         embeddingText: child.embeddingText,
@@ -121,6 +135,9 @@ export class DocmostKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         ],
       })),
     );
+    const chunks = usesAttachmentSourceChunks
+      ? attachmentEvidence.chunks
+      : structuralChunks;
     const links = buildSameSpaceLinks({
       source: input.source,
       sourceRef,
@@ -159,7 +176,9 @@ export class DocmostKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           inputSourceRefs: [sourceRef],
         },
       ],
-      parentSections,
+      parentSections: usesAttachmentSourceChunks
+        ? attachmentEvidence.parentSections
+        : parentSections,
       chunks,
       links: links.length > 0 ? links : undefined,
       graphEdges: graphEdges.length > 0 ? graphEdges : undefined,
