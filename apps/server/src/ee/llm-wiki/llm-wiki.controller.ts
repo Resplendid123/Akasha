@@ -1048,14 +1048,6 @@ export class LlmWikiController {
       );
     }
 
-    // A page retry is an explicit new generation round. Clear the durable
-    // source-content budget before queuing the Run so the Worker cannot reject
-    // it immediately based on attempts consumed by an earlier Run.
-    await this.spaceCompilation.resetGenerationAttemptBudget({
-      workspaceId: workspace.id,
-      sourcePageIds: pageIds,
-    });
-
     // Drop the durable image-understanding cache for these pages too. Without
     // this, a retried Run would claim the prior `ready` extractions and skip
     // the VLM, so images that failed or need refreshing are never recompiled.
@@ -1063,7 +1055,6 @@ export class LlmWikiController {
       workspaceId: workspace.id,
       sourcePageIds: pageIds,
     });
-
     const requests = await this.spaceCompilation.requestRuns(
       [...pagesBySpace.entries()].map(([spaceId, spacePages]) => ({
         workspaceId: workspace.id,

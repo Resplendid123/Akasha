@@ -383,7 +383,7 @@ export class EnvironmentService {
     );
   }
 
-  getKnowledgeSpaceSliceMaxPages(): number {
+  getKnowledgeSpaceLeaseMaxPages(): number {
     return Number(
       this.configService.get<string | number>(
         'KNOWLEDGE_SPACE_SLICE_MAX_PAGES',
@@ -392,7 +392,7 @@ export class EnvironmentService {
     );
   }
 
-  getKnowledgeSpaceSliceMaxMs(): number {
+  getKnowledgeSpaceLeaseMaxMs(): number {
     return Number(
       this.configService.get<string | number>(
         'KNOWLEDGE_SPACE_SLICE_MAX_MS',

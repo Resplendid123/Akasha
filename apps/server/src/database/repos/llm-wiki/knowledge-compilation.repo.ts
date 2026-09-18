@@ -60,31 +60,6 @@ export type KnowledgeCompilerCandidateStage = 'analysis' | 'generation';
 export class KnowledgeCompilationRepo {
   constructor(@InjectKysely() private readonly db: KyselyDB) {}
 
-  /**
-   * Starts a fresh generation budget for explicitly retried source pages.
-   * This is intentionally scoped by workspace and page, because the budget
-   * is carried across page-scoped Run rows for the same source content.
-   */
-  async resetGenerationAttemptBudget(input: {
-    workspaceId: string;
-    sourcePageIds: string[];
-  }): Promise<number> {
-    const sourcePageIds = [...new Set(input.sourcePageIds)];
-    if (sourcePageIds.length === 0) return 0;
-    const result = await this.db
-      .updateTable('knowledgeCompilationAttempts')
-      .set({
-        generationAttemptCount: 0,
-        generationAttemptSourceHash: null,
-        updatedAt: new Date(),
-      })
-      .where('workspaceId', '=', input.workspaceId)
-      .where('sourcePageId', 'in', sourcePageIds)
-      .returning('id')
-      .execute();
-    return result.length;
-  }
-
   async queueAttempt(
     input: CompilationAttemptInput,
     trx?: KyselyTransaction,
@@ -248,94 +223,6 @@ export class KnowledgeCompilationRepo {
       .where('sourcePageId', '=', input.sourcePageId)
       .where('compileTaskId', '=', input.compileTaskId)
       .execute();
-  }
-
-  async reserveGenerationAttempt(
-    input: FencedCompilationIdentity & {
-      sourceContentHash: string;
-      reset: boolean;
-    },
-    trx?: KyselyTransaction,
-  ): Promise<{ allowed: boolean; attemptCount: number }> {
-    return this.resolveGenerationAttemptBudget(input, true, trx);
-  }
-
-  async checkGenerationAttemptBudget(
-    input: FencedCompilationIdentity & {
-      sourceContentHash: string;
-      reset: boolean;
-    },
-    trx?: KyselyTransaction,
-  ): Promise<{ allowed: boolean; attemptCount: number }> {
-    return this.resolveGenerationAttemptBudget(input, false, trx);
-  }
-
-  private async resolveGenerationAttemptBudget(
-    input: FencedCompilationIdentity & {
-      sourceContentHash: string;
-      reset: boolean;
-    },
-    consume: boolean,
-    trx?: KyselyTransaction,
-  ): Promise<{ allowed: boolean; attemptCount: number }> {
-    const resolve = async (db: KyselyTransaction) => {
-      // Different page-scoped Runs create different compileTaskIds. Serialize
-      // by page and carry the newest count forward so retries cannot reset the
-      // three-attempt budget merely by creating another attempt row.
-      await sql`
-        SELECT pg_advisory_xact_lock(
-          hashtext(${`${input.workspaceId}:${input.sourcePageId}`})
-        )
-      `.execute(db);
-      const currentAttempt = await db
-        .selectFrom('knowledgeCompilationAttempts')
-        .select(['generationAttemptSourceHash', 'generationAttemptCount'])
-        .where('workspaceId', '=', input.workspaceId)
-        .where('sourcePageId', '=', input.sourcePageId)
-        .where('compileTaskId', '=', input.compileTaskId)
-        .executeTakeFirst();
-      const startsForcedRound =
-        input.reset &&
-        (currentAttempt?.generationAttemptSourceHash !==
-          input.sourceContentHash ||
-          currentAttempt.generationAttemptCount === 0);
-      const previous = startsForcedRound
-        ? undefined
-        : await db
-            .selectFrom('knowledgeCompilationAttempts')
-            .select('generationAttemptCount')
-            .where('workspaceId', '=', input.workspaceId)
-            .where('sourcePageId', '=', input.sourcePageId)
-            .where('generationAttemptSourceHash', '=', input.sourceContentHash)
-            .orderBy('updatedAt', 'desc')
-            .orderBy('id', 'desc')
-            .limit(1)
-            .executeTakeFirst();
-      const previousCount = previous?.generationAttemptCount ?? 0;
-      if (!startsForcedRound && previousCount >= 3) {
-        return { allowed: false, attemptCount: previousCount };
-      }
-      if (!consume) {
-        return { allowed: true, attemptCount: previousCount };
-      }
-      const attemptCount = startsForcedRound ? 1 : previousCount + 1;
-      const row = await db
-        .updateTable('knowledgeCompilationAttempts')
-        .set({
-          generationAttemptSourceHash: input.sourceContentHash,
-          generationAttemptCount: attemptCount,
-          updatedAt: new Date(),
-        })
-        .where('workspaceId', '=', input.workspaceId)
-        .where('sourcePageId', '=', input.sourcePageId)
-        .where('compileTaskId', '=', input.compileTaskId)
-        .returning('id')
-        .executeTakeFirst();
-      return row
-        ? { allowed: true, attemptCount }
-        : { allowed: false, attemptCount };
-    };
-    return trx ? resolve(trx) : executeTx(this.db, resolve);
   }
 
   async markResultQuality(

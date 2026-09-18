@@ -160,7 +160,7 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
         )
     `.execute(db);
 
-    const candidates = await repo.findSpaceSliceReservationCandidates(100);
+    const candidates = await repo.findSpaceJobReservationCandidates(100);
     const relevantIds = candidates
       .map((candidate) => candidate.id)
       .filter((id) =>
@@ -814,6 +814,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       target_effective_knowledge_hash varchar,
       merged_effective_knowledge_hash varchar,
       status varchar not null,
+      attempt_count integer not null default 0,
+      merge_attempt_count integer not null default 0,
       job_id varchar,
       error_code varchar,
       error_message varchar,

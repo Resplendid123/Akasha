@@ -114,7 +114,7 @@ export interface IApprovalRejectedNotificationJob {
   comment?: string;
 }
 
-export interface IKnowledgeSpaceSliceJob {
+export interface IKnowledgeSpaceJob {
   workspaceId: string;
   spaceId: string;
   spaceRunId: string;
