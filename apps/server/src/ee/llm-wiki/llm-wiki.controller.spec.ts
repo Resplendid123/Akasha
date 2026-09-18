@@ -75,6 +75,9 @@ describe('LlmWikiController', () => {
           requestedSpaceIds: ['space-1'],
           effectiveSpaceIds: ['space-1'],
         },
+        // Internal retrieval detail the shared chat service attaches on every
+        // branch; the regular query API must strip it, never expose it (§7.1).
+        attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
       }),
     };
     const auditService = {
@@ -89,6 +92,8 @@ describe('LlmWikiController', () => {
       queryAuditRepo,
     });
 
+    // Exact match: proves attachmentHitContext/retrievalDiagnostics/retrievalScope
+    // are all stripped, not just absent from the mock.
     await expect(
       controller.queryKnowledge(
         { query: 'How do we use Kafka?', spaceIds: ['space-1'] },
@@ -1361,6 +1366,8 @@ describe('LlmWikiController', () => {
         { disposition: 'coalesced', run: { id: 'run-space-2' } },
       ]),
       resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
+      clearImageExtractionCache: jest.fn().mockResolvedValue(3),
+      findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),
     };
     const controller = createController({
       pageRepo,
@@ -1398,6 +1405,10 @@ describe('LlmWikiController', () => {
       },
     ]);
     expect(spaceCompilation.resetGenerationAttemptBudget).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      sourcePageIds: ['page-1', 'page-2'],
+    });
+    expect(spaceCompilation.clearImageExtractionCache).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       sourcePageIds: ['page-1', 'page-2'],
     });
@@ -1448,7 +1459,7 @@ describe('LlmWikiController', () => {
     expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
   });
 
-  it('coalesces retry requests when a Space Run is already active', async () => {
+  it('refuses a retry while a Space Run is still in progress, before mutating', async () => {
     const pageRepo = {
       findExistingPageRefs: jest.fn().mockResolvedValue([
         {
@@ -1472,11 +1483,11 @@ describe('LlmWikiController', () => {
         .mockResolvedValue(['page-1', 'page-2']),
     };
     const spaceCompilation = {
-      requestRuns: jest.fn().mockResolvedValue([
-        { disposition: 'coalesced', run: { id: 'run-1' } },
-        { disposition: 'rerun_requested', run: { id: 'run-2' } },
-      ]),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
+      requestRuns: jest.fn(),
+      resetGenerationAttemptBudget: jest.fn(),
+      clearImageExtractionCache: jest.fn(),
+      // space-2 still has a live Run; the whole retry must be refused.
+      findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue(['space-2']),
     };
     const controller = createController({
       pageRepo,
@@ -1491,14 +1502,19 @@ describe('LlmWikiController', () => {
         adminUser(),
         workspace(),
       ),
-    ).resolves.toEqual({
-      queuedPageCount: 2,
-      jobIds: ['run-1', 'run-2'],
-    });
+    ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(diagnosticsService.findCompiledPageIds).toHaveBeenCalled();
+    expect(spaceCompilation.findSpaceIdsWithActiveRun).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1', 'space-2'],
+    });
+    // No mutation may run once the guard trips.
+    expect(
+      spaceCompilation.resetGenerationAttemptBudget,
+    ).not.toHaveBeenCalled();
+    expect(spaceCompilation.clearImageExtractionCache).not.toHaveBeenCalled();
+    expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
     expect(sourceExporter.exportPageSources).not.toHaveBeenCalled();
-    expect(spaceCompilation.requestRuns).toHaveBeenCalledTimes(1);
   });
 
   it('rejects page retries from workspace members before reading or queueing pages', async () => {
@@ -1763,6 +1779,8 @@ function createController(
       requestRuns: jest.fn(),
       requestImmediatePagePublish: jest.fn(),
       resetGenerationAttemptBudget: jest.fn().mockResolvedValue(0),
+      clearImageExtractionCache: jest.fn().mockResolvedValue(0),
+      findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),
       ...overrides.spaceCompilation,
     } as unknown as KnowledgeSpaceCompilationService,
     {

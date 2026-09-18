@@ -55,6 +55,16 @@ type AiKnowledgeChatInput = {
   generalKnowledgeEnabled?: boolean;
   /** Maximum semantic cosine distance accepted during recall. */
   scoreThreshold?: number;
+  /**
+   * Skip the answer-generation LLM and return the packed retrieval results
+   * directly. No general-knowledge fallback is attempted in this mode.
+   */
+  rawResultsOnly?: boolean;
+  /**
+   * Whether to run the LLM query-rewrite step. Defaults to enabled; set false
+   * to retrieve with the original query verbatim.
+   */
+  queryRewriteEnabled?: boolean;
   onToken?: (token: string) => void;
   onStage?: (stage: 'understanding' | 'retrieval' | 'generation') => void;
   onThinking?: (event: AiChatThinkingEvent) => void;
@@ -128,6 +138,11 @@ export type AiKnowledgeChatResult = {
       : never;
   };
   retrievalScope?: KnowledgeRetrievalScope;
+  // Internal-only: the final direct-hit chunk ids from retrieval, carried on
+  // every normal return path so the controller can resolve hit-chunk
+  // attachments independently of the answer branch (§7.1). Never serialized to
+  // the API response; the controller strips it before assembling the payload.
+  attachmentHitContext?: { directHitChunkIds: string[] };
 };
 
 /** Result returned to external agents that perform their own answer judgment. */
@@ -262,7 +277,17 @@ export class AiKnowledgeChatService {
 
     const thinking = new AiChatThinkingProgress(input.onThinking);
     if (input.responseMode === 'general') {
-      return this.answerFromGeneralKnowledge(input, thinking, 'preparing');
+      // No retrieval runs on this path, so there is no hit set; keep the field
+      // present and empty for a uniform internal contract (§7.1).
+      const generalAnswer = await this.answerFromGeneralKnowledge(
+        input,
+        thinking,
+        'preparing',
+      );
+      return {
+        ...generalAnswer,
+        attachmentHitContext: { directHitChunkIds: [] },
+      };
     }
 
     // One request-scoped authorization cache, bound to this (workspace, user),
@@ -388,6 +413,11 @@ export class AiKnowledgeChatService {
       ...retrieval.diagnostics,
     };
     const retrievalScope = retrieval.scope;
+    // Carried on every normal return path below (§1.2: retrieval hits are
+    // resolved by the hit set regardless of the answer branch).
+    const attachmentHitContext = {
+      directHitChunkIds: retrieval.directHitChunkIds,
+    };
     const hasKnowledgeEvidence =
       explicit.context.trim().length > 0 ||
       pack.primary.some((entry) => entry.sourceWindows.length > 0);
@@ -400,6 +430,40 @@ export class AiKnowledgeChatService {
       },
       hasKnowledgeEvidence ? 'knowledge' : 'insufficient',
     );
+
+    if (input.rawResultsOnly) {
+      // Skip the answer-generation LLM entirely and return the packed retrieval
+      // results. No general-knowledge fallback runs here (that would invoke an
+      // LLM, defeating the purpose); citations carry the full retrieved set
+      // since no model selects which sources were actually cited.
+      const rawSourceWindows = pack.primary.flatMap(
+        (entry) => entry.sourceWindows,
+      );
+      return {
+        answer: '',
+        answerMode: hasKnowledgeEvidence ? 'knowledge' : 'no_match',
+        ...(contextualRetrievalQuery
+          ? { retrievalQuery: contextualRetrievalQuery }
+          : {}),
+        citations: allCitations,
+        citationEvidence: buildCitationEvidence(allCitations, rawSourceWindows),
+        retrievedSources: allCitations,
+        snippets: pack.primary.map((entry) => ({
+          id: entry.id,
+          title: entry.title,
+          text: entry.text,
+          retrievalReasons: entry.retrievalReasons,
+          sourceWindows: entry.sourceWindows,
+        })),
+        warnings: pack.warnings,
+        retrievalReasons: pack.retrievalReasons,
+        budget: pack.budget,
+        completenessNotice: pack.completenessNotice,
+        retrievalDiagnostics,
+        ...(retrievalScope ? { retrievalScope } : {}),
+        attachmentHitContext,
+      };
+    }
 
     if (!hasKnowledgeEvidence) {
       if (input.generalKnowledgeEnabled === false) {
@@ -415,6 +479,7 @@ export class AiKnowledgeChatService {
             : {}),
           retrievalDiagnostics,
           ...(retrievalScope ? { retrievalScope } : {}),
+          attachmentHitContext,
         };
       }
       const generalAnswer = await this.answerFromGeneralKnowledge(
@@ -429,6 +494,7 @@ export class AiKnowledgeChatService {
           : {}),
         retrievalDiagnostics,
         ...(retrievalScope ? { retrievalScope } : {}),
+        attachmentHitContext,
       };
     }
 
@@ -500,6 +566,7 @@ export class AiKnowledgeChatService {
             : {}),
           retrievalDiagnostics,
           ...(retrievalScope ? { retrievalScope } : {}),
+          attachmentHitContext,
         };
       }
       const generalAnswer = await this.answerFromGeneralKnowledge(
@@ -517,6 +584,7 @@ export class AiKnowledgeChatService {
           : {}),
         retrievalDiagnostics,
         ...(retrievalScope ? { retrievalScope } : {}),
+        attachmentHitContext,
       };
     }
     let cleanAnswer = stripCitationMarkers(generatedAnswer.content);
@@ -559,6 +627,7 @@ export class AiKnowledgeChatService {
       completenessNotice: pack.completenessNotice,
       retrievalDiagnostics,
       ...(retrievalScope ? { retrievalScope } : {}),
+      attachmentHitContext,
     };
   }
 
@@ -680,6 +749,12 @@ export class AiKnowledgeChatService {
   private async rewriteRetrievalQuery(
     input: AiKnowledgeChatInput,
   ): Promise<string> {
+    if (input.queryRewriteEnabled === false) {
+      input.debugTiming?.mark('context.rewrite_skipped', {
+        reason: 'disabled_by_request',
+      });
+      return input.query;
+    }
     if (!input.chatContext?.length || !this.answerProvider.rewriteQuery) {
       input.debugTiming?.mark('context.rewrite_skipped', {
         reason: !input.chatContext?.length

@@ -26,12 +26,35 @@ export class QueryKnowledgeDto {
   @IsBoolean()
   generalKnowledgeEnabled?: boolean;
 
-  /** Return signed URLs for attachments belonging to cited pages. */
+  /**
+   * Skip the answer-generation LLM and return raw retrieval results directly
+   * (snippets/sources/citations/evidence) for lower latency. Query rewrite
+   * still runs unless disabled via `queryRewriteEnabled`. When enabled, no
+   * general-knowledge fallback is attempted regardless of
+   * `generalKnowledgeEnabled`. Defaults to false (full answer generation).
+   */
+  @IsOptional()
+  @IsBoolean()
+  rawResultsOnly?: boolean;
+
+  /**
+   * Whether to run the LLM query-rewrite step, which merges `chatContext` into
+   * a standalone retrieval query. Defaults to true. Set false to skip rewrite
+   * and retrieve with the original query verbatim.
+   */
+  @IsOptional()
+  @IsBoolean()
+  queryRewriteEnabled?: boolean;
+
+  /**
+   * Return signed URLs for non-image attachments that live inside the final
+   * direct-hit blocks of this retrieval, up to 5 items.
+   */
   @IsOptional()
   @IsBoolean()
   attachments?: boolean;
 
-  /** Return citation materials, including signed attachment download URLs. */
+  /** Return citation materials. Does not control top-level attachments. */
   @IsOptional()
   @IsBoolean()
   includeCitations?: boolean;

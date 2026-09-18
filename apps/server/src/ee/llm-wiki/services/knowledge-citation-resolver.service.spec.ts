@@ -128,12 +128,14 @@ describe('KnowledgeCitationResolverService', () => {
             page: capsule('kp-chaterm', 'Chaterm'),
             sourcePageIds: ['source-date'],
             rankReasons: [],
+            origin: 'direct' as const,
           },
           {
             chunk: chunk('chunk-kms', 'kp-kms'),
             page: capsule('kp-kms', 'KMS_Blog'),
             sourcePageIds: ['source-kms'],
             rankReasons: [],
+            origin: 'direct' as const,
           },
         ],
       }),
@@ -244,6 +246,7 @@ describe('KnowledgeCitationResolverService', () => {
             page: capsule('kp-1', 'Readable summary'),
             sourcePageIds: ['source-readable', 'source-readable-invalid'],
             rankReasons: ['lexical', 'sidecar-prefiltered'],
+            origin: 'direct' as const,
           },
         ],
       }),
@@ -340,6 +343,7 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-image', 'Dashboard'),
           sourcePageIds: ['source-image'],
           rankReasons: ['semantic'],
+          origin: 'direct' as const,
         },
       ],
     });
@@ -430,6 +434,7 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-dms', 'DMS 定制查询SQL返回接口'),
           sourcePageIds: ['source-dms'],
           rankReasons: ['semantic', 'sidecar-prefiltered'],
+          origin: 'direct' as const,
         },
       ],
     } as never);
@@ -496,6 +501,7 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-generic', '查询条件'),
           sourcePageIds: ['source-generic'],
           rankReasons: ['semantic', 'sidecar-prefiltered'],
+          origin: 'direct' as const,
         },
       ],
     });

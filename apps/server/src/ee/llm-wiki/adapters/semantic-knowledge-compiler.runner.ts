@@ -10,6 +10,7 @@ import {
 import {
   buildSemanticAnalysisMessages,
   buildSemanticGenerationMessages,
+  SemanticAttachmentHint,
 } from '../compiler/semantic-compiler.prompts';
 import {
   SemanticAnalysis,
@@ -26,6 +27,7 @@ import { KnowledgeSourceRef } from '../types/knowledge.types';
 import { KnowledgeSourceSnapshot } from '../types/source-snapshot.types';
 import { LlmWikiCompilerRunner } from './llm-wiki-file-compiler.runner';
 import { chunkKnowledgeSource } from '../chunking/knowledge-structural-chunker';
+import { buildAttachmentEvidenceContent } from './knowledge-attachment-evidence';
 import { buildEffectiveKnowledgeHash } from '../services/knowledge-effective-hash';
 import { KnowledgeOperationBudget } from '../services/knowledge-operation-budget';
 import { SEMANTIC_COMPILER_LIMITS } from '../compiler/semantic-compiler.limits';
@@ -100,6 +102,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       purpose: input.purpose,
       schema: input.schema,
       catalog: generationCatalog.entries,
+      attachmentHints: attachmentHints(source),
     });
     await this.recordCandidates({
       input,
@@ -271,6 +274,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       purpose: input.purpose,
       schema: input.schema,
       catalog: catalog.entries,
+      attachmentHints: attachmentHints(source),
     });
     const candidateHash =
       messages.catalogCandidateHash ?? catalog.candidateHash;
@@ -378,6 +382,34 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       })) ?? { allowed: true, attemptCount: 0 }
     );
   }
+}
+
+function attachmentHints(
+  source: KnowledgeSourceSnapshot,
+): SemanticAttachmentHint[] {
+  const text = source.attachmentSerializedText;
+  if (!text) return [];
+
+  return (source.attachmentOccurrences ?? [])
+    .slice(0, 20)
+    .map((occurrence, index) => {
+      const occurrenceText = text.slice(
+        occurrence.startOffset,
+        occurrence.endOffset,
+      );
+      const fileName = occurrenceText
+        .replace(/ ?\[\[AKASHA_ATTACHMENT:v1:[^\]]*\]\]/gu, '')
+        .trim();
+      const contextStart = Math.max(0, occurrence.startOffset - 160);
+      const contextEnd = Math.min(text.length, occurrence.endOffset + 160);
+      const context = text
+        .slice(contextStart, contextEnd)
+        .replace(/ ?\[\[AKASHA_ATTACHMENT:v1:[^\]]*\]\]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim()
+        .slice(0, 320);
+      return { ordinal: index + 1, fileName, context };
+    });
 }
 
 function assertGenerationAttemptAllowed(input: {
@@ -542,17 +574,29 @@ function toCompiledArtifact(input: {
       embeddingText: child.embeddingText,
     })),
   );
+  const isSourceSummary = input.artifact.kind === 'source_summary';
+  const tableRowChunks = isSourceSummary
+    ? tableRowEvidenceChunks(input.source, input.artifact.title, sourceRef)
+    : [];
+  // Attachment evidence attaches only to the source-page artifact (§5.3): the
+  // deterministic original-content blocks belong to the page itself, not to the
+  // derived concept/entity artifacts. Covers semantic, raw_fallback, retry and
+  // merge paths because every artifact flows through this single builder.
+  const attachmentEvidence = isSourceSummary
+    ? buildAttachmentEvidenceContent({
+        source: input.source,
+        sourceRef,
+        pageTitle: input.source.title || input.artifact.title,
+        existingChunkStableKeys: [
+          ...structuralChunks.map((chunk) => chunk.stableKey),
+          ...tableRowChunks.map((chunk) => chunk.stableKey),
+        ],
+      })
+    : { parentSections: [], chunks: [] };
   const chunks = [
     ...structuralChunks,
-    ...(input.artifact.kind === 'source_summary'
-      ? [
-          ...tableRowEvidenceChunks(
-            input.source,
-            input.artifact.title,
-            sourceRef,
-          ),
-        ]
-      : []),
+    ...tableRowChunks,
+    ...attachmentEvidence.chunks,
   ];
   const links = input.artifact.links.map((link) => {
     const lookupKey = artifactLookupKey(
@@ -590,7 +634,7 @@ function toCompiledArtifact(input: {
     compilerRunId: input.compilerRunId,
     compileTaskId: input.compileTaskId,
     inputSourceRefs: [sourceRef],
-    parentSections,
+    parentSections: [...parentSections, ...attachmentEvidence.parentSections],
     claims,
     chunks,
     links,

@@ -651,6 +651,7 @@ describe('KnowledgeImportService', () => {
               attachmentId: null,
             }),
           ],
+          chunkAttachments: [],
           links: [
             expect.objectContaining({
               workspaceId: 'workspace-1',
@@ -1687,6 +1688,93 @@ describe('KnowledgeImportService', () => {
     expect(
       capsuleRepo.upsertCompiledArtifacts.mock.invocationCallOrder[0],
     ).toBeLessThan(publicationComplete.mock.invocationCallOrder[0]);
+  });
+
+  it('publishes chunk attachment relations inside the artifact upsert', async () => {
+    const trx = { id: 'trx-attachments' };
+    const artifact = {
+      artifactId: 'artifact-1',
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      title: 'Compiled',
+      contentMarkdown: '# Compiled',
+      sourcePageIds: ['source-1'],
+      artifactKind: 'source_summary' as const,
+      compilerVersion: 'compiler@1',
+      promptVersion: 'prompt@1',
+      compilerRunId: 'run-1',
+      compileTaskId: 'task-1',
+      inputSourceRefs: [
+        {
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          sourcePageId: 'source-1',
+          sourceVersion: 'v1',
+          contentHash: 'hash-1',
+        },
+      ],
+      chunks: [
+        {
+          text: 'config.xlsx',
+          embedding: [0.1, 0.2],
+          stableKey: 'source-chunk',
+          chunkRole: 'child' as const,
+          retrievalChannel: 'evidence' as const,
+          attachmentOccurrences: [
+            {
+              attachmentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              sourceContentHash: 'hash-1',
+              attachmentUpdatedAt: '2026-01-01T00:00:00.000Z',
+              startOffset: 0,
+              endOffset: 11,
+            },
+          ],
+        },
+      ],
+    };
+    const capsuleRepo = {
+      markCompileScopeStale: jest.fn().mockResolvedValue(undefined),
+      upsertCompiledArtifacts: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new KnowledgeImportService(
+      {} as KnowledgeSourceRepo,
+      capsuleRepo as unknown as KnowledgeCapsuleRepo,
+      {
+        validateCompileResult: jest.fn().mockReturnValue({
+          accepted: [artifact],
+          quarantined: [],
+        }),
+      } as unknown as KnowledgeArtifactValidatorService,
+      { embedQuery: jest.fn().mockResolvedValue(testEmbedding()) } as never,
+      {} as never,
+      createTransactionDb(trx) as never,
+      { ensureProfileIndex: jest.fn().mockResolvedValue('created') } as never,
+      createContributionRepo() as never,
+      createMaterializer() as never,
+    );
+
+    await service.importCompileResult({
+      input: compileInput(),
+      artifacts: [artifact],
+      upsertSources: false,
+    });
+
+    const publishedInput =
+      capsuleRepo.upsertCompiledArtifacts.mock.calls[0][0][0];
+    expect(publishedInput.chunkAttachments).toEqual([
+      {
+        workspaceId: 'workspace-1',
+        chunkId: publishedInput.chunks[0].id,
+        occurrenceOrder: 0,
+        attachmentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        sourcePageId: 'source-1',
+        sourceVersion: 'v1',
+        sourceContentHash: 'hash-1',
+        attachmentUpdatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
   });
 });
 

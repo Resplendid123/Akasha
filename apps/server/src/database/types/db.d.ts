@@ -320,6 +320,17 @@ export interface KnowledgeChunks {
   workspaceId: string;
 }
 
+export interface KnowledgeChunkAttachments {
+  attachmentId: string;
+  attachmentUpdatedAt: Timestamp;
+  chunkId: string;
+  occurrenceOrder: number;
+  sourceContentHash: string;
+  sourcePageId: string;
+  sourceVersion: string;
+  workspaceId: string;
+}
+
 export interface KnowledgeChunkSources {
   attachmentId: string | null;
   chunkId: string;
@@ -1138,6 +1149,7 @@ export interface DB {
   groups: Groups;
   groupUsers: GroupUsers;
   knowledgeArtifactContributions: KnowledgeArtifactContributions;
+  knowledgeChunkAttachments: KnowledgeChunkAttachments;
   knowledgeChunks: KnowledgeChunks;
   knowledgeChunkSources: KnowledgeChunkSources;
   knowledgeClaims: KnowledgeClaims;

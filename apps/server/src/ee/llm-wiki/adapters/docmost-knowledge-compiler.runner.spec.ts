@@ -1,4 +1,5 @@
 import { DocmostKnowledgeCompilerRunner } from './docmost-knowledge-compiler.runner';
+import { attachmentMarker } from '../services/knowledge-source-serializer';
 
 describe('DocmostKnowledgeCompilerRunner', () => {
   it('emits structural evidence children with parent metadata and exact lineage', async () => {
@@ -52,6 +53,64 @@ describe('DocmostKnowledgeCompilerRunner', () => {
       ).toBe(chunk.text);
       expect(source?.quoteHash).toMatch(/^sha256:/);
     }
+  });
+
+  it('uses one marker-aware original chunk set for an attachment-bearing page', async () => {
+    const runner = new TestDocmostKnowledgeCompilerRunner(
+      () => new Date('2026-09-17T00:00:00.000Z'),
+    );
+    const attachmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const marker = attachmentMarker(attachmentId);
+    const serializedText = `# Deployment\nUse this file.\nconfig.xlsx ${marker}\nRestart.`;
+
+    const result = await runner.compileSpace({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      compilerVersion: 'akasha-internal@2',
+      promptVersion: 'wiki-structural-v1',
+      sources: [
+        {
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          sourcePageId: 'page-1',
+          sourceVersion: 'v1',
+          contentHash: 'hash-1',
+          title: 'Deployment',
+          text: '# Deployment\nUse this file.\nconfig.xlsx\nRestart.',
+          attachmentSerializedText: serializedText,
+          attachmentSerializedBlocks: [
+            {
+              startOffset: 0,
+              endOffset: 12,
+              headingLevel: 1,
+              headingText: 'Deployment',
+            },
+            { startOffset: 13, endOffset: serializedText.length },
+          ],
+          attachmentOccurrences: [
+            {
+              attachmentId,
+              sourcePageId: 'page-1',
+              attachmentUpdatedAt: '2026-09-17T00:00:00.000Z',
+              startOffset: serializedText.indexOf('config.xlsx'),
+              endOffset: serializedText.indexOf(marker) + marker.length,
+            },
+          ],
+          references: [],
+        },
+      ],
+    });
+
+    const chunks = result.artifacts[0].chunks ?? [];
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toEqual(
+      expect.objectContaining({
+        stableKey: expect.stringMatching(/^source:[a-f0-9]{57}$/),
+        text: 'Use this file.\nconfig.xlsx\nRestart.',
+        attachmentOccurrences: [expect.objectContaining({ attachmentId })],
+      }),
+    );
+    expect(chunks[0].text).not.toContain('AKASHA_ATTACHMENT');
   });
 
   it('compiles source snapshots into lineage-preserving page capsules and chunks', async () => {
