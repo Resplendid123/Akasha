@@ -115,6 +115,12 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     expect(request.system).toContain(
       'output exactly [[answer:general]] and nothing else',
     );
+    expect(request.system).toContain(
+      'identify the missing entity, attribute, relationship, hop, or time-specific fact',
+    );
+    expect(request.system).toContain(
+      'Do not use a vague reason such as "insufficient evidence" by itself',
+    );
   });
 
   it('uses a separate general-knowledge prompt only when explicitly requested', async () => {
@@ -136,6 +142,9 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     expect(request.system).toContain('Do not claim that the answer comes from');
     expect(request.system).toContain(
       'private, organizational, personal, project-specific, or real-time facts',
+    );
+    expect(request.system).toContain(
+      'a required entity or relationship is missing',
     );
     expect(request.system).not.toContain(
       'Answer only from the provided knowledge context',

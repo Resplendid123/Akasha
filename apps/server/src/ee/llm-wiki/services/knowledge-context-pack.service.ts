@@ -63,6 +63,15 @@ export type KnowledgeContextBudget = {
   perItemMaxLength: number;
 };
 
+export type KnowledgeContextPackingItem = {
+  itemId: string;
+  kind: 'chunk' | 'capsule';
+  sourcePageIds?: string[];
+  disposition: 'included' | 'clipped' | 'omitted';
+  originalChars: number;
+  includedChars: number;
+};
+
 export type KnowledgeContextPackInput = {
   budget?: {
     totalContextLength?: number;
@@ -92,6 +101,7 @@ export type KnowledgeContextPack = {
   citations: KnowledgeCitation[];
   warnings: string[];
   budget: KnowledgeContextBudget;
+  packing: { items: KnowledgeContextPackingItem[] };
   retrievalReasons: string[];
   completenessNotice: typeof KNOWLEDGE_COMPLETENESS_NOTICE;
 };
@@ -134,6 +144,7 @@ export class KnowledgeContextPackService {
         responseReserve: budgetConfig.responseReserve,
         perItemMaxLength: budgetConfig.perItemMaxLength,
       },
+      packing: { items: bounded.packingItems },
       retrievalReasons: unique(
         bounded.includedEntries.flatMap((entry) => entry.retrievalReasons),
       ),
@@ -167,16 +178,38 @@ function buildBoundedContext(
   context: string;
   includedEntries: ContextEntry[];
   primary: KnowledgeContextPrimary[];
+  packingItems: KnowledgeContextPackingItem[];
 } {
   const sections: string[] = [];
   const includedEntries: ContextEntry[] = [];
   const primary: KnowledgeContextPrimary[] = [];
+  const packingItems: KnowledgeContextPackingItem[] = [];
   let remaining = budgetConfig.maxContextLength;
 
-  for (const entry of entries) {
+  for (const [entryIndex, entry] of entries.entries()) {
     const title = `# ${entry.title}`;
     const separatorLength = sections.length === 0 ? 0 : 2;
-    if (remaining <= title.length + separatorLength) break;
+    if (remaining <= title.length + separatorLength) {
+      packingItems.push(
+        ...entries.slice(entryIndex).map((omittedEntry) => ({
+          itemId: omittedEntry.id,
+          kind: omittedEntry.kind,
+          ...(omittedEntry.citations.length
+            ? {
+                sourcePageIds: unique(
+                  omittedEntry.citations.map(
+                    (citation) => citation.sourcePageId,
+                  ),
+                ),
+              }
+            : {}),
+          disposition: 'omitted' as const,
+          originalChars: omittedEntry.text.length,
+          includedChars: 0,
+        })),
+      );
+      break;
+    }
 
     const bodyBudget = Math.min(
       budgetConfig.perItemMaxLength,
@@ -197,6 +230,21 @@ function buildBoundedContext(
       retrievalReasons: unique(entry.retrievalReasons),
       sourceWindows: entry.sourceWindows,
     });
+    packingItems.push({
+      itemId: entry.id,
+      kind: entry.kind,
+      ...(entry.citations.length
+        ? {
+            sourcePageIds: unique(
+              entry.citations.map((citation) => citation.sourcePageId),
+            ),
+          }
+        : {}),
+      disposition:
+        clippedBody.length < entry.text.length ? 'clipped' : 'included',
+      originalChars: entry.text.length,
+      includedChars: clippedBody.length,
+    });
     remaining -= section.length + separatorLength;
   }
 
@@ -204,6 +252,7 @@ function buildBoundedContext(
     context: sections.join('\n\n').slice(0, budgetConfig.maxContextLength),
     includedEntries,
     primary,
+    packingItems,
   };
 }
 

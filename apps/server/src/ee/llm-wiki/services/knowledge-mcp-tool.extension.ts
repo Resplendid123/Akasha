@@ -20,6 +20,7 @@ import {
   IAuditService,
 } from '../../../integrations/audit/audit.service';
 import { KnowledgeQueryAuditRepo } from '@akasha/db/repos/llm-wiki/knowledge-query-audit.repo';
+import { buildKnowledgeQueryAuditMetadata } from './knowledge-query-audit-metadata';
 
 /** Registers the EE knowledge query as an MCP tool when the EE module is loaded. */
 @Injectable()
@@ -58,7 +59,9 @@ export class KnowledgeMcpToolExtension
             .string()
             .min(1)
             .max(4000)
-            .describe('A focused question or retrieval query for the knowledge base.'),
+            .describe(
+              'A focused question or retrieval query for the knowledge base.',
+            ),
           spaceIds: z
             .array(z.string().uuid())
             .max(100)
@@ -123,23 +126,15 @@ export class KnowledgeMcpToolExtension
         spaceIds,
         requestedSpaceIds: scope?.requestedSpaceIds ?? spaceIds,
         effectiveSpaceIds: scope?.effectiveSpaceIds ?? [],
-        answerMode: result.answerMode,
+        ...buildKnowledgeQueryAuditMetadata({
+          answerMode: result.answerMode,
+          queryObservation: result.queryObservation,
+          retrievalDiagnostics: diagnostics,
+          retrieval: result.retrieval,
+          context: result.context,
+        }),
         citationCount: result.citations.length,
         retrievedSourceCount: result.retrievedSources.length,
-        queryEmbeddingAvailable: diagnostics?.queryEmbeddingAvailable ?? false,
-        candidateSourceCount: diagnostics?.candidateSourceCount ?? 0,
-        policyCandidateSourceCount:
-          diagnostics?.policyCandidateSourceCount ?? 0,
-        fallbackCandidateSourceCount:
-          diagnostics?.fallbackCandidateSourceCount ?? 0,
-        finalAuthorizedSourceCount:
-          diagnostics?.finalAuthorizedSourceCount ?? 0,
-        accessPolicyFallbackUsed:
-          diagnostics?.accessPolicyFallbackUsed ?? false,
-        candidateChunkCount: diagnostics?.candidateChunkCount ?? 0,
-        rankedCandidateCount: diagnostics?.rankedCandidateCount ?? 0,
-        authorizedChunkCount: diagnostics?.authorizedChunkCount ?? 0,
-        filteredChunkCount: diagnostics?.filteredChunkCount ?? 0,
       },
     });
 

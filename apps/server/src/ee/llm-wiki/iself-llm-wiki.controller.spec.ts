@@ -63,6 +63,17 @@ describe('IsElfLlmWikiController', () => {
         // Internal-only context the controller must strip and use to resolve
         // hit-chunk attachments; it must never leak into the response.
         attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
+        queryObservation: {
+          decisionReason: 'knowledge',
+          finalChunkIds: ['chunk-1'],
+          finalSourcePageIds: ['page-1'],
+          rankReasonsByChunk: { 'chunk-1': ['lexical'] },
+          contextItems: [],
+          packContextLength: 10,
+          packMaxContextLength: 12000,
+          answerContextLength: 20,
+          answerContextHash: `sha256:${'a'.repeat(64)}`,
+        },
       }),
     };
     const citationImageResolver = {
@@ -208,6 +219,8 @@ describe('IsElfLlmWikiController', () => {
         metadata: expect.objectContaining({
           origin: 'iself_knowledge_query',
           labelCount: 2,
+          decisionReason: 'knowledge',
+          finalChunkIds: ['chunk-1'],
         }),
       }),
     );
@@ -236,6 +249,7 @@ describe('IsElfLlmWikiController', () => {
     expect(withAttachments).not.toHaveProperty('attachmentHitContext');
     expect(withAttachments).not.toHaveProperty('retrievalDiagnostics');
     expect(withAttachments).not.toHaveProperty('retrievalScope');
+    expect(withAttachments).not.toHaveProperty('queryObservation');
     // The resolver receives the direct-hit chunk ids, never citations.
     expect(attachmentResolver.resolveAttachments).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',

@@ -9,6 +9,7 @@ import {
   KnowledgeAnswerProvider,
 } from './ai-knowledge-chat.service';
 import { KnowledgeAuthorizationCache } from './knowledge-source-authorization.cache';
+import { createHash } from 'crypto';
 
 describe('AiKnowledgeChatService', () => {
   it('does not associate sources when a knowledge answer omits citation markers', async () => {
@@ -169,6 +170,27 @@ describe('AiKnowledgeChatService', () => {
         perItemMaxLength: 12000,
       },
       completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
+      retrieval: {
+        attempted: true,
+        candidates: [],
+        dropped: [],
+        topK: 20,
+        threshold: 0.45,
+      },
+      context: {
+        text: '# Chaterm\nCitation IDs: [[cite:page-1]]\n登记批准日期：2026年06月05日\n## Verified source evidence 1: Kafka\nCitation ID: [[cite:page-1]]\n登记批准日期：2026年06月05日',
+        items: [
+          {
+            itemId: 'chunk-1',
+            pageId: 'page-1',
+            text: '登记批准日期：2026年06月05日',
+            tokenCount: 5,
+          },
+        ],
+        usedTokens: expect.any(Number),
+        maxTokens: 3004,
+        dropped: [],
+      },
       retrievalDiagnostics: {
         mode: 'high_completeness',
         queryEmbeddingAvailable: true,
@@ -183,6 +205,19 @@ describe('AiKnowledgeChatService', () => {
         filteredChunkCount: 0,
       },
       attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
+      queryObservation: {
+        decisionReason: 'knowledge',
+        finalChunkIds: ['chunk-1'],
+        finalSourcePageIds: ['page-1'],
+        rankReasonsByChunk: {
+          'chunk-1': ['exact-title', 'lexical', 'sidecar-prefiltered'],
+        },
+        contextItems: [],
+        packContextLength: 28,
+        packMaxContextLength: 12000,
+        answerContextLength: expect.any(Number),
+        answerContextHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      },
     });
 
     expect(retrieval.retrieve).toHaveBeenCalledWith(
@@ -370,6 +405,59 @@ describe('AiKnowledgeChatService', () => {
     );
   });
 
+  it('extracts a tagged general-answer reason without exposing it in the answer', async () => {
+    const answer = jest.fn().mockResolvedValue(
+      '<general_reason>No verified workspace evidence was available.</general_reason>\nKafka is an event platform.',
+    );
+    const onToken = jest.fn();
+    const service = createService({ answerProvider: { answer } });
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'Kafka?',
+      spaceIds: ['space-1'],
+      onToken,
+    });
+
+    expect(result.answer).toContain('Kafka is an event platform.');
+    expect(result.answer).not.toContain('general_reason');
+    expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
+      result.answer,
+    );
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'no_knowledge_evidence',
+      generalAnswerReason: 'No verified workspace evidence was available.',
+    });
+  });
+
+  it('keeps the evidence-aware reason when the knowledge model selects general mode', async () => {
+    const answer = jest
+      .fn()
+      .mockResolvedValueOnce(
+        '[[answer:general]]<general_reason>The retrieved evidence is unrelated to the question.</general_reason>',
+      )
+      .mockResolvedValueOnce(
+        '<general_reason>Using public knowledge.</general_reason>Public answer.',
+      );
+    const service = createService(verifiedKnowledgeOverrides({ answer }));
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'What is the answer?',
+      spaceIds: ['space-1'],
+    });
+
+    expect(result.answer).toContain('Public answer.');
+    expect(result.answer).not.toContain('general_reason');
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'model_general',
+      generalAnswerReason:
+        'The retrieved evidence is unrelated to the question.',
+    });
+  });
+
   it('returns a no-match guidance message when general knowledge fallback is disabled', async () => {
     const answer = jest.fn();
     const onToken = jest.fn();
@@ -431,7 +519,21 @@ describe('AiKnowledgeChatService', () => {
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
+      retrievedSources: [
+        {
+          sourcePageId: 'page-company-api',
+          title: 'CCC推荐公司',
+          url: '/p/company-api',
+        },
+      ],
+      snippets: [
+        {
+          id: 'chunk-company-api',
+          title: 'CCC推荐公司',
+          text: '公司推荐接口用于根据用户信息推荐公司。',
+          retrievalReasons: ['semantic'],
+        },
+      ],
     });
     expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
       result.answer,
@@ -455,6 +557,15 @@ describe('AiKnowledgeChatService', () => {
       context: '',
       chatContext: undefined,
       mode: 'general',
+    });
+    const knowledgeContext = stream.mock.calls[0][0].context;
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'model_general',
+      finalChunkIds: ['chunk-company-api'],
+      answerContextLength: knowledgeContext.length,
+      answerContextHash: `sha256:${createHash('sha256')
+        .update(knowledgeContext)
+        .digest('hex')}`,
     });
     expect(
       onThinking.mock.calls
@@ -499,7 +610,21 @@ describe('AiKnowledgeChatService', () => {
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
+      retrievedSources: [
+        {
+          sourcePageId: 'page-company-api',
+          title: 'CCC推荐公司',
+          url: '/p/company-api',
+        },
+      ],
+      snippets: [
+        {
+          id: 'chunk-company-api',
+          title: 'CCC推荐公司',
+          text: '公司推荐接口用于根据用户信息推荐公司。',
+          retrievalReasons: ['semantic'],
+        },
+      ],
     });
     expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
       result.answer,
@@ -1147,7 +1272,16 @@ describe('AiKnowledgeChatService', () => {
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
+      retrievedSources: [citation],
+      snippets: [
+        {
+          id: 'chunk-1',
+          title: 'Summary',
+          text: 'A compressed statement.',
+          retrievalReasons: ['semantic'],
+          sourceWindows: [],
+        },
+      ],
     });
     expect(answer).toHaveBeenCalledWith({
       query: 'What is the exact fact?',
