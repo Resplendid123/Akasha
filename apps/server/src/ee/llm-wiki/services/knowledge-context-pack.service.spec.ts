@@ -251,6 +251,55 @@ describe('KnowledgeContextPackService', () => {
       omittedItemCount: 0,
     });
   });
+
+  it('records included, clipped, and all trailing omitted items without text', () => {
+    const service = new KnowledgeContextPackService();
+    const pack = service.buildContextPack({
+      budget: { totalContextLength: 18, perItemMaxLength: 5 },
+      chunks: [
+        { chunk: chunk('chunk-1', 'kp-1', 'abc'), pageTitle: 'A' },
+        { chunk: chunk('chunk-2', 'kp-2', '123456'), pageTitle: 'B' },
+        { chunk: chunk('chunk-3', 'kp-3', '尾部'), pageTitle: 'C' },
+        { chunk: chunk('chunk-4', 'kp-4', '😀'), pageTitle: 'D' },
+      ],
+    });
+
+    expect(pack.packing.items).toEqual([
+      {
+        itemId: 'chunk-1',
+        kind: 'chunk',
+        disposition: 'included',
+        originalChars: 3,
+        includedChars: 3,
+      },
+      {
+        itemId: 'chunk-2',
+        kind: 'chunk',
+        disposition: 'clipped',
+        originalChars: 6,
+        includedChars: 5,
+      },
+      {
+        itemId: 'chunk-3',
+        kind: 'chunk',
+        disposition: 'omitted',
+        originalChars: 2,
+        includedChars: 0,
+      },
+      {
+        itemId: 'chunk-4',
+        kind: 'chunk',
+        disposition: 'omitted',
+        originalChars: 2,
+        includedChars: 0,
+      },
+    ]);
+    expect(JSON.stringify(pack.packing)).not.toContain('12345');
+    expect(pack.primary.map((entry) => entry.id)).toEqual([
+      'chunk-1',
+      'chunk-2',
+    ]);
+  });
 });
 
 function capsule(id: string, title: string, body: string) {

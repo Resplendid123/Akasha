@@ -18,12 +18,15 @@ import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
 import { UserRole } from '../../common/helpers/types/permission';
 import {
   AiKnowledgeChatService,
+  type AiKnowledgeChatResult,
   type AiChatThinkingEvent,
+  type KnowledgeQueryObservation,
   isGeneralKnowledgeEnabledForUser,
 } from '../llm-wiki/services/ai-knowledge-chat.service';
 import { AttachmentRepo } from '@akasha/db/repos/attachment/attachment.repo';
 import { KnowledgeQueryAuditRepo } from '@akasha/db/repos/llm-wiki/knowledge-query-audit.repo';
 import { createHash } from 'crypto';
+import { buildKnowledgeQueryAuditMetadata } from '../llm-wiki/services/knowledge-query-audit-metadata';
 import {
   AiChatDebugTiming,
   measureAiChatPhase,
@@ -464,6 +467,9 @@ export class AiChatService {
         citationCount: answer.citations.length,
         retrievedSourceCount: answer.retrievedSources.length,
         retrievalDiagnostics: answer.retrievalDiagnostics,
+        queryObservation: answer.queryObservation,
+        retrieval: answer.retrieval,
+        context: answer.context,
         snippets: answer.snippets ?? [],
         trustedCitationIds: answer.citations.map(
           (citation) => citation.sourcePageId,
@@ -564,6 +570,7 @@ export class AiChatService {
       }>;
     }>;
     trustedCitationIds: string[];
+    queryObservation: KnowledgeQueryObservation;
     retrievalDiagnostics?: {
       mode: string;
       queryEmbeddingAvailable: boolean;
@@ -576,50 +583,64 @@ export class AiChatService {
       rankedCandidateCount: number;
       authorizedChunkCount: number;
       filteredChunkCount: number;
+      graph?: {
+        candidateCount: number;
+        gatedOutCount: number;
+        selectedCount: number;
+        expandedSeedCount: number;
+        edgeCounts: {
+          semantic: number;
+          link: number;
+          'shared-source': number;
+        };
+        pageCountsByHop: Record<number, number>;
+      };
     };
+    retrieval?: AiKnowledgeChatResult['retrieval'];
+    context?: AiKnowledgeChatResult['context'];
   }): Promise<void> {
     const diagnostics = input.retrievalDiagnostics;
-    if (!diagnostics) return;
 
     try {
       await this.queryAuditRepo.recordQuery({
         workspaceId: input.workspaceId,
         userId: input.userId,
         queryHash: `sha256:${createHash('sha256').update(input.query).digest('hex')}`,
-        retrievalMode: diagnostics.mode,
-        authorizedCapsuleCount: diagnostics.authorizedChunkCount,
+        retrievalMode: diagnostics?.mode ?? 'general',
+        authorizedCapsuleCount: diagnostics?.authorizedChunkCount ?? 0,
         metadata: {
           origin: 'ai_qa',
-          answerMode: input.answerMode,
+          ...buildKnowledgeQueryAuditMetadata({
+            answerMode: input.answerMode,
+            queryObservation: input.queryObservation,
+            retrievalDiagnostics: diagnostics,
+            retrieval: input.retrieval,
+            context: input.context,
+          }),
+          ...(!input.queryObservation
+            ? {
+                finalChunkIds: input.snippets.map((snippet) => snippet.id),
+                finalSourcePageIds: [
+                  ...new Set(
+                    input.snippets.flatMap((snippet) =>
+                      snippet.sourceWindows.map(
+                        (window) => window.sourcePageId,
+                      ),
+                    ),
+                  ),
+                ],
+                rankReasonsByChunk: Object.fromEntries(
+                  input.snippets.map((snippet) => [
+                    snippet.id,
+                    snippet.retrievalReasons,
+                  ]),
+                ),
+              }
+            : {}),
           citationCount: input.citationCount,
           retrievedSourceCount: input.retrievedSourceCount,
           spaceIds: input.spaceIds,
-          queryEmbeddingAvailable: diagnostics.queryEmbeddingAvailable,
-          candidateSourceCount: diagnostics.candidateSourceCount,
-          policyCandidateSourceCount: diagnostics.policyCandidateSourceCount,
-          fallbackCandidateSourceCount:
-            diagnostics.fallbackCandidateSourceCount,
-          finalAuthorizedSourceCount: diagnostics.finalAuthorizedSourceCount,
-          accessPolicyFallbackUsed: diagnostics.accessPolicyFallbackUsed,
-          candidateChunkCount: diagnostics.candidateChunkCount,
-          rankedCandidateCount: diagnostics.rankedCandidateCount,
-          authorizedChunkCount: diagnostics.authorizedChunkCount,
-          filteredChunkCount: diagnostics.filteredChunkCount,
-          finalChunkIds: input.snippets.map((snippet) => snippet.id),
-          finalSourcePageIds: [
-            ...new Set(
-              input.snippets.flatMap((snippet) =>
-                snippet.sourceWindows.map((window) => window.sourcePageId),
-              ),
-            ),
-          ],
           trustedCitationIds: [...new Set(input.trustedCitationIds)],
-          rankReasonsByChunk: Object.fromEntries(
-            input.snippets.map((snippet) => [
-              snippet.id,
-              snippet.retrievalReasons,
-            ]),
-          ),
           evidenceRefs: input.snippets.flatMap((snippet) =>
             snippet.sourceWindows.map((window) => ({
               sourcePageId: window.sourcePageId,

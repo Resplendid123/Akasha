@@ -78,6 +78,48 @@ describe('LlmWikiController', () => {
         // Internal retrieval detail the shared chat service attaches on every
         // branch; the regular query API must strip it, never expose it (§7.1).
         attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
+        queryObservation: {
+          decisionReason: 'knowledge',
+          finalChunkIds: ['chunk-1'],
+          finalSourcePageIds: ['page-1'],
+          rankReasonsByChunk: { 'chunk-1': ['lexical'] },
+          contextItems: [],
+          packContextLength: 10,
+          packMaxContextLength: 12000,
+          answerContextLength: 20,
+          answerContextHash: `sha256:${'a'.repeat(64)}`,
+        },
+        retrieval: {
+          attempted: true,
+          candidates: [
+            {
+              pageId: 'page-1',
+              chunkId: 'chunk-1',
+              score: 0.016,
+              scoreType: 'lexical',
+              reasons: ['lexical'],
+              stage: 'direct',
+              authorizationMode: 'policy',
+            },
+          ],
+          dropped: [],
+          topK: 20,
+          threshold: 0.45,
+        },
+        context: {
+          text: '# Kafka\nKafka backs async events.',
+          items: [
+            {
+              itemId: 'chunk-1',
+              pageId: 'page-1',
+              text: 'Kafka backs async events.',
+              tokenCount: 6,
+            },
+          ],
+          usedTokens: 6,
+          maxTokens: 3000,
+          dropped: [],
+        },
       }),
     };
     const auditService = {
@@ -103,7 +145,12 @@ describe('LlmWikiController', () => {
     ).resolves.toEqual({
       answer: 'Use Kafka for async events.',
       citations: [
-        { sourcePageId: 'page-1', title: 'Kafka', url: '/p/page-1', images: [] },
+        {
+          sourcePageId: 'page-1',
+          title: 'Kafka',
+          url: '/p/page-1',
+          images: [],
+        },
       ],
       completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
     });
@@ -153,6 +200,45 @@ describe('LlmWikiController', () => {
         rankedCandidateCount: 3,
         authorizedChunkCount: 1,
         filteredChunkCount: 2,
+        decisionReason: 'knowledge',
+        finalChunkIds: ['chunk-1'],
+        finalSourcePageIds: ['page-1'],
+        rankReasonsByChunk: { 'chunk-1': ['lexical'] },
+        contextItems: [],
+        packContextLength: 10,
+        packMaxContextLength: 12000,
+        answerContextLength: 20,
+        answerContextHash: `sha256:${'a'.repeat(64)}`,
+        retrieval: {
+          attempted: true,
+          candidates: [
+            {
+              pageId: 'page-1',
+              chunkId: 'chunk-1',
+              score: 0.016,
+              scoreType: 'lexical',
+              reasons: ['lexical'],
+              stage: 'direct',
+              authorizationMode: 'policy',
+            },
+          ],
+          dropped: [],
+          topK: 20,
+          threshold: 0.45,
+        },
+        context: {
+          items: [
+            {
+              itemId: 'chunk-1',
+              pageId: 'page-1',
+              text: 'Kafka backs async events.',
+              tokenCount: 6,
+            },
+          ],
+          usedTokens: 6,
+          maxTokens: 3000,
+          dropped: [],
+        },
       },
     });
     expect(JSON.stringify(queryAuditRepo.recordQuery.mock.calls)).not.toContain(
@@ -917,7 +1003,9 @@ describe('LlmWikiController', () => {
 
   it('rejects immediate publish while the page cooldown is active', async () => {
     const cacheManager = {
-      get: jest.fn().mockResolvedValue({ step: 1, expiresAt: Date.now() + 60_000 }),
+      get: jest
+        .fn()
+        .mockResolvedValue({ step: 1, expiresAt: Date.now() + 60_000 }),
       set: jest.fn(),
       del: jest.fn(),
     };
@@ -1372,9 +1460,7 @@ describe('LlmWikiController', () => {
       pageRepo,
       spaceCompilation,
       diagnosticsService: {
-        findCompiledPageIds: jest
-          .fn()
-          .mockResolvedValue(['page-1', 'page-2']),
+        findCompiledPageIds: jest.fn().mockResolvedValue(['page-1', 'page-2']),
       },
     });
 
@@ -1403,9 +1489,7 @@ describe('LlmWikiController', () => {
         targetSourcePageIds: ['page-2'],
       },
     ]);
-    expect(spaceCompilation).not.toHaveProperty(
-      'resetGenerationAttemptBudget',
-    );
+    expect(spaceCompilation).not.toHaveProperty('resetGenerationAttemptBudget');
     expect(spaceCompilation.clearImageExtractionCache).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       sourcePageIds: ['page-1', 'page-2'],
@@ -1436,9 +1520,7 @@ describe('LlmWikiController', () => {
       sourceExporter,
       spaceCompilation,
       diagnosticsService: {
-        findCompiledPageIds: jest
-          .fn()
-          .mockResolvedValue(['page-failed']),
+        findCompiledPageIds: jest.fn().mockResolvedValue(['page-failed']),
       },
     });
 
@@ -1473,9 +1555,7 @@ describe('LlmWikiController', () => {
     };
     const sourceExporter = { exportPageSources: jest.fn() };
     const diagnosticsService = {
-      findCompiledPageIds: jest
-        .fn()
-        .mockResolvedValue(['page-1', 'page-2']),
+      findCompiledPageIds: jest.fn().mockResolvedValue(['page-1', 'page-2']),
     };
     const spaceCompilation = {
       requestRuns: jest.fn(),
@@ -1525,9 +1605,7 @@ describe('LlmWikiController', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(pageRepo.findExistingPageRefs).not.toHaveBeenCalled();
-    expect(
-      diagnosticsService.findCompiledPageIds,
-    ).not.toHaveBeenCalled();
+    expect(diagnosticsService.findCompiledPageIds).not.toHaveBeenCalled();
     expect(sourceExporter.exportPageSources).not.toHaveBeenCalled();
     expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
   });
