@@ -7,13 +7,16 @@ import {
 } from "./page-edit-mode-context";
 
 function ModeControl() {
-  const { pageEditMode, setPageEditMode } = usePageEditMode();
+  const { pageEditMode, setPageEditMode, savePage } = usePageEditMode();
 
   return (
     <>
       <span>{pageEditMode}</span>
       <button type="button" onClick={() => setPageEditMode(PageEditMode.Edit)}>
         Edit
+      </button>
+      <button type="button" onClick={savePage}>
+        Save
       </button>
     </>
   );
@@ -38,6 +41,20 @@ describe("PageEditModeProvider", () => {
       </PageEditModeProvider>,
     );
 
+    expect(screen.getByText(PageEditMode.Read)).toBeTruthy();
+  });
+
+  it("returns the page to read mode when it is saved", () => {
+    render(
+      <PageEditModeProvider>
+        <ModeControl />
+      </PageEditModeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText(PageEditMode.Edit)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByText(PageEditMode.Read)).toBeTruthy();
   });
 });

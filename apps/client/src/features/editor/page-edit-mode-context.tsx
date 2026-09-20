@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
 
 export enum PageEditMode {
   Read = "read",
@@ -8,6 +14,7 @@ export enum PageEditMode {
 type PageEditModeContextValue = {
   pageEditMode: PageEditMode;
   setPageEditMode: React.Dispatch<React.SetStateAction<PageEditMode>>;
+  savePage: () => void;
 };
 
 const PageEditModeContext = createContext<PageEditModeContextValue | null>(
@@ -16,9 +23,12 @@ const PageEditModeContext = createContext<PageEditModeContextValue | null>(
 
 export function PageEditModeProvider({ children }: React.PropsWithChildren) {
   const [pageEditMode, setPageEditMode] = useState(PageEditMode.Read);
+  const savePage = useCallback(() => {
+    setPageEditMode(PageEditMode.Read);
+  }, []);
   const value = useMemo(
-    () => ({ pageEditMode, setPageEditMode }),
-    [pageEditMode],
+    () => ({ pageEditMode, setPageEditMode, savePage }),
+    [pageEditMode, savePage],
   );
 
   return (

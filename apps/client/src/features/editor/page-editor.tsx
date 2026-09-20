@@ -264,10 +264,6 @@ export default function PageEditor({
         },
         handleDOMEvents: {
           keydown: (_view, event) => {
-            if (platformModifierKey(event) && event.code === "KeyS") {
-              event.preventDefault();
-              return true;
-            }
             if (platformModifierKey(event) && event.code === "KeyK") {
               searchSpotlight.open();
               return true;
