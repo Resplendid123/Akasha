@@ -431,9 +431,12 @@ export default function PageEditor({
               <SearchAndReplaceDialog editor={editor} editable={editable} />
             )}
 
+            {editor && editable && (
+              <EditorAiMenu editor={editor} readOnly={!editorIsEditable} />
+            )}
+
             {editor && editorIsEditable && (
               <div>
-                <EditorAiMenu editor={editor} />
                 <EditorLinkMenu editor={editor} />
                 <EditorBubbleMenu editor={editor} />
                 <TableMenu editor={editor} />
@@ -451,7 +454,9 @@ export default function PageEditor({
             {editor &&
               !editorIsEditable &&
               (editable || canComment) &&
-              providersRef.current && <ReadonlyBubbleMenu editor={editor} />}
+              providersRef.current && (
+                <ReadonlyBubbleMenu editor={editor} canAskAi={editable} />
+              )}
             {showCommentPopup && (
               <CommentDialog editor={editor} pageId={pageId} />
             )}
