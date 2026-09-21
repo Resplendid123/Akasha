@@ -1,7 +1,7 @@
-import { Spotlight } from "@mantine/spotlight";
+import { Spotlight, useSpotlight } from "@mantine/spotlight";
 import { IconSearch } from "@tabler/icons-react";
 import { Group, VisuallyHidden } from "@mantine/core";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useTranslation } from "react-i18next";
 import { searchSpotlightStore } from "../constants.ts";
@@ -11,6 +11,8 @@ import {
 } from "./search-spotlight-filters.tsx";
 import { useUnifiedSearch } from "../hooks/use-unified-search.ts";
 import { SearchResultItem } from "./search-result-item.tsx";
+import { useRecentPageVisitsQuery } from "@/features/page-visit/queries/page-visit-query";
+import { RecentPageVisits } from "@/features/page-visit/components/recent-page-visits";
 
 interface SearchSpotlightProps {
   spaceId?: string;
@@ -18,6 +20,8 @@ interface SearchSpotlightProps {
 export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  const { opened } = useSpotlight(searchSpotlightStore);
+  const isRecentMode = query.trim().length === 0;
   const [debouncedSearchQuery] = useDebouncedValue(query, 300);
   const [filters, setFilters] = useState<SearchSpotlightFilterValues>({
     contentType: "page",
@@ -53,6 +57,15 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
   }, [debouncedSearchQuery, filters]);
 
   const { data: searchResults, isLoading } = useUnifiedSearch(searchParams);
+  const {
+    data: recentVisits = [],
+    isLoading: isRecentLoading,
+    isError: isRecentError,
+  } = useRecentPageVisitsQuery(spaceId, opened && isRecentMode);
+
+  useEffect(() => {
+    if (!opened) setQuery("");
+  }, [opened]);
 
   // Determine result type for rendering
   const isAttachmentSearch = filters.contentType === "attachment";
@@ -92,19 +105,17 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
           />
         </Group>
 
-        <div
-          style={{
-            padding: "4px 16px",
-          }}
-        >
-          <SearchSpotlightFilters
-            onFiltersChange={handleFiltersChange}
-            spaceId={spaceId}
-          />
-        </div>
+        {!isRecentMode && (
+          <div style={{ padding: "4px 16px" }}>
+            <SearchSpotlightFilters
+              onFiltersChange={handleFiltersChange}
+              spaceId={spaceId}
+            />
+          </div>
+        )}
 
         <VisuallyHidden role="status" aria-live="polite">
-          {query.length > 0 && !isLoading
+          {!isRecentMode && !isLoading
             ? resultItems.length === 0
               ? t("No results found")
               : t("{{count}} results found", { count: resultItems.length })
@@ -112,15 +123,21 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
         </VisuallyHidden>
 
         <Spotlight.ActionsList>
-          {query.length === 0 && resultItems.length === 0 && (
-            <Spotlight.Empty>{t("Start typing to search...")}</Spotlight.Empty>
+          {isRecentMode ? (
+            <RecentPageVisits
+              items={recentVisits}
+              isLoading={isRecentLoading}
+              isError={isRecentError}
+              showSpace={!spaceId}
+            />
+          ) : (
+            <>
+              {!isLoading && resultItems.length === 0 && (
+                <Spotlight.Empty>{t("No results found...")}</Spotlight.Empty>
+              )}
+              {resultItems.length > 0 && <>{resultItems}</>}
+            </>
           )}
-
-          {query.length > 0 && !isLoading && resultItems.length === 0 && (
-            <Spotlight.Empty>{t("No results found...")}</Spotlight.Empty>
-          )}
-
-          {resultItems.length > 0 && <>{resultItems}</>}
         </Spotlight.ActionsList>
       </Spotlight.Root>
     </>

@@ -19,6 +19,7 @@ import {
   Users,
   Workspaces,
   PageHistory as History,
+  PageVisits,
   GroupUsers,
   SpaceMembers,
   WorkspaceInvitations,
@@ -400,6 +401,10 @@ export type InsertablePageLabel = Insertable<PageLabels>;
 export type PageAccess = Selectable<_PageAccess>;
 export type InsertablePageAccess = Insertable<_PageAccess>;
 export type UpdatablePageAccess = Updateable<Omit<_PageAccess, 'id'>>;
+
+// Page Visit
+export type PageVisit = Selectable<PageVisits>;
+export type InsertablePageVisit = Insertable<PageVisits>;
 
 // Page Permission
 export type PagePermission = Selectable<_PagePermissions>;

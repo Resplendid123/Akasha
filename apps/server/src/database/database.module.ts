@@ -43,6 +43,7 @@ import { KnowledgeSpaceExecutionRepo } from '@akasha/db/repos/llm-wiki/knowledge
 import { KnowledgeImageExtractionRepo } from '@akasha/db/repos/llm-wiki/knowledge-image-extraction.repo';
 import { AiChatRepo } from '@akasha/db/repos/ai-chat/ai-chat.repo';
 import { AiModelConfigRepo } from '@akasha/db/repos/llm-wiki/ai-model-config.repo';
+import { PageVisitRepo } from '@akasha/db/repos/page/page-visit.repo';
 import { buildDatabasePostgresOptions } from './database-postgres-options';
 
 export {
@@ -88,6 +89,7 @@ export {
     PageTransclusionsRepo,
     PageTransclusionReferencesRepo,
     PageHistoryRepo,
+    PageVisitRepo,
     CommentRepo,
     FavoriteRepo,
     AttachmentRepo,
@@ -125,6 +127,7 @@ export {
     PageTransclusionsRepo,
     PageTransclusionReferencesRepo,
     PageHistoryRepo,
+    PageVisitRepo,
     CommentRepo,
     FavoriteRepo,
     AttachmentRepo,
