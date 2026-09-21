@@ -27,6 +27,7 @@ export function useAiGenerateMutation(): UseMutationResult<
 }
 
 interface StreamCallbacks {
+  onController?: (controller: AbortController) => void;
   onChunk: (chunk: AiStreamChunk) => void;
   onError?: (error: AiStreamError) => void;
   onComplete?: () => void;
@@ -38,7 +39,7 @@ export function useAiGenerateStreamMutation(): UseMutationResult<
   AiGenerateDto & StreamCallbacks
 > {
   return useMutation({
-    mutationFn: ({ onChunk, onError, onComplete, ...data }) =>
-      generateAiContentStream(data, onChunk, onError, onComplete),
+    mutationFn: ({ onController, onChunk, onError, onComplete, ...data }) =>
+      generateAiContentStream(data, onChunk, onError, onComplete, onController),
   });
 }

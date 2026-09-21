@@ -26,6 +26,7 @@ import { SessionModule } from './session/session.module';
 import { ClsMiddleware } from 'nestjs-cls';
 import { McpModule } from './mcp/mcp.module';
 import { LegacyLinkModule } from './legacy-link/legacy-link.module';
+import { PageVisitModule } from './page-visit/page-visit.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { LegacyLinkModule } from './legacy-link/legacy-link.module';
     SessionModule,
     McpModule,
     LegacyLinkModule,
+    PageVisitModule,
   ],
 })
 export class CoreModule implements NestModule {

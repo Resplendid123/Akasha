@@ -94,10 +94,6 @@ export function TitleEditor({
       },
       handleDOMEvents: {
         keydown: (_view, event) => {
-          if (platformModifierKey(event) && event.code === "KeyS") {
-            event.preventDefault();
-            return true;
-          }
           if (platformModifierKey(event) && event.code === "KeyK") {
             searchSpotlight.open();
             return true;
@@ -176,8 +172,11 @@ export function TitleEditor({
 
   useEffect(() => {
     if (!titleEditor) return;
+    if (pageEditMode === PageEditMode.Read) {
+      debounceUpdate.flush();
+    }
     titleEditor.setEditable(editable && pageEditMode === PageEditMode.Edit);
-  }, [pageEditMode, titleEditor, editable]);
+  }, [pageEditMode, titleEditor, editable, debounceUpdate]);
 
   const openSearchDialog = () => {
     const event = new CustomEvent("openFindDialogFromEditor", {});

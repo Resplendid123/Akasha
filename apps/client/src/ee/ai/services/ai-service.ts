@@ -18,8 +18,10 @@ export async function generateAiContentStream(
   onChunk: (chunk: AiStreamChunk) => void,
   onError?: (error: AiStreamError) => void,
   onComplete?: () => void,
+  onController?: (controller: AbortController) => void,
 ): Promise<AbortController> {
   const abortController = new AbortController();
+  onController?.(abortController);
   try {
     const response = await fetch("/api/ai/generate/stream", {
       method: "POST",
@@ -44,6 +46,8 @@ export async function generateAiContentStream(
 
     const processStream = async () => {
       let buffer = "";
+      let completed = false;
+      let failed = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -58,13 +62,16 @@ export async function generateAiContentStream(
             if (line.startsWith("data: ")) {
               const data = line.slice(6);
               if (data === "[DONE]") {
+                completed = true;
                 onComplete?.();
                 return;
               }
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.error) {
+                  failed = true;
                   onError?.(parsed);
+                  return;
                 } else {
                   onChunk(parsed);
                 }
@@ -73,6 +80,10 @@ export async function generateAiContentStream(
               }
             }
           }
+        }
+
+        if (!completed && !failed && !abortController.signal.aborted) {
+          onError?.({ error: "AI stream ended unexpectedly." });
         }
       } catch (error) {
         if (error.name !== "AbortError") {

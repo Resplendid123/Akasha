@@ -58,7 +58,7 @@ import {
   yjsConnectionStatusAtom,
 } from "@/features/editor/atoms/editor-atoms.ts";
 import { formattedDate } from "@/lib/time.ts";
-import { PageEditModeToggle } from "@/features/editor/components/page-edit-mode-toggle.tsx";
+import { PageEditModeControls } from "@/features/editor/components/page-edit-mode-toggle.tsx";
 import MovePageModal from "@/features/page/components/move-page-modal.tsx";
 import { useTimeAgo } from "@/hooks/use-time-ago.tsx";
 import { PageShareModal } from "@/ee/page-permission";
@@ -134,7 +134,7 @@ export default function PageHeaderMenu({ readOnly }: PageHeaderMenuProps) {
     <>
       <ConnectionWarning />
 
-      {!readOnly && <PageEditModeToggle size="xs" />}
+      {!readOnly && <PageEditModeControls size="xs" />}
 
       <PageShareModal readOnly={readOnly} />
 

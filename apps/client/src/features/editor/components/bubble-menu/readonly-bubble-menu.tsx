@@ -1,23 +1,33 @@
 import type { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import { FC, useCallback, useEffect, useRef, useState } from "react";
-import { IconMessage } from "@tabler/icons-react";
+import { IconMessage, IconSparkles } from "@tabler/icons-react";
 import classes from "./bubble-menu.module.css";
-import { ActionIcon, Tooltip } from "@mantine/core";
-import { useAtom } from "jotai";
+import { ActionIcon, Button, Tooltip } from "@mantine/core";
+import { useAtom, useAtomValue } from "jotai";
 import {
   showReadOnlyCommentPopupAtom,
   readOnlyCommentDataAtom,
 } from "@/features/comment/atoms/comment-atom";
 import { useTranslation } from "react-i18next";
 import { getRelativeSelection, ySyncPluginKey } from "@tiptap/y-tiptap";
+import { showAiMenuAtom } from "@/features/editor/atoms/editor-atoms";
+import clsx from "clsx";
+import { workspaceAtom } from "@/features/user/atoms/current-user-atom";
 
 type ReadonlyBubbleMenuProps = {
   editor: Editor;
+  canAskAi?: boolean;
 };
 
-export const ReadonlyBubbleMenu: FC<ReadonlyBubbleMenuProps> = ({ editor }) => {
+export const ReadonlyBubbleMenu: FC<ReadonlyBubbleMenuProps> = ({
+  editor,
+  canAskAi = false,
+}) => {
   const { t } = useTranslation();
+  const [showAiMenu, setShowAiMenu] = useAtom(showAiMenuAtom);
+  const workspace = useAtomValue(workspaceAtom);
+  const showAskAi = canAskAi && workspace?.settings?.ai?.generative === true;
   const [showReadOnlyCommentPopup, setShowReadOnlyCommentPopup] = useAtom(
     showReadOnlyCommentPopupAtom,
   );
@@ -41,6 +51,7 @@ export const ReadonlyBubbleMenu: FC<ReadonlyBubbleMenuProps> = ({ editor }) => {
       !selection ||
       selection.isCollapsed ||
       selection.rangeCount === 0 ||
+      showAiMenu ||
       showReadOnlyCommentPopup
     ) {
       setVisible(false);
@@ -77,7 +88,7 @@ export const ReadonlyBubbleMenu: FC<ReadonlyBubbleMenuProps> = ({ editor }) => {
       left: rect.left - editorRect.left + rect.width / 2,
     });
     setVisible(true);
-  }, [editor, showReadOnlyCommentPopup]);
+  }, [editor, showAiMenu, showReadOnlyCommentPopup]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -91,10 +102,15 @@ export const ReadonlyBubbleMenu: FC<ReadonlyBubbleMenuProps> = ({ editor }) => {
   }, [updateMenuPosition]);
 
   useEffect(() => {
-    if (showReadOnlyCommentPopup) {
+    if (showAiMenu || showReadOnlyCommentPopup) {
       setVisible(false);
     }
-  }, [showReadOnlyCommentPopup]);
+  }, [showAiMenu, showReadOnlyCommentPopup]);
+
+  const handleAskAiClick = () => {
+    setShowAiMenu(true);
+    setVisible(false);
+  };
 
   const handleCommentClick = () => {
     if (!editor) return;
@@ -135,6 +151,24 @@ export const ReadonlyBubbleMenu: FC<ReadonlyBubbleMenuProps> = ({ editor }) => {
       }}
     >
       <div className={classes.bubbleMenu}>
+        {showAskAi && (
+          <>
+            <Button
+              variant="default"
+              className={clsx(classes.buttonRoot)}
+              radius="0"
+              leftSection={<IconSparkles size={16} />}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleAskAiClick();
+              }}
+            >
+              {t("Ask AI")}
+            </Button>
+            <div className={classes.divider} />
+          </>
+        )}
         <Tooltip label={t("Comment")} withArrow withinPortal={false}>
           <ActionIcon
             variant="default"

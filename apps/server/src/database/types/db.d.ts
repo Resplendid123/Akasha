@@ -845,6 +845,14 @@ export interface PageHistory {
   workspaceId: string;
 }
 
+export interface PageVisits {
+  id: Generated<string>;
+  lastVisitedAt: Generated<Timestamp>;
+  pageId: string;
+  userId: string;
+  workspaceId: string;
+}
+
 export interface PageLabels {
   createdAt: Generated<Timestamp>;
   id: Generated<string>;
@@ -1181,6 +1189,7 @@ export interface DB {
   notifications: Notifications;
   pageAccess: PageAccess;
   pageHistory: PageHistory;
+  pageVisits: PageVisits;
   pageLabels: PageLabels;
   pagePermissions: PagePermissions;
   pages: Pages;
