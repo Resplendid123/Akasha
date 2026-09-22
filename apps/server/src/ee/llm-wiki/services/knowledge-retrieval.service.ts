@@ -3,7 +3,9 @@ import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import {
   KnowledgeCapsuleRepo,
   KnowledgeChunkCandidate,
+  KnowledgeGraphEdgeType,
   KnowledgeGraphTraversalEdge,
+  KnowledgeGraphTraversalSeed,
   KnowledgeRetrievalSignal,
 } from '@akasha/db/repos/llm-wiki/knowledge-capsule.repo';
 import { KnowledgeChunk, KnowledgePage } from '@akasha/db/types/entity.types';
@@ -12,6 +14,7 @@ import { UserRepo } from '@akasha/db/repos/user/user.repo';
 import { SpaceAuthorizationService } from '../../../core/space/services/space-authorization.service';
 import { ConfiguredKnowledgeEmbeddingProvider } from './knowledge-embedding-provider.service';
 import {
+  DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
   KnowledgeRetrievalRankReason,
   KnowledgeRetrievalRankerService,
 } from './knowledge-retrieval-ranker.service';
@@ -27,6 +30,30 @@ export const KNOWLEDGE_COMPLETENESS_NOTICE =
 
 /** Whether a chunk entered the result via direct recall or graph expansion. */
 export type KnowledgeRetrievalOrigin = 'direct' | 'graph';
+
+export type KnowledgeRetrievalCandidate = {
+  pageId: string;
+  chunkId: string;
+  score: number;
+  scoreType: 'semantic_distance' | 'lexical' | 'exact_title';
+  reasons: KnowledgeRetrievalRankReason[];
+  stage: 'direct' | 'graph';
+  authorizationMode: 'policy' | 'fallback';
+};
+
+export type KnowledgeRetrievalDrop = {
+  pageId: string;
+  chunkId: string;
+  reason: 'below_threshold' | 'filtered' | 'unauthorized' | 'rank_limit';
+};
+
+export type KnowledgeRetrievalObservation = {
+  attempted: boolean;
+  candidates: KnowledgeRetrievalCandidate[];
+  dropped: KnowledgeRetrievalDrop[];
+  topK: number;
+  threshold: number;
+};
 
 export type KnowledgeRetrievalResult = {
   mode: 'high_completeness' | 'high_completeness_fallback';
@@ -48,6 +75,7 @@ export type KnowledgeRetrievalResult = {
   // order. Populated before citation resolution rewrites parent bodies or the
   // context budget truncates chunks (§7.1).
   directHitChunkIds: string[];
+  retrievalObservation: KnowledgeRetrievalObservation;
 };
 
 export type KnowledgeRetrievalScope = {
@@ -71,6 +99,14 @@ export type KnowledgeRetrievalDiagnostics = {
   rankedCandidateCount: number;
   authorizedChunkCount: number;
   filteredChunkCount: number;
+  graph: {
+    candidateCount: number;
+    gatedOutCount: number;
+    selectedCount: number;
+    expandedSeedCount: number;
+    edgeCounts: Record<KnowledgeGraphEdgeType, number>;
+    pageCountsByHop: Record<number, number>;
+  };
 };
 
 @Injectable()
@@ -105,6 +141,14 @@ export class KnowledgeRetrievalService {
       requestedSpaceIds,
       effectiveSpaceIds: [],
     };
+    const emptyRetrievalObservation = (): KnowledgeRetrievalObservation => ({
+      attempted: false,
+      candidates: [],
+      dropped: [],
+      topK: candidateLimit,
+      threshold:
+        input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+    });
     const authCache =
       input.authCache ??
       new KnowledgeAuthorizationCache({
@@ -116,7 +160,10 @@ export class KnowledgeRetrievalService {
     try {
       authCache.assertScope(input.workspaceId, input.userId);
     } catch {
-      return emptyResult({ scope: emptyScope });
+      return emptyResult({
+        scope: emptyScope,
+        retrievalObservation: emptyRetrievalObservation(),
+      });
     }
 
     const user = await measureAiChatPhase(
@@ -129,7 +176,10 @@ export class KnowledgeRetrievalService {
       (result) => ({ userFound: Boolean(result) }),
     );
     if (!user) {
-      return emptyResult({ scope: emptyScope });
+      return emptyResult({
+        scope: emptyScope,
+        retrievalObservation: emptyRetrievalObservation(),
+      });
     }
 
     const readableSpaceIds = await measureAiChatPhase(
@@ -154,6 +204,7 @@ export class KnowledgeRetrievalService {
           requestedSpaceIds,
           effectiveSpaceIds: [],
         },
+        retrievalObservation: emptyRetrievalObservation(),
       });
     }
 
@@ -251,17 +302,26 @@ export class KnowledgeRetrievalService {
     let selectedRecall = policyRecall;
     let accessPolicyFallbackUsed = false;
 
-    const rankRelevantRecall = (recallResult: typeof selectedRecall) =>
-      fuseRecall(this.ranker, recallResult, candidateLimit).filter(
-        (candidate) =>
-          this.ranker.isCandidateRelevant({
-            query: input.query,
-            candidate,
-            maxCosineDistance: input.maxCosineDistance,
-          }),
+    const rankRecallCandidates = (
+      recallResult: typeof selectedRecall,
+      graph?: {
+        dense: KnowledgeChunkCandidate[];
+        lexical: KnowledgeChunkCandidate[];
+      },
+    ) => fuseRecall(this.ranker, recallResult, candidateLimit, graph);
+    const filterRelevantCandidates = (
+      candidates: ReturnType<typeof rankRecallCandidates>,
+    ) =>
+      candidates.filter((candidate) =>
+        this.ranker.isCandidateRelevant({
+          query: input.query,
+          candidate,
+          maxCosineDistance: input.maxCosineDistance,
+        }),
       );
     let rankingStartedAt = performance.now();
-    let rankedCandidates = rankRelevantRecall(selectedRecall);
+    let fusedCandidatesBeforeGate = rankRecallCandidates(selectedRecall);
+    let rankedCandidates = filterRelevantCandidates(fusedCandidatesBeforeGate);
     input.debugTiming?.record(
       'retrieval.rank_candidates',
       performance.now() - rankingStartedAt,
@@ -278,17 +338,18 @@ export class KnowledgeRetrievalService {
       );
       selectedRecall = fallbackRecall;
       rankingStartedAt = performance.now();
-      rankedCandidates = rankRelevantRecall(selectedRecall).map(
-        (candidate) => ({
-          ...candidate,
-          rankReasons: [
-            ...candidate.rankReasons.filter(
-              (reason) => reason !== 'sidecar-prefiltered',
-            ),
-            'final-authorization-fallback' as const,
-          ],
-        }),
-      );
+      fusedCandidatesBeforeGate = rankRecallCandidates(selectedRecall);
+      rankedCandidates = filterRelevantCandidates(
+        fusedCandidatesBeforeGate,
+      ).map((candidate) => ({
+        ...candidate,
+        rankReasons: [
+          ...candidate.rankReasons.filter(
+            (reason) => reason !== 'sidecar-prefiltered',
+          ),
+          'final-authorization-fallback' as const,
+        ],
+      }));
       input.debugTiming?.record(
         'retrieval.rank_candidates',
         performance.now() - rankingStartedAt,
@@ -339,6 +400,31 @@ export class KnowledgeRetrievalService {
           rankedCandidateCount: 0,
         },
         mode: 'high_completeness_fallback',
+        retrievalObservation: {
+          attempted: true,
+          candidates: toRawRetrievalCandidates({
+            policyRecall,
+            fallbackRecall,
+            topK: candidateLimit,
+          }),
+          dropped: buildRetrievalDrops({
+            candidates: toRawRetrievalCandidates({
+              policyRecall,
+              fallbackRecall,
+              topK: candidateLimit,
+            }),
+            selectedChunkIds: new Set(),
+            relevantChunkIds: new Set(
+              rankedCandidates.map((candidate) => candidate.chunk.id),
+            ),
+            authorizedChunkIds: new Set(),
+            threshold:
+              input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+          }),
+          topK: candidateLimit,
+          threshold:
+            input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+        },
       });
     }
 
@@ -376,27 +462,58 @@ export class KnowledgeRetrievalService {
     );
     const readableSourceSet = new Set(readableSourcePageIds);
 
-    const authorizedChunks: KnowledgeRetrievalResult['chunks'] = [];
-    for (const candidate of rankedCandidates) {
-      const sourcePageIds =
-        sourcesByChunkId.get(candidate.chunk.id) ?? candidate.sourcePageIds;
-      if (
-        sourcePageIds.length > 0 &&
-        sourcePageIds.every((sourcePageId) =>
-          readableSourceSet.has(sourcePageId),
-        )
-      ) {
-        authorizedChunks.push({
-          chunk: candidate.chunk,
-          page: candidate.page,
-          sourcePageIds,
-          rankReasons: candidate.rankReasons,
-          origin: 'direct',
-          ...(candidate.parentSection
-            ? { parentSection: candidate.parentSection }
-            : {}),
-        });
+    const directChunkIds = new Set(
+      selectedRecall.flat(2).map((candidate) => candidate.chunk.id),
+    );
+    const authorizeRanked = (
+      candidates: typeof rankedCandidates,
+      sources: Map<string, string[]>,
+      readable: Set<string>,
+    ): KnowledgeRetrievalResult['chunks'] => {
+      const authorized: KnowledgeRetrievalResult['chunks'] = [];
+      for (const candidate of candidates) {
+        const sourcePageIds =
+          sources.get(candidate.chunk.id) ?? candidate.sourcePageIds;
+        if (
+          sourcePageIds.length > 0 &&
+          sourcePageIds.every((sourcePageId) => readable.has(sourcePageId))
+        ) {
+          authorized.push({
+            chunk: candidate.chunk,
+            page: candidate.page,
+            sourcePageIds,
+            rankReasons: candidate.rankReasons,
+            origin:
+              candidate.signals.includes('graph') &&
+              !directChunkIds.has(candidate.chunk.id)
+                ? 'graph'
+                : 'direct',
+            ...(candidate.parentSection
+              ? { parentSection: candidate.parentSection }
+              : {}),
+          });
+        }
       }
+      return authorized;
+    };
+    const authorizedChunks = authorizeRanked(
+      rankedCandidates,
+      sourcesByChunkId,
+      readableSourceSet,
+    );
+    const authorizedChunkIds = new Set(
+      authorizedChunks.map((candidate) => candidate.chunk.id),
+    );
+    const relevantChunkIds = new Set(
+      rankedCandidates.map((candidate) => candidate.chunk.id),
+    );
+    const seedWeightByPageId = new Map<string, number>();
+    for (const candidate of rankedCandidates) {
+      const pageId = candidate.page.id;
+      seedWeightByPageId.set(
+        pageId,
+        Math.max(seedWeightByPageId.get(pageId) ?? 0, candidate.score),
+      );
     }
     const graphExpansion = await measureAiChatPhase(
       input.debugTiming,
@@ -408,23 +525,109 @@ export class KnowledgeRetrievalService {
           supplementalUserId: input.supplementalUserId,
           readableSpaceIds,
           principals,
-          seedPageIds: unique(
-            authorizedChunks.map((candidate) => candidate.page.id),
-          ),
+          seeds: unique(authorizedChunks.map((candidate) => candidate.page.id))
+            .map((knowledgePageId) => ({
+              knowledgePageId,
+              weight: seedWeightByPageId.get(knowledgePageId) ?? 0,
+            }))
+            .sort(
+              (left, right) =>
+                right.weight - left.weight ||
+                left.knowledgePageId.localeCompare(right.knowledgePageId),
+            ),
           candidateLimit,
+          query: input.query,
+          ...(queryEmbedding ? { queryEmbedding } : {}),
+          authorizationMode: accessPolicyFallbackUsed
+            ? 'final-authorization-fallback'
+            : 'policy',
           authCache,
           ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
         }),
       (result) => ({
-        graphCandidateCount: result.candidateCount,
-        graphChunkCount: result.chunks.length,
+        graphSeedsExpanded: result.seedsExpanded,
+        graphWindowPageCount: result.windowPageIds.length,
+        graphCandidateCount: graphCandidateIds(result).size,
       }),
     );
-    const selectedChunks = blendDirectAndGraph(
-      authorizedChunks,
-      graphExpansion.chunks,
-      candidateLimit,
-    );
+    const graphCandidateCount = graphCandidateIds(graphExpansion).size;
+
+    let selectedChunks = authorizedChunks.slice(0, candidateLimit);
+    let gatedGraphCandidateCount = 0;
+    if (graphCandidateCount > 0) {
+      const fusedStartedAt = performance.now();
+      let fusedCandidates = filterRelevantCandidates(
+        rankRecallCandidates(selectedRecall, {
+          dense: graphExpansion.dense,
+          lexical: graphExpansion.lexical,
+        }),
+      );
+      if (accessPolicyFallbackUsed) {
+        fusedCandidates = fusedCandidates.map((candidate) => ({
+          ...candidate,
+          rankReasons: [
+            ...candidate.rankReasons.filter(
+              (reason) => reason !== 'sidecar-prefiltered',
+            ),
+            'final-authorization-fallback' as const,
+          ],
+        }));
+      }
+      for (const candidate of fusedCandidates) {
+        relevantChunkIds.add(candidate.chunk.id);
+      }
+      gatedGraphCandidateCount =
+        graphCandidateCount -
+        fusedCandidates.filter((candidate) =>
+          candidate.signals.includes('graph'),
+        ).length;
+      input.debugTiming?.record(
+        'retrieval.rank_candidates',
+        performance.now() - fusedStartedAt,
+        {
+          rankedCandidateCount: fusedCandidates.length,
+          pass: 'graph-fused',
+        },
+      );
+
+      const fusedSourceRows = await measureAiChatPhase(
+        input.debugTiming,
+        'retrieval.load_graph_chunk_sources',
+        () =>
+          this.capsuleRepo.findChunkSourcePageIdsByChunkIds({
+            workspaceId: input.workspaceId,
+            chunkIds: fusedCandidates.map((candidate) => candidate.chunk.id),
+          }),
+        (result) => ({ sourceRowCount: result.length }),
+      );
+      const fusedSourcesByChunkId = new Map(
+        fusedSourceRows.map((row) => [row.chunkId, row.sourcePageIds]),
+      );
+      const fusedReadableSourcePageIds = await measureAiChatPhase(
+        input.debugTiming,
+        'retrieval.authorize_graph_sources',
+        () =>
+          this.sourceAuthorization.filterReadableSources({
+            workspaceId: input.workspaceId,
+            userId: input.userId,
+            supplementalUserId: input.supplementalUserId,
+            sourcePageIds: unique(
+              fusedSourceRows.flatMap((row) => row.sourcePageIds),
+            ),
+            cache: authCache,
+          }),
+        (result) => ({ readableSourceCount: result.length }),
+      );
+      const authorizedFusedChunks = authorizeRanked(
+        fusedCandidates,
+        fusedSourcesByChunkId,
+        new Set(fusedReadableSourcePageIds),
+      );
+      for (const candidate of authorizedFusedChunks) {
+        authorizedChunkIds.add(candidate.chunk.id);
+      }
+      selectedChunks = authorizedFusedChunks.slice(0, candidateLimit);
+    }
     const finalAuthorizedSourceCount = unique(
       selectedChunks.flatMap((candidate) => candidate.sourcePageIds),
     ).length;
@@ -434,6 +637,22 @@ export class KnowledgeRetrievalService {
       .filter((candidate) => candidate.origin === 'direct')
       .map((candidate) => candidate.chunk.id);
 
+    const observationCandidates = toRawRetrievalCandidates({
+      policyRecall,
+      fallbackRecall,
+      topK: candidateLimit,
+      graph: graphExpansion,
+      graphAuthorizationMode: accessPolicyFallbackUsed ? 'fallback' : 'policy',
+    });
+    const retrievalObservationDrops = buildRetrievalDrops({
+      candidates: observationCandidates,
+      selectedChunkIds: authorizedChunkIds,
+      relevantChunkIds,
+      authorizedChunkIds,
+      threshold:
+        input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+    });
+
     return {
       mode: accessPolicyFallbackUsed
         ? 'high_completeness_fallback'
@@ -441,6 +660,14 @@ export class KnowledgeRetrievalService {
       chunks: selectedChunks,
       capsules: [],
       directHitChunkIds,
+      retrievalObservation: {
+        attempted: true,
+        candidates: observationCandidates,
+        dropped: retrievalObservationDrops,
+        topK: candidateLimit,
+        threshold:
+          input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+      },
       completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
       scope: {
         requestedSpaceIds,
@@ -459,13 +686,20 @@ export class KnowledgeRetrievalService {
         titleCandidateCount: uniqueCandidateCount(titleCandidates),
         evidenceCandidateCount,
         memoryCandidateCount,
-        rankedCandidateCount:
-          rankedCandidates.length + graphExpansion.candidateCount,
+        rankedCandidateCount: rankedCandidates.length + graphCandidateCount,
         authorizedChunkCount: selectedChunks.length,
         filteredChunkCount:
-          rankedCandidates.length +
-          graphExpansion.candidateCount -
-          selectedChunks.length,
+          rankedCandidates.length + graphCandidateCount - selectedChunks.length,
+        graph: {
+          candidateCount: graphCandidateCount,
+          gatedOutCount: gatedGraphCandidateCount,
+          selectedCount: selectedChunks.filter(
+            (candidate) => candidate.origin === 'graph',
+          ).length,
+          expandedSeedCount: graphExpansion.seedsExpanded,
+          edgeCounts: graphExpansion.edgesByType,
+          pageCountsByHop: graphExpansion.pagesByHop,
+        },
       },
     };
   }
@@ -479,136 +713,223 @@ export class KnowledgeRetrievalService {
       principalType: 'user' | 'group';
       principalId: string;
     }>;
-    seedPageIds: string[];
+    seeds: KnowledgeGraphTraversalSeed[];
     candidateLimit: number;
+    query: string;
+    queryEmbedding?: {
+      vector: number[];
+      profile: string;
+      model: string;
+      dimensions: number;
+    };
+    authorizationMode: 'policy' | 'final-authorization-fallback';
     authCache: KnowledgeAuthorizationCache;
     labelNames?: string[];
   }): Promise<GraphExpansionResult> {
-    if (input.seedPageIds.length === 0 || input.candidateLimit <= 1) {
-      return { chunks: [], candidateCount: 0 };
-    }
+    const empty: GraphExpansionResult = {
+      dense: [],
+      lexical: [],
+      windowPageIds: [],
+      seedsExpanded: 0,
+      seedsSkippedByThreshold: 0,
+      edgesScanned: 0,
+      edgesAuthorized: 0,
+      edgesByType: { semantic: 0, link: 0, 'shared-source': 0 },
+      pagesByHop: {},
+    };
+    if (input.seeds.length === 0 || input.candidateLimit <= 1) return empty;
 
-    const visited = new Set(input.seedPageIds);
+    const topWeight = input.seeds[0]?.weight ?? 0;
+    const weightThreshold = topWeight * GRAPH_SEED_WEIGHT_RATIO;
+    const eligibleSeeds = input.seeds
+      .filter((seed) => seed.weight >= weightThreshold)
+      .slice(0, GRAPH_SEED_LIMIT);
+    if (eligibleSeeds.length === 0) return empty;
+    const seedsSkippedByThreshold = input.seeds.length - eligibleSeeds.length;
+
+    const visited = new Set(input.seeds.map((seed) => seed.knowledgePageId));
     const hopByPageId = new Map<string, number>();
-    const pathScoreByPageId = new Map<string, number>();
-    let frontier = input.seedPageIds;
+    const typeWeightByPageId = new Map<string, number>();
+    const edgesByType: Record<KnowledgeGraphEdgeType, number> = {
+      semantic: 0,
+      link: 0,
+      'shared-source': 0,
+    };
+    let frontier = eligibleSeeds;
+    let edgesScanned = 0;
+    let edgesAuthorized = 0;
     const edgeLimit = Math.max(input.candidateLimit * 20, 100);
 
     for (let hop = 1; hop <= 2 && frontier.length > 0; hop += 1) {
-      const edges = await this.capsuleRepo.findGraphTraversalEdges({
-        workspaceId: input.workspaceId,
-        spaceIds: input.readableSpaceIds,
-        knowledgePageIds: frontier,
-        limit: edgeLimit,
-      });
-      if (edges.length === 0) break;
-
-      const readableRelationSourceIds = new Set(
+      const frontierPageIds = frontier.map((seed) => seed.knowledgePageId);
+      const frontierSourceIds =
+        await this.capsuleRepo.findGraphFrontierSourceIds({
+          workspaceId: input.workspaceId,
+          spaceIds: input.readableSpaceIds,
+          knowledgePageIds: frontierPageIds,
+        });
+      edgesScanned += frontierSourceIds.length;
+      if (frontierSourceIds.length === 0) break;
+      const readableSourcePageIds =
         await this.sourceAuthorization.filterReadableSources({
           workspaceId: input.workspaceId,
           userId: input.userId,
           supplementalUserId: input.supplementalUserId,
-          sourcePageIds: unique(edges.flatMap((edge) => edge.sourcePageIds)),
+          sourcePageIds: frontierSourceIds,
           cache: input.authCache,
-        }),
-      );
-      const readableEdges = edges.filter((edge) =>
-        allSourcesReadable(edge.sourcePageIds, readableRelationSourceIds),
-      );
-      const frontierSet = new Set(frontier);
-      const nextFrontier = new Set<string>();
-      for (const edge of readableEdges) {
+        });
+      const edges = await this.capsuleRepo.findGraphTraversalEdges({
+        workspaceId: input.workspaceId,
+        spaceIds: input.readableSpaceIds,
+        seeds: frontier,
+        readableSourcePageIds,
+        limit: edgeLimit,
+      });
+      if (edges.length === 0) break;
+      edgesAuthorized += edges.length;
+
+      const frontierSet = new Set(frontierPageIds);
+      const nextFrontier = new Map<string, number>();
+      for (const edge of edges) {
+        edgesByType[edge.type] += 1;
+        if (edge.sourcePageIds.length === 0) continue;
         for (const [currentPageId, neighborPageId] of edgeDirections(edge)) {
           if (!frontierSet.has(currentPageId) || visited.has(neighborPageId)) {
             continue;
           }
-          nextFrontier.add(neighborPageId);
-          hopByPageId.set(neighborPageId, hop);
-          pathScoreByPageId.set(
+          nextFrontier.set(
             neighborPageId,
-            Math.max(
-              pathScoreByPageId.get(neighborPageId) ?? 0,
-              edge.weight / hop,
-            ),
+            Math.max(nextFrontier.get(neighborPageId) ?? 0, edge.weight),
+          );
+          hopByPageId.set(neighborPageId, hop);
+          typeWeightByPageId.set(
+            neighborPageId,
+            Math.max(typeWeightByPageId.get(neighborPageId) ?? 0, edge.weight),
           );
         }
       }
-      frontier = [...nextFrontier];
-      for (const pageId of frontier) visited.add(pageId);
+      frontier = [...nextFrontier].map(([knowledgePageId, weight]) => ({
+        knowledgePageId,
+        weight,
+      }));
+      for (const seed of frontier) visited.add(seed.knowledgePageId);
     }
 
-    const expandedPageIds = [...hopByPageId.keys()];
-    if (expandedPageIds.length === 0) {
-      return { chunks: [], candidateCount: 0 };
+    const pagesByHop: Record<number, number> = {};
+    for (const hop of hopByPageId.values()) {
+      pagesByHop[hop] = (pagesByHop[hop] ?? 0) + 1;
     }
-    const candidates = await this.capsuleRepo.findGraphChunkCandidates({
+    const windowPageIds = [...hopByPageId.keys()]
+      .sort((left, right) => {
+        const hopDifference =
+          (hopByPageId.get(left) ?? 3) - (hopByPageId.get(right) ?? 3);
+        if (hopDifference !== 0) return hopDifference;
+        const weightDifference =
+          (typeWeightByPageId.get(right) ?? 0) -
+          (typeWeightByPageId.get(left) ?? 0);
+        return weightDifference || left.localeCompare(right);
+      })
+      .slice(0, graphWindowPageLimit(input.candidateLimit));
+    if (windowPageIds.length === 0) {
+      return {
+        ...empty,
+        seedsExpanded: eligibleSeeds.length,
+        seedsSkippedByThreshold,
+        edgesScanned,
+        edgesAuthorized,
+        edgesByType,
+      };
+    }
+
+    const windowScope = {
       workspaceId: input.workspaceId,
       spaceIds: input.readableSpaceIds,
       principals: input.principals,
-      knowledgePageIds: expandedPageIds,
-      limit: Math.max(input.candidateLimit * 4, input.candidateLimit),
+      knowledgePageIds: windowPageIds,
+      authorizationMode: input.authorizationMode,
+      limit: Math.max(input.candidateLimit * 2, input.candidateLimit),
       ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
-    });
-    if (candidates.length === 0) {
-      return { chunks: [], candidateCount: 0 };
-    }
-
-    const readableCandidateSourceIds = new Set(
-      await this.sourceAuthorization.filterReadableSources({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        supplementalUserId: input.supplementalUserId,
-        sourcePageIds: unique(
-          candidates.flatMap((candidate) => candidate.sourcePageIds),
-        ),
-        cache: input.authCache,
+    };
+    const [denseWindow, lexicalWindow] = await Promise.all([
+      input.queryEmbedding
+        ? this.capsuleRepo.findDenseChunkCandidates({
+            ...windowScope,
+            embedding: input.queryEmbedding,
+          })
+        : Promise.resolve([]),
+      this.capsuleRepo.findLexicalChunkCandidates({
+        ...windowScope,
+        query: input.query,
       }),
-    );
-    const chunks = candidates
-      .filter((candidate) =>
-        allSourcesReadable(candidate.sourcePageIds, readableCandidateSourceIds),
-      )
-      .sort((left, right) => {
-        const leftHop = hopByPageId.get(left.page.id) ?? 3;
-        const rightHop = hopByPageId.get(right.page.id) ?? 3;
-        if (leftHop !== rightHop) return leftHop - rightHop;
-        const scoreDifference =
-          (pathScoreByPageId.get(right.page.id) ?? 0) -
-          (pathScoreByPageId.get(left.page.id) ?? 0);
-        return scoreDifference || left.chunk.id.localeCompare(right.chunk.id);
-      })
-      .map((candidate) => ({
-        chunk: candidate.chunk,
-        page: candidate.page,
-        sourcePageIds: candidate.sourcePageIds,
-        rankReasons: [
-          'graph-neighbor' as const,
-          'sidecar-prefiltered' as const,
-        ],
-        origin: 'graph' as const,
-        ...(candidate.parentSection
-          ? { parentSection: candidate.parentSection }
-          : {}),
-      }));
-    return { chunks, candidateCount: candidates.length };
+    ]);
+
+    const withGraphSignal = (candidate: KnowledgeChunkCandidate) => ({
+      ...candidate,
+      signals: unique([
+        ...candidate.signals,
+        'graph',
+      ]) as KnowledgeRetrievalSignal[],
+    });
+
+    return {
+      dense: denseWindow.map(withGraphSignal),
+      lexical: lexicalWindow.map(withGraphSignal),
+      windowPageIds,
+      seedsExpanded: eligibleSeeds.length,
+      seedsSkippedByThreshold,
+      edgesScanned,
+      edgesAuthorized,
+      edgesByType,
+      pagesByHop,
+    };
   }
 }
 
+function graphCandidateIds(graph: {
+  dense: KnowledgeChunkCandidate[];
+  lexical: KnowledgeChunkCandidate[];
+}): Set<string> {
+  return new Set(
+    [...graph.dense, ...graph.lexical].map((candidate) => candidate.chunk.id),
+  );
+}
+
+const GRAPH_SEED_LIMIT = 8;
+const GRAPH_SEED_WEIGHT_RATIO = 0.1;
+function graphWindowPageLimit(candidateLimit: number): number {
+  return Math.max(candidateLimit * 4, 32);
+}
+
 type GraphExpansionResult = {
-  chunks: KnowledgeRetrievalResult['chunks'];
-  candidateCount: number;
+  dense: KnowledgeChunkCandidate[];
+  lexical: KnowledgeChunkCandidate[];
+  windowPageIds: string[];
+  seedsExpanded: number;
+  seedsSkippedByThreshold: number;
+  edgesScanned: number;
+  edgesAuthorized: number;
+  edgesByType: Record<KnowledgeGraphEdgeType, number>;
+  pagesByHop: Record<number, number>;
 };
 
 function emptyResult(input: {
   scope: KnowledgeRetrievalScope;
   diagnostics?: Partial<KnowledgeRetrievalDiagnostics>;
   mode?: KnowledgeRetrievalResult['mode'];
+  retrievalObservation?: KnowledgeRetrievalObservation;
 }): KnowledgeRetrievalResult {
   return {
     mode: input.mode ?? 'high_completeness',
     chunks: [],
     capsules: [],
     directHitChunkIds: [],
+    retrievalObservation: input.retrievalObservation ?? {
+      attempted: false,
+      candidates: [],
+      dropped: [],
+      topK: 20,
+      threshold: DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+    },
     completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
     scope: input.scope,
     diagnostics: {
@@ -627,9 +948,156 @@ function emptyResult(input: {
       rankedCandidateCount: 0,
       authorizedChunkCount: 0,
       filteredChunkCount: 0,
+      graph: {
+        candidateCount: 0,
+        gatedOutCount: 0,
+        selectedCount: 0,
+        expandedSeedCount: 0,
+        edgeCounts: { semantic: 0, link: 0, 'shared-source': 0 },
+        pageCountsByHop: {},
+      },
       ...input.diagnostics,
     },
   };
+}
+
+function toRawRetrievalCandidates(input: {
+  policyRecall: RecallShape;
+  fallbackRecall?: RecallShape | null;
+  topK: number;
+  graph?: {
+    dense: KnowledgeChunkCandidate[];
+    lexical: KnowledgeChunkCandidate[];
+  };
+  graphAuthorizationMode?: 'policy' | 'fallback';
+}): KnowledgeRetrievalCandidate[] {
+  const recallLists = (
+    recall: RecallShape,
+    authorizationMode: 'policy' | 'fallback',
+  ): KnowledgeRetrievalCandidate[] => {
+    const directLists: Array<{
+      signal: 'semantic' | 'lexical' | 'exact-title';
+      candidates: KnowledgeChunkCandidate[];
+    }> = [
+      { signal: 'semantic', candidates: recall[0][0] },
+      { signal: 'lexical', candidates: recall[0][1] },
+      { signal: 'exact-title', candidates: recall[0][2] },
+      { signal: 'semantic', candidates: recall[1][0] },
+      { signal: 'lexical', candidates: recall[1][1] },
+      { signal: 'exact-title', candidates: recall[1][2] },
+    ];
+    return directLists.flatMap(({ signal, candidates: list }) =>
+      list.slice(0, input.topK).map((candidate) => ({
+        pageId: candidate.page.id,
+        chunkId: candidate.chunk.id,
+        score: rawCandidateScore(candidate, signal),
+        scoreType: rawCandidateScoreType(signal),
+        reasons: rankReasonsForRawCandidate(candidate, signal),
+        stage: 'direct' as const,
+        authorizationMode,
+      })),
+    );
+  };
+  const candidates = [
+    ...recallLists(input.policyRecall, 'policy'),
+    ...(input.fallbackRecall
+      ? recallLists(input.fallbackRecall, 'fallback')
+      : []),
+  ];
+  if (!input.graph) return candidates;
+  const graphLists: Array<{
+    signal: 'semantic' | 'lexical' | 'exact-title';
+    candidates: KnowledgeChunkCandidate[];
+  }> = [
+    { signal: 'semantic', candidates: input.graph.dense },
+    { signal: 'lexical', candidates: input.graph.lexical },
+  ];
+  return [
+    ...candidates,
+    ...graphLists.flatMap(({ signal, candidates: list }) =>
+      list.slice(0, input.topK).map((candidate) => ({
+        pageId: candidate.page.id,
+        chunkId: candidate.chunk.id,
+        score: rawCandidateScore(candidate, signal),
+        scoreType: rawCandidateScoreType(signal),
+        reasons: rankReasonsForRawCandidate(candidate, signal),
+        stage: 'graph' as const,
+        authorizationMode: input.graphAuthorizationMode ?? 'policy',
+      })),
+    ),
+  ];
+}
+
+type RecallShape = [
+  [
+    KnowledgeChunkCandidate[],
+    KnowledgeChunkCandidate[],
+    KnowledgeChunkCandidate[],
+  ],
+  [
+    KnowledgeChunkCandidate[],
+    KnowledgeChunkCandidate[],
+    KnowledgeChunkCandidate[],
+  ],
+];
+
+function rawCandidateScore(
+  candidate: KnowledgeChunkCandidate,
+  signal: 'semantic' | 'lexical' | 'exact-title',
+): number {
+  const score =
+    signal === 'lexical'
+      ? (candidate.lexicalScore ?? candidate.signalScore)
+      : candidate.signalScore;
+  return typeof score === 'number' && Number.isFinite(score) ? score : 0;
+}
+
+function rawCandidateScoreType(
+  signal: 'semantic' | 'lexical' | 'exact-title',
+): KnowledgeRetrievalCandidate['scoreType'] {
+  return signal === 'semantic'
+    ? 'semantic_distance'
+    : signal === 'lexical'
+      ? 'lexical'
+      : 'exact_title';
+}
+
+function rankReasonsForRawCandidate(
+  candidate: KnowledgeChunkCandidate,
+  signal: 'semantic' | 'lexical' | 'exact-title',
+): KnowledgeRetrievalRankReason[] {
+  const reasons = new Set<KnowledgeRetrievalRankReason>([signal]);
+  if (candidate.signals.includes('graph')) reasons.add('graph-neighbor');
+  return [...reasons];
+}
+
+function buildRetrievalDrops(input: {
+  candidates: KnowledgeRetrievalCandidate[];
+  selectedChunkIds: Set<string>;
+  relevantChunkIds: Set<string>;
+  authorizedChunkIds: Set<string>;
+  threshold: number;
+}): KnowledgeRetrievalDrop[] {
+  const drops = new Map<string, KnowledgeRetrievalDrop>();
+  for (const candidate of input.candidates) {
+    if (input.selectedChunkIds.has(candidate.chunkId)) continue;
+    const reason: KnowledgeRetrievalDrop['reason'] =
+      candidate.scoreType === 'semantic_distance' &&
+      candidate.score > input.threshold
+        ? 'below_threshold'
+        : !input.relevantChunkIds.has(candidate.chunkId)
+          ? 'filtered'
+          : !input.authorizedChunkIds.has(candidate.chunkId)
+            ? 'unauthorized'
+            : 'rank_limit';
+    const key = `${candidate.chunkId}:${candidate.pageId}:${reason}`;
+    drops.set(key, {
+      pageId: candidate.pageId,
+      chunkId: candidate.chunkId,
+      reason,
+    });
+  }
+  return [...drops.values()];
 }
 
 function fuseRecall(
@@ -647,6 +1115,13 @@ function fuseRecall(
     ],
   ],
   limit: number,
+  graph: {
+    dense: KnowledgeChunkCandidate[];
+    lexical: KnowledgeChunkCandidate[];
+  } = {
+    dense: [],
+    lexical: [],
+  },
 ) {
   const [evidenceRecall, memoryRecall] = recall;
   const [evidenceDense, evidenceLexical, evidenceTitle] = evidenceRecall;
@@ -659,6 +1134,8 @@ function fuseRecall(
       { signal: 'semantic', candidates: memoryDense },
       { signal: 'lexical', candidates: memoryLexical },
       { signal: 'exact-title', candidates: memoryTitle },
+      { signal: 'semantic', candidates: graph.dense },
+      { signal: 'lexical', candidates: graph.lexical },
     ],
     limit,
   });
@@ -744,71 +1221,4 @@ function allSourcesReadable(
       readableSourcePageIds.has(sourcePageId),
     )
   );
-}
-
-function blendDirectAndGraph(
-  direct: KnowledgeRetrievalResult['chunks'],
-  graph: KnowledgeRetrievalResult['chunks'],
-  limit: number,
-): KnowledgeRetrievalResult['chunks'] {
-  if (limit <= 0) return [];
-
-  const selected: KnowledgeRetrievalResult['chunks'] = [];
-  const selectedChunkIds = new Set<string>();
-  const directByChunkId = new Map<
-    string,
-    KnowledgeRetrievalResult['chunks'][number]
-  >();
-  for (const candidate of direct) {
-    if (!directByChunkId.has(candidate.chunk.id)) {
-      directByChunkId.set(candidate.chunk.id, candidate);
-    }
-  }
-  // Dedup is enforced here rather than assumed from the callers: a chunk that
-  // surfaces in both direct and graph is kept once (as its first, direct-origin
-  // entry) and never counted twice, so a duplicate can never burn a graph slot
-  // at the expense of a real direct hit.
-  const take = (
-    candidate: KnowledgeRetrievalResult['chunks'][number],
-  ): boolean => {
-    if (selected.length >= limit) return false;
-    if (selectedChunkIds.has(candidate.chunk.id)) return false;
-    selected.push(candidate);
-    selectedChunkIds.add(candidate.chunk.id);
-    return true;
-  };
-
-  if (graph.length === 0 || direct.length === 0 || limit === 1) {
-    for (const candidate of direct.length > 0 ? direct : graph) {
-      if (selected.length >= limit) break;
-      take(candidate);
-    }
-    return selected;
-  }
-
-  const graphQuota = Math.min(
-    graph.length,
-    Math.max(1, Math.floor(limit / 4)),
-    limit - 1,
-  );
-  // Preserve the original blend policy: reserve the direct slice, then inspect
-  // only the graph quota slice. Mapping a graph candidate back to its direct
-  // copy preserves origin without promoting deeper graph candidates and
-  // changing unrelated retrieval results.
-  for (const candidate of direct.slice(0, limit - graphQuota)) {
-    take(candidate);
-  }
-  // When graph expansion rediscovers any direct candidate, including one below
-  // the direct cutoff, keep the direct copy so attachment eligibility is not
-  // lost. Duplicate slots are removed and handled by the existing direct-first
-  // backfill below.
-  for (const candidate of graph.slice(0, graphQuota)) {
-    take(directByChunkId.get(candidate.chunk.id) ?? candidate);
-  }
-  // Backfill any remaining slots, direct first then graph.
-  for (const candidate of [...direct, ...graph]) {
-    if (selected.length >= limit) break;
-    take(candidate);
-  }
-  return selected;
 }

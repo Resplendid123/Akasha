@@ -122,7 +122,9 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;
   graphEdges?: Array<{
-    toKnowledgePageId: string;
+    toKnowledgePageId?: string;
+    targetArtifactKind?: CompiledKnowledgeArtifactKind;
+    targetCanonicalKey?: string;
     relation: string;
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;

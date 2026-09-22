@@ -362,52 +362,133 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(sql.indexOf('not exists')).toBeLessThan(sql.indexOf('limit'));
   });
 
-  it('selects one policy-authorized graph expansion chunk per page', async () => {
+  it('excludes unreadable pages before the display node limit', async () => {
     const { repo, queries } = createSqlRepo();
 
-    await repo.findGraphChunkCandidates({
+    await repo.findGraphCandidatesForSpace({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      limit: 3000,
+      readableSourcePageIds: ['source-readable'],
+    });
+
+    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_page_sources" as "quota_source"');
+    expect(sql).toContain('not exists');
+    expect(sql.indexOf('quota_source')).toBeLessThan(sql.indexOf('limit'));
+  });
+
+  it('scopes dense recall to the graph window and authorizes before the limit', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findDenseChunkCandidates({
       workspaceId: 'workspace-1',
       spaceIds: ['space-1'],
       principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      embedding: {
+        vector: [0.1, 0.2, 0.3],
+        profile: 'a'.repeat(64),
+        model: 'model-1',
+        dimensions: 3,
+      },
       knowledgePageIds: ['knowledge-page-1', 'knowledge-page-2'],
       limit: 8,
     });
 
-    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
-    expect(sql).toContain('select distinct on');
+    const sql = queries
+      .map((query) => query.sql.toLowerCase().replace(/\s+/g, ' '))
+      .find((statement) => statement.includes('from "knowledge_chunks"'));
+    expect(sql).toBeDefined();
     expect(sql).toContain('"knowledge_chunks"."knowledge_page_id" in');
+    expect(sql).toContain('order by knowledge_chunks.embedding');
     expect(sql).toContain('knowledge_source_access_policy');
-    expect(sql.indexOf('knowledge_source_access_policy')).toBeLessThan(
-      sql.indexOf('limit'),
+    expect(sql!.indexOf('knowledge_source_access_policy')).toBeLessThan(
+      sql!.indexOf('limit'),
     );
   });
 
-  it('bounds graph traversal to active pages in readable spaces', async () => {
+  it('restricts lexical recall to the graph window', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: 'akasha',
+      knowledgePageIds: ['knowledge-page-1'],
+      limit: 8,
+    });
+
+    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('"knowledge_chunks"."knowledge_page_id" in');
+    expect(sql).toContain('ts_rank_cd');
+  });
+
+  it('returns no rows when the graph window is empty', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    const lexical = await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: 'akasha',
+      knowledgePageIds: [],
+      limit: 8,
+    });
+
+    expect(lexical).toEqual([]);
+    expect(queries).toHaveLength(0);
+  });
+
+  it('selects graph traversal edges in one statement with ACL and same-space pushed down', async () => {
     const { repo, queries } = createSqlRepo();
 
     await repo.findGraphTraversalEdges({
       workspaceId: 'workspace-1',
       spaceIds: ['space-1'],
-      knowledgePageIds: ['knowledge-page-1'],
+      seeds: [{ knowledgePageId: 'knowledge-page-1', weight: 0.9 }],
+      readableSourcePageIds: ['source-page-1'],
       limit: 40,
     });
 
-    const statements = queries.map((query) =>
-      query.sql.toLowerCase().replace(/\s+/g, ' '),
+    expect(queries).toHaveLength(1);
+    const sql = queries[0].sql
+      .toLowerCase()
+      .replace(/--[^\n]*/g, ' ')
+      .replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_links');
+    expect(sql).toContain('knowledge_graph_edges');
+    expect(sql).toContain('knowledge_page_sources');
+    expect(sql.match(/limit/g) ?? []).toHaveLength(1);
+    expect(sql.indexOf('readable_source')).toBeLessThan(
+      sql.lastIndexOf('limit'),
     );
-    expect(statements).toHaveLength(3);
-    expect(statements).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('from "knowledge_links"'),
-        expect.stringContaining('from "knowledge_graph_edges"'),
-        expect.stringContaining('from "knowledge_page_sources"'),
-      ]),
+    expect(sql).toContain('from_page.space_id = l.space_id');
+    expect(sql).toContain('to_page.space_id = e.space_id');
+    expect(sql).toContain('bool_and');
+    expect(sql.indexOf('group by')).toBeLessThan(
+      sql.lastIndexOf('all_sources_readable'),
     );
-    for (const sql of statements) {
-      expect(sql).toContain('inner join "knowledge_pages"');
-      expect(sql).toContain('"stale_at" is null');
-      expect(sql).toContain('limit');
-    }
+    const sharedSourcePairCte = sql.slice(
+      sql.indexOf('shared_source_pair as'),
+      sql.indexOf('shared_source_edge as'),
+    );
+    expect(sharedSourcePairCte).not.toContain('limit');
+  });
+
+  it('fails closed when no provenance source is readable', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    const edges = await repo.findGraphTraversalEdges({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      seeds: [{ knowledgePageId: 'knowledge-page-1', weight: 0.9 }],
+      readableSourcePageIds: [],
+      limit: 40,
+    });
+
+    expect(edges).toEqual([]);
+    expect(queries).toHaveLength(0);
   });
 
   it('batch upserts pages before relationship rows so new pages can link each other', async () => {
@@ -469,6 +550,76 @@ describe('KnowledgeCapsuleRepo', () => {
 
     expect(pageInsertIndexes).toHaveLength(2);
     expect(linkInsertIndex).toBeGreaterThan(Math.max(...pageInsertIndexes));
+  });
+
+  it('rejects a graph edge whose endpoint lives in another space', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [
+        { id: 'knowledge-page-1', spaceId: 'space-1' },
+        { id: 'knowledge-page-cross', spaceId: 'space-2' },
+      ],
+    });
+    const repo = createRepo(query);
+
+    await expect(
+      repo.upsertCompiledArtifacts([
+        {
+          page: basePage('knowledge-page-1'),
+          graphEdges: [
+            {
+              id: 'edge-cross',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              fromKnowledgePageId: 'knowledge-page-1',
+              toKnowledgePageId: 'knowledge-page-cross',
+              relation: 'relates_to',
+            },
+          ],
+        },
+      ] as never),
+    ).rejects.toThrow('cross_space_graph_edge_disallowed');
+
+    expect(
+      query.calls.some(
+        (call) =>
+          call.method === 'insertInto' &&
+          call.args[0] === 'knowledgeGraphEdges',
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts a graph edge whose endpoints share the edge space', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [
+        { id: 'knowledge-page-1', spaceId: 'space-1' },
+        { id: 'knowledge-page-2', spaceId: 'space-1' },
+      ],
+    });
+    const repo = createRepo(query);
+
+    await repo.upsertCompiledArtifacts([
+      {
+        page: basePage('knowledge-page-1'),
+        graphEdges: [
+          {
+            id: 'edge-same',
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            fromKnowledgePageId: 'knowledge-page-1',
+            toKnowledgePageId: 'knowledge-page-2',
+            relation: 'relates_to',
+          },
+        ],
+      },
+    ] as never);
+
+    expect(
+      query.calls.some(
+        (call) =>
+          call.method === 'insertInto' &&
+          call.args[0] === 'knowledgeGraphEdges',
+      ),
+    ).toBe(true);
   });
 
   it('splits large child collections into bounded inserts', async () => {

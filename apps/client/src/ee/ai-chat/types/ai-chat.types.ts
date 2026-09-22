@@ -92,6 +92,18 @@ export type AiQaRetrievalDiagnostics = {
   rankedCandidateCount: number;
   authorizedChunkCount: number;
   filteredChunkCount: number;
+  graph?: {
+    candidateCount: number;
+    gatedOutCount: number;
+    selectedCount: number;
+    expandedSeedCount: number;
+    edgeCounts: {
+      semantic: number;
+      link: number;
+      "shared-source": number;
+    };
+    pageCountsByHop: Record<string, number>;
+  };
 };
 
 export type AiChatStreamEvent =

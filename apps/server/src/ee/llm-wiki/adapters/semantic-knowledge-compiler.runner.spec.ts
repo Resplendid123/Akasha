@@ -275,14 +275,16 @@ describe('SemanticKnowledgeCompilerRunner', () => {
         sourcePageId: 'page-1',
         attachmentUpdatedAt: '2026-01-01T00:00:00.000Z',
         startOffset: serialized.indexOf('report.pdf'),
-        endOffset: serialized.indexOf('report.pdf') + `report.pdf ${markerA}`.length,
+        endOffset:
+          serialized.indexOf('report.pdf') + `report.pdf ${markerA}`.length,
       },
       {
         attachmentId: secondId,
         sourcePageId: 'page-1',
         attachmentUpdatedAt: '2026-02-02T00:00:00.000Z',
         startOffset: serialized.indexOf('sheet.csv'),
-        endOffset: serialized.indexOf('sheet.csv') + `sheet.csv ${markerB}`.length,
+        endOffset:
+          serialized.indexOf('sheet.csv') + `sheet.csv ${markerB}`.length,
       },
     ];
 
@@ -771,6 +773,37 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     expect(concept?.graphEdges).toEqual([
       expect.objectContaining({
         toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
+        relation: 'depends on',
+      }),
+    ]);
+  });
+
+  it('retains unresolved Stage 1 relations as dangling semantic graph edges', async () => {
+    const provider = createProvider();
+    provider.analyze.mockResolvedValueOnce({
+      ...analysis,
+      relations: [
+        {
+          fromCanonicalKey: 'event-sourcing',
+          toCanonicalKey: 'future-concept',
+          relation: 'depends on',
+          evidenceQuote: 'append-only log',
+        },
+      ],
+    });
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      provider,
+      createCompilationRepo(),
+    );
+
+    const result = await runner.compileSpace(compileInput());
+    const concept = result.artifacts.find(
+      (artifact) => artifact.canonicalKey === 'event-sourcing',
+    );
+
+    expect(concept?.graphEdges).toEqual([
+      expect.objectContaining({
+        targetCanonicalKey: 'future-concept',
         relation: 'depends on',
       }),
     ]);

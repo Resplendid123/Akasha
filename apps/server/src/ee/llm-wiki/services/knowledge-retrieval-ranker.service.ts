@@ -34,7 +34,7 @@ export type KnowledgeRankedChunkCandidate = KnowledgeChunkCandidate & {
 const BASE_SCORE_WEIGHT = 0.5;
 const BM25_K1 = 1.5;
 const BM25_B = 0.75;
-const MAX_RELEVANT_COSINE_DISTANCE = 0.45;
+export const DEFAULT_MAX_RELEVANT_COSINE_DISTANCE = 0.45;
 
 @Injectable()
 export class KnowledgeRetrievalRankerService {
@@ -197,7 +197,7 @@ export class KnowledgeRetrievalRankerService {
     }
     const semanticDistance = candidate.signalScores.semantic;
     const maxCosineDistance =
-      input.maxCosineDistance ?? MAX_RELEVANT_COSINE_DISTANCE;
+      input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE;
     return (
       semanticDistance === undefined || semanticDistance <= maxCosineDistance
     );
@@ -280,14 +280,10 @@ function rankReasons(
   signals: KnowledgeRetrievalSignal[],
 ): KnowledgeRankedChunkCandidate['rankReasons'] {
   const reasons: KnowledgeRankedChunkCandidate['rankReasons'] = [];
-  for (const signal of [
-    'exact-title',
-    'semantic',
-    'lexical',
-    'graph-neighbor',
-  ] as const) {
+  for (const signal of ['exact-title', 'semantic', 'lexical'] as const) {
     if (signals.includes(signal)) reasons.push(signal);
   }
+  if (signals.includes('graph')) reasons.push('graph-neighbor');
   reasons.push('sidecar-prefiltered');
   return reasons;
 }
@@ -295,7 +291,6 @@ function rankReasons(
 function signalPriority(signals: KnowledgeRetrievalSignal[]): number {
   if (signals.includes('exact-title')) return 3;
   if (signals.includes('semantic')) return 2;
-  if (signals.includes('graph-neighbor')) return 1;
   if (signals.includes('lexical')) return 1;
   return 0;
 }

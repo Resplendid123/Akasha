@@ -157,6 +157,33 @@ describe('KnowledgeArtifactMaterializerService', () => {
     });
   });
 
+  it('does not collapse unresolved graph edges with the same relation', async () => {
+    const provider = createProvider();
+    const service = new KnowledgeArtifactMaterializerService(provider);
+    const incoming = artifact('page-1', 'Shared', 'Incoming body');
+    incoming.graphEdges = [
+      {
+        relation: 'depends on',
+        targetCanonicalKey: 'concept-a',
+        inputSourceRefs: incoming.inputSourceRefs,
+      },
+      {
+        relation: 'depends on',
+        targetCanonicalKey: 'concept-b',
+        inputSourceRefs: incoming.inputSourceRefs,
+      },
+    ];
+
+    const result = await service.materializeSourceUpdate({
+      sourcePageId: 'page-1',
+      previousSourceContributions: [],
+      affectedContributions: [],
+      incomingArtifacts: [incoming],
+    });
+
+    expect(result.artifacts[0].graphEdges).toHaveLength(2);
+  });
+
   it('stops before a ninth canonical LLM materialization', async () => {
     const provider = createProvider();
     provider.completeMerge.mockResolvedValue(

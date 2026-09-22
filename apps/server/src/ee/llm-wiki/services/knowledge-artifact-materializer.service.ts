@@ -155,7 +155,8 @@ export class KnowledgeArtifactMaterializerService {
       ),
       graphEdges: uniqueBy(
         contributions.flatMap((artifact) => artifact.graphEdges ?? []),
-        (edge) => `${edge.relation}:${edge.toKnowledgePageId}`,
+        (edge) =>
+          `${edge.relation}:${edge.toKnowledgePageId ?? ''}:${edge.targetArtifactKind ?? ''}:${edge.targetCanonicalKey ?? ''}`,
       ),
     };
   }

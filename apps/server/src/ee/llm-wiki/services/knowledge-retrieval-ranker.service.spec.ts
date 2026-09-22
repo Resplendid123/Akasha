@@ -223,6 +223,57 @@ describe('KnowledgeRetrievalRankerService', () => {
     expect(ranked[0].signals).toEqual(['semantic', 'lexical', 'exact-title']);
   });
 
+  it('emits the graph-neighbor reason for graph-tagged candidates alongside the scoring reason', () => {
+    const ranker = new KnowledgeRetrievalRankerService();
+
+    const ranked = ranker.fuseRecallLists({
+      recallLists: [
+        {
+          signal: 'semantic',
+          candidates: [
+            {
+              chunk: chunk('chunk-graph', 'kp-graph', null, 'deployment guide'),
+              page: page('kp-graph', 'deployment'),
+              sourcePageIds: ['source-graph'],
+              signals: ['semantic', 'graph'],
+              signalScore: 0.1,
+            },
+          ],
+        },
+      ],
+      limit: 2,
+    });
+
+    expect(ranked[0].rankReasons).toEqual([
+      'semantic',
+      'graph-neighbor',
+      'sidecar-prefiltered',
+    ]);
+  });
+
+  it('keeps a graph candidate subject to the same relevance gate as a direct hit', () => {
+    const ranker = new KnowledgeRetrievalRankerService();
+    const graphCandidate = {
+      chunk: chunk('chunk-graph', 'kp-graph', null, 'unrelated cafeteria menu'),
+      page: page('kp-graph', 'cafeteria'),
+      sourcePageIds: ['source-graph'],
+      signals: ['semantic' as const, 'graph' as const],
+      signalScore: 0.9,
+    };
+    const [ranked] = ranker.fuseRecallLists({
+      recallLists: [{ signal: 'semantic', candidates: [graphCandidate] }],
+      limit: 1,
+    });
+
+    expect(
+      ranker.isCandidateRelevant({
+        query: 'vacation policy',
+        candidate: ranked,
+        maxCosineDistance: 0.2,
+      }),
+    ).toBe(false);
+  });
+
   it('rejects a weak semantic-only candidate with no textual query overlap', () => {
     const ranker = new KnowledgeRetrievalRankerService();
     const ranked = ranker.fuseRecallLists({
