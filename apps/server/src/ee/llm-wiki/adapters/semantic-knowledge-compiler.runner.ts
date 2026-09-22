@@ -315,7 +315,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       candidateHash: input.selection.candidateHash,
     });
   }
-
 }
 
 function attachmentHints(
@@ -631,20 +630,34 @@ function enrichArtifactRelationships(input: {
       targetsByCanonicalKey,
       relation.toCanonicalKey,
     );
-    if (!from?.local || !to || from.artifactId === to.artifactId) continue;
+    if (!from?.local) continue;
+    if (
+      normalizeCanonicalKey(from.canonicalKey) ===
+      normalizeCanonicalKey(relation.toCanonicalKey)
+    ) {
+      continue;
+    }
+    if (to && from.artifactId === to.artifactId) continue;
 
     const edges = semanticEdgesByArtifactId.get(from.artifactId) ?? [];
     if (
       edges.some(
         (edge) =>
-          edge.toKnowledgePageId === to.artifactId &&
+          edge.targetCanonicalKey ===
+            normalizeCanonicalKey(relation.toCanonicalKey) &&
           edge.relation === relation.relation,
       )
     ) {
       continue;
     }
     edges.push({
-      toKnowledgePageId: to.artifactId,
+      ...(to
+        ? {
+            toKnowledgePageId: to.artifactId,
+            targetArtifactKind: to.artifactKind,
+          }
+        : {}),
+      targetCanonicalKey: normalizeCanonicalKey(relation.toCanonicalKey),
       relation: relation.relation,
       inputSourceRefs: [
         sourceRefForEvidence(

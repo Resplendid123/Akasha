@@ -104,6 +104,7 @@ describe('KnowledgeGraphService', () => {
       workspaceId: 'workspace-1',
       spaceId: 'space-1',
       limit: 3000,
+      readableSourcePageIds: ['source-1', 'source-2'],
     });
     expect(sourceAuthorization.filterReadableSources).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
@@ -483,6 +484,7 @@ function createService(
     ...overrides.userRepo,
   };
   const capsuleRepo = {
+    findSpacePageSourceIds: jest.fn().mockResolvedValue([]),
     findGraphCandidatesForSpace: jest.fn().mockResolvedValue({
       pages: [],
       pageSources: [],

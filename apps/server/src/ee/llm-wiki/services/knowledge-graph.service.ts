@@ -83,10 +83,21 @@ export class KnowledgeGraphService {
       return emptyGraph();
     }
 
+    const spaceSourcePageIds = await this.capsuleRepo.findSpacePageSourceIds({
+      workspaceId: input.workspaceId,
+      spaceId: input.spaceId,
+    });
+    const readableSpaceSourcePageIds =
+      await this.sourceAuthorization.filterReadableSources({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        sourcePageIds: spaceSourcePageIds,
+      });
     const graph = await this.capsuleRepo.findGraphCandidatesForSpace({
       workspaceId: input.workspaceId,
       spaceId: input.spaceId,
       limit: clampLimit(input.limit),
+      readableSourcePageIds: readableSpaceSourcePageIds,
     });
 
     const allSourcePageIds = unique([
@@ -164,6 +175,7 @@ export class KnowledgeGraphService {
       .filter((edge) => edge.relation !== 'catalog_entry')
       .filter(
         (edge) =>
+          edge.toKnowledgePageId !== null &&
           visiblePageIds.has(edge.fromKnowledgePageId) &&
           visiblePageIds.has(edge.toKnowledgePageId) &&
           allSourcesReadable(

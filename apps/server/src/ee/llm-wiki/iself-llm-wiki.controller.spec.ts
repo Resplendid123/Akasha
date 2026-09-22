@@ -344,8 +344,8 @@ describe('IsElfLlmWikiController', () => {
         .mockResolvedValue([
           { chunkId: 'chunk-hit', sourcePageIds: ['page-1'] },
         ]),
+      findGraphFrontierSourceIds: jest.fn().mockResolvedValue([]),
       findGraphTraversalEdges: jest.fn().mockResolvedValue([]),
-      findGraphChunkCandidates: jest.fn().mockResolvedValue([]),
       findChunkAttachmentsByChunkIds: jest.fn().mockResolvedValue([
         {
           chunkId: 'chunk-hit',

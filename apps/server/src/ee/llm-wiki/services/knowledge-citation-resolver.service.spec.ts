@@ -178,6 +178,66 @@ describe('KnowledgeCitationResolverService', () => {
     );
   });
 
+  it('preserves input chunk order, including graph-origin chunks interleaved with direct hits', async () => {
+    const capsuleRepo = {
+      findDependencySourcePageIds: jest.fn(),
+      findChunkSourceRefsByChunkIds: jest.fn().mockResolvedValue([]),
+    };
+    const pageRepo = {
+      findManyByIds: jest
+        .fn()
+        .mockResolvedValue([
+          page('source-c', 'C_Page', 'c-page'),
+          page('source-a', 'A_Page', 'a-page'),
+          page('source-b', 'B_Page', 'b-page'),
+        ]),
+    };
+    const service = new KnowledgeCitationResolverService(
+      capsuleRepo as unknown as KnowledgeCapsuleRepo,
+      { filterReadableSources: jest.fn() } as unknown as KnowledgeSourceAuthorizationService,
+      pageRepo as unknown as PageRepo,
+    );
+
+    const resolved = await service.resolveForChunks({
+      workspaceId: 'workspace-1',
+      chunks: [
+        {
+          chunk: chunk('chunk-a', 'kp-a'),
+          page: capsule('kp-a', 'A_Page'),
+          sourcePageIds: ['source-a'],
+          rankReasons: ['semantic'],
+          origin: 'direct' as const,
+        },
+        {
+          chunk: chunk('chunk-b', 'kp-b'),
+          page: capsule('kp-b', 'B_Page'),
+          sourcePageIds: ['source-b'],
+          rankReasons: ['semantic', 'graph-neighbor'],
+          origin: 'graph' as const,
+        },
+        {
+          chunk: chunk('chunk-c', 'kp-c'),
+          page: capsule('kp-c', 'C_Page'),
+          sourcePageIds: ['source-c'],
+          rankReasons: ['lexical'],
+          origin: 'direct' as const,
+        },
+      ],
+    });
+
+    expect(resolved.map((entry) => entry.chunk.id)).toEqual([
+      'chunk-a',
+      'chunk-b',
+      'chunk-c',
+    ]);
+    expect(
+      resolved.flatMap((entry) =>
+        entry.citations.map((citation) => citation.sourcePageId),
+      ),
+    ).toEqual(['source-a', 'source-b', 'source-c']);
+    expect(resolved[1].retrievalReasons).toEqual(['semantic', 'graph-neighbor']);
+  });
+
   it('returns source windows only when source range and quote hash validate against readable page text', async () => {
     const sourceText = 'Before exact supporting quote after';
     const quote = 'exact supporting quote';
