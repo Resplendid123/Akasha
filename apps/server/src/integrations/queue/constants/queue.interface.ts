@@ -22,6 +22,12 @@ export interface IPageHistoryJob {
   pageId: string;
 }
 
+export interface IPageHistoryDiffJob {
+  fromHistoryId: string;
+  toHistoryId: string;
+  algorithmVersion: string;
+}
+
 export interface INotificationCreateJob {
   userId: string;
   workspaceId: string;

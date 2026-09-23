@@ -99,6 +99,18 @@ export const IMAGE_QUEUE_DEFAULT_JOB_OPTIONS = {
       },
     }),
     BullModule.registerQueue({
+      name: QueueName.HISTORY_DIFF_QUEUE,
+      defaultJobOptions: {
+        removeOnComplete: true,
+        removeOnFail: { count: 100 },
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 30 * 1000,
+        },
+      },
+    }),
+    BullModule.registerQueue({
       name: QueueName.NOTIFICATION_QUEUE,
     }),
     BullModule.registerQueue({

@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Group,
+  Loader,
   Paper,
   ScrollArea,
   Switch,
@@ -13,6 +14,7 @@ import {
   activeHistoryIdAtom,
   activeHistoryPrevIdAtom,
   diffCountsAtom,
+  diffStateAtom,
   highlightChangesAtom,
 } from "@/features/page-history/atoms/history-atoms";
 import HistoryView from "@/features/page-history/components/history-view";
@@ -36,6 +38,7 @@ export default function HistoryModalBody({ pageId }: Props) {
   const activeHistoryPrevId = useAtomValue(activeHistoryPrevIdAtom);
   const [highlightChanges, setHighlightChanges] = useAtom(highlightChangesAtom);
   const diffCounts = useAtomValue(diffCountsAtom);
+  const diffState = useAtomValue(diffStateAtom);
 
   useHistoryReset(pageId);
   const { currentChangeIndex, handlePrevChange, handleNextChange } =
@@ -57,6 +60,36 @@ export default function HistoryModalBody({ pageId }: Props) {
           viewportRef={scrollViewportRef}
         >
           <div className={classes.sidebarRightSection}>
+            {activeHistoryId &&
+              (diffState === "computing" ||
+                diffState === "loadingPrevious") && (
+                <div className={classes.diffProgressBar}>
+                  <Loader size={14} />
+                  <Text size="sm" c="dimmed">
+                    {diffState === "loadingPrevious"
+                      ? t("Loading previous version...")
+                      : t("Analyzing changes...")}
+                  </Text>
+                </div>
+              )}
+            {activeHistoryId && diffState === "error" && (
+              <div className={classes.diffProgressBar}>
+                <Text size="sm" c="red">
+                  {t(
+                    "Unable to analyze changes. The document is still available.",
+                  )}
+                </Text>
+              </div>
+            )}
+            {activeHistoryId && diffState === "tooLarge" && (
+              <div className={classes.diffProgressBar}>
+                <Text size="sm" c="dimmed">
+                  {t(
+                    "This version is too large for detailed change highlighting.",
+                  )}
+                </Text>
+              </div>
+            )}
             {activeHistoryId && <HistoryView />}
           </div>
         </ScrollArea>
@@ -75,12 +108,24 @@ export default function HistoryModalBody({ pageId }: Props) {
             }}
           >
             <Group gap="md" wrap="nowrap">
-              <Switch
-                label={t("Highlight changes")}
-                checked={highlightChanges}
-                onChange={(e) => setHighlightChanges(e.currentTarget.checked)}
-                styles={{ label: { userSelect: "none", whiteSpace: "nowrap" } }}
-              />
+              <Group gap="xs" wrap="nowrap">
+                <Switch
+                  label={t("Highlight changes")}
+                  checked={highlightChanges}
+                  disabled={
+                    diffState === "computing" ||
+                    diffState === "loadingPrevious" ||
+                    diffState === "error" ||
+                    diffState === "tooLarge"
+                  }
+                  onChange={(e) => setHighlightChanges(e.currentTarget.checked)}
+                  styles={{
+                    label: { userSelect: "none", whiteSpace: "nowrap" },
+                  }}
+                />
+                {(diffState === "computing" ||
+                  diffState === "loadingPrevious") && <Loader size={14} />}
+              </Group>
               {highlightChanges && diffCounts && diffCounts.total > 0 && (
                 <Group gap="xs" wrap="nowrap">
                   <Text size="sm" c="dimmed" style={{ whiteSpace: "nowrap" }}>

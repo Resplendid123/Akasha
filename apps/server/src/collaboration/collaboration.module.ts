@@ -7,7 +7,10 @@ import { CollabWsAdapter } from './adapter/collab-ws.adapter';
 import { IncomingMessage } from 'http';
 import { WebSocket } from 'ws';
 import { TokenModule } from '../core/auth/token.module';
-import { HistoryProcessor } from './processors/history.processor';
+import {
+  HistoryDiffProcessor,
+  HistoryProcessor,
+} from './processors/history.processor';
 import { LoggerExtension } from './extensions/logger.extension';
 import { CollaborationHandler } from './collaboration.handler';
 import { CollabHistoryService } from './services/collab-history.service';
@@ -24,6 +27,7 @@ import { EnvironmentModule } from '../integrations/environment/environment.modul
     PersistenceExtension,
     LoggerExtension,
     HistoryProcessor,
+    HistoryDiffProcessor,
     CollabHistoryService,
     CollaborationHandler,
     TransclusionService,

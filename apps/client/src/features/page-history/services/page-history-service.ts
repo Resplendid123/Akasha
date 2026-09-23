@@ -1,5 +1,8 @@
 import api from "@/lib/api-client";
-import { IPageHistory } from "@/features/page-history/types/page.types";
+import {
+  IPageHistory,
+  IPageHistoryDiff,
+} from "@/features/page-history/types/page.types";
 import { IPagination } from "@/lib/types.ts";
 
 export async function getPageHistoryList(
@@ -17,6 +20,15 @@ export async function getPageHistoryById(
   historyId: string,
 ): Promise<IPageHistory> {
   const req = await api.post<IPageHistory>("/pages/history/info", {
+    historyId,
+  });
+  return req.data;
+}
+
+export async function getPageHistoryDiff(
+  historyId: string,
+): Promise<IPageHistoryDiff> {
+  const req = await api.post<IPageHistoryDiff>("/pages/history/diff", {
     historyId,
   });
   return req.data;
