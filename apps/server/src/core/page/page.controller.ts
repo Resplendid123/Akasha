@@ -1040,6 +1040,29 @@ export class PageController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Post('/history/diff')
+  async getPageHistoryDiff(
+    @Body() dto: PageHistoryIdDto,
+    @AuthUser() user: User,
+  ) {
+    const history = await this.pageHistoryService.findMetadataById(
+      dto.historyId,
+    );
+    if (!history) {
+      throw new NotFoundException('Page history not found');
+    }
+
+    const page = await this.pageRepo.findById(history.pageId);
+    if (!page) {
+      throw new NotFoundException('Page not found');
+    }
+
+    await this.pageAccessService.validateCanView(page, user);
+
+    return this.pageHistoryService.getOrCreateDiff(history);
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Post('/sidebar-pages')
   @AgentCallable(AgentCapability.PAGE_TREE_READ)
   async getSidebarPages(

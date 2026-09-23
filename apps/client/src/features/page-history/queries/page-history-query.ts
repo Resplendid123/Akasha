@@ -7,9 +7,13 @@ import {
 } from "@tanstack/react-query";
 import {
   getPageHistoryById,
+  getPageHistoryDiff,
   getPageHistoryList,
 } from "@/features/page-history/services/page-history-service";
-import { IPageHistory } from "@/features/page-history/types/page.types";
+import {
+  IPageHistory,
+  IPageHistoryDiff,
+} from "@/features/page-history/types/page.types";
 import { IPagination } from "@/lib/types.ts";
 import { queryClient } from "@/main";
 
@@ -38,11 +42,30 @@ export function usePageHistoryListQuery(
 
 export function usePageHistoryQuery(
   historyId: string,
+  enabled = true,
 ): UseQueryResult<IPageHistory, Error> {
   return useQuery({
     queryKey: ["page-history", historyId],
     queryFn: () => getPageHistoryById(historyId),
-    enabled: !!historyId,
+    enabled: enabled && !!historyId,
     staleTime: HISTORY_STALE_TIME,
+  });
+}
+
+export function usePageHistoryDiffQuery(
+  historyId: string,
+  enabled: boolean,
+): UseQueryResult<IPageHistoryDiff, Error> {
+  return useQuery({
+    queryKey: ["page-history-diff", historyId],
+    queryFn: () => getPageHistoryDiff(historyId),
+    enabled: enabled && !!historyId,
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "pending" || status === "running" ? 1000 : false;
+    },
   });
 }

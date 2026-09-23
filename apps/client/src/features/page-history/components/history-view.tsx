@@ -1,4 +1,7 @@
-import { usePageHistoryQuery } from "@/features/page-history/queries/page-history-query";
+import {
+  usePageHistoryDiffQuery,
+  usePageHistoryQuery,
+} from "@/features/page-history/queries/page-history-query";
 import { HistoryEditor } from "@/features/page-history/components/history-editor";
 import { useTranslation } from "react-i18next";
 import { useAtomValue } from "jotai";
@@ -18,12 +21,21 @@ function HistoryView() {
     isError: isErrorCurrent,
   } = usePageHistoryQuery(historyId);
   const {
+    data: diffData,
+    isLoading: isLoadingDiff,
+    isError: isErrorDiff,
+  } = usePageHistoryDiffQuery(historyId, !!prevHistoryId);
+  const shouldLoadPrevious =
+    isErrorDiff ||
+    diffData?.status === "failed" ||
+    (diffData?.status === "ready" && diffData.fromHistoryId !== prevHistoryId);
+  const {
     data: prevData,
     isLoading: isLoadingPrev,
     isError: isErrorPrev,
-  } = usePageHistoryQuery(prevHistoryId);
+  } = usePageHistoryQuery(prevHistoryId, shouldLoadPrevious);
 
-  if (isLoadingCurrent || isLoadingPrev) {
+  if (isLoadingCurrent) {
     return <></>;
   }
 
@@ -37,6 +49,11 @@ function HistoryView() {
         content={data.content}
         title={data.title}
         previousContent={!isErrorPrev ? prevData?.content : undefined}
+        prevHistoryId={prevHistoryId}
+        persistedDiff={diffData}
+        isDiffLoading={isLoadingDiff}
+        isPreviousLoading={isLoadingPrev}
+        isPreviousError={isErrorPrev}
       />
     </div>
   );
