@@ -1,4 +1,8 @@
-import { extractKnowledgeTableRows, serializeTableNode } from './table-text';
+import {
+  countKnowledgeTableRows,
+  extractKnowledgeTableRows,
+  serializeTableNode,
+} from './table-text';
 
 const table = {
   type: 'table',
@@ -39,6 +43,31 @@ describe('table text serialization', () => {
         text: 'Service=service-alpha; Version=5.7-test; Primary IP=192.0.2.8; Contact=owner-a',
       },
     ]);
+    expect(countKnowledgeTableRows({ type: 'doc', content: [table] })).toBe(1);
+  });
+
+  it('counts data rows across tables without counting header rows', () => {
+    expect(
+      countKnowledgeTableRows({
+        type: 'doc',
+        content: [
+          table,
+          {
+            type: 'table',
+            content: [
+              {
+                type: 'tableRow',
+                content: [cell('tableCell', 'plain row 1')],
+              },
+              {
+                type: 'tableRow',
+                content: [cell('tableCell', 'plain row 2')],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(3);
   });
 
   it('fills rowspan values into later logical rows and honors colspan', () => {

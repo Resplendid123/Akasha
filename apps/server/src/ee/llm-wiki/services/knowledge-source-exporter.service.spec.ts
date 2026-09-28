@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { PageRepo } from '@akasha/db/repos/page/page.repo';
 import { BacklinkRepo } from '@akasha/db/repos/backlink/backlink.repo';
 import { AttachmentRepo } from '@akasha/db/repos/attachment/attachment.repo';
@@ -303,6 +304,7 @@ describe('KnowledgeSourceExporterService', () => {
       findOutgoingPageReferences: jest.fn().mockResolvedValue([]),
     };
     const attachmentRepo = {
+      findByPageIds: jest.fn().mockResolvedValue([]),
       findByIds: jest.fn().mockResolvedValue([
         {
           id: 'image-1',
@@ -418,6 +420,7 @@ describe('KnowledgeSourceExporterService', () => {
       deletedAt: null,
     });
     const attachmentRepo = {
+      findByPageIds: jest.fn().mockResolvedValue([]),
       findByIds: jest
         .fn()
         .mockResolvedValueOnce([attachment('2026-07-27T00:01:00.000Z')])
@@ -501,6 +504,243 @@ describe('KnowledgeSourceExporterService', () => {
     expect(after.contentHash).toBe(before.contentHash);
   });
 
+  it('changes the source hash when a page File attachment is added, moved, renamed, replaced or removed (§9.1)', async () => {
+    const attachmentNode = () => ({
+      type: 'attachment',
+      attrs: { attachmentId: 'file-1' },
+    });
+    const para = (text: string) => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text }],
+    });
+    // Each variant is a distinct page-content/attachment arrangement.
+    const noAttachment = { type: 'doc', content: [para('A'), para('B')] };
+    const withAttachment = {
+      type: 'doc',
+      content: [para('A'), attachmentNode(), para('B')],
+    };
+    const movedAttachment = {
+      type: 'doc',
+      content: [attachmentNode(), para('A'), para('B')],
+    };
+
+    const fileAttachment = (over: Record<string, unknown> = {}) => ({
+      id: 'file-1',
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      pageId: 'page-1',
+      type: 'file',
+      fileName: 'spec.pdf',
+      fileExt: '.pdf',
+      fileSize: 2048,
+      mimeType: 'application/pdf',
+      updatedAt: new Date('2026-07-27T00:01:00.000Z'),
+      deletedAt: null,
+      ...over,
+    });
+
+    const hashFor = async (
+      content: unknown,
+      pageAttachments: Array<Record<string, unknown>>,
+    ) => {
+      const pageRepo = {
+        findPagesByIdsForKnowledgeExport: jest.fn().mockResolvedValue([
+          {
+            id: 'page-1',
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            title: 'Doc',
+            textContent: 'A\nB',
+            content,
+            updatedAt: new Date('2026-07-27T00:00:00.000Z'),
+          },
+        ]),
+      };
+      const attachmentRepo = {
+        findByPageIds: jest.fn().mockResolvedValue(pageAttachments),
+        findByIds: jest.fn().mockResolvedValue([]),
+      };
+      const service = new KnowledgeSourceExporterService(
+        pageRepo as unknown as PageRepo,
+        {
+          findOutgoingPageReferences: jest.fn().mockResolvedValue([]),
+        } as unknown as BacklinkRepo,
+        attachmentRepo as unknown as AttachmentRepo,
+      );
+      const [snapshot] = await service.exportPageSources({
+        workspaceId: 'workspace-1',
+        spaceId: 'space-1',
+        sourcePageIds: ['page-1'],
+      });
+      return snapshot.contentHash;
+    };
+
+    const baseline = await hashFor(withAttachment, [fileAttachment()]);
+    const added = await hashFor(noAttachment, []);
+    const moved = await hashFor(movedAttachment, [fileAttachment()]);
+    const renamed = await hashFor(withAttachment, [
+      fileAttachment({ fileName: 'renamed.pdf' }),
+    ]);
+    const replaced = await hashFor(withAttachment, [
+      fileAttachment({ updatedAt: new Date('2026-07-27T09:00:00.000Z') }),
+    ]);
+
+    // Add/remove, move, rename and replace each change the fingerprint.
+    expect(added).not.toBe(baseline);
+    expect(moved).not.toBe(baseline);
+    expect(renamed).not.toBe(baseline);
+    expect(replaced).not.toBe(baseline);
+  });
+
+  it('exports serializer-owned structural blocks with attachment occurrences', async () => {
+    const pageRepo = {
+      findPagesByIdsForKnowledgeExport: jest.fn().mockResolvedValue([
+        {
+          id: 'page-1',
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          title: 'Deployment',
+          textContent: 'Deployment\nRestart.',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'heading',
+                attrs: { level: 1 },
+                content: [{ type: 'text', text: 'Deployment' }],
+              },
+              {
+                type: 'attachment',
+                attrs: { attachmentId: 'file-1' },
+              },
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Restart.' }],
+              },
+            ],
+          },
+          updatedAt: new Date('2026-09-17T00:00:00.000Z'),
+        },
+      ]),
+    };
+    const attachmentRepo = {
+      findByIds: jest.fn().mockResolvedValue([]),
+      findByPageIds: jest.fn().mockResolvedValue([
+        {
+          id: 'file-1',
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          pageId: 'page-1',
+          type: 'file',
+          fileName: 'config.xlsx',
+          fileExt: '.xlsx',
+          fileSize: 1024,
+          mimeType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          updatedAt: new Date('2026-09-17T00:00:01.000Z'),
+          deletedAt: null,
+        },
+      ]),
+    };
+    const service = new KnowledgeSourceExporterService(
+      pageRepo as unknown as PageRepo,
+      {
+        findOutgoingPageReferences: jest.fn().mockResolvedValue([]),
+      } as unknown as BacklinkRepo,
+      attachmentRepo as unknown as AttachmentRepo,
+    );
+
+    const [snapshot] = await service.exportPageSources({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      sourcePageIds: ['page-1'],
+    });
+
+    expect(snapshot.attachmentOccurrences).toHaveLength(1);
+    expect(snapshot.attachmentSerializedText).toContain('config.xlsx');
+    expect(snapshot.attachmentSerializedBlocks).toEqual([
+      expect.objectContaining({
+        startOffset: 0,
+        endOffset: 'Deployment'.length,
+        headingLevel: 1,
+        headingText: 'Deployment',
+      }),
+      expect.objectContaining({
+        startOffset: expect.any(Number),
+        endOffset: expect.any(Number),
+      }),
+      expect.objectContaining({
+        startOffset: expect.any(Number),
+        endOffset: expect.any(Number),
+      }),
+    ]);
+  });
+
+  it('leaves the source hash unchanged for attachment-free pages (§9.2.5 no full rebuild)', async () => {
+    const content = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Stable body' }] },
+      ],
+    };
+    const buildHash = async () => {
+      const pageRepo = {
+        findPagesByIdsForKnowledgeExport: jest.fn().mockResolvedValue([
+          {
+            id: 'page-1',
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            title: 'No attachments',
+            textContent: 'Stable body',
+            content,
+            updatedAt: new Date('2026-07-27T00:00:00.000Z'),
+          },
+        ]),
+      };
+      const service = new KnowledgeSourceExporterService(
+        pageRepo as unknown as PageRepo,
+        {
+          findOutgoingPageReferences: jest.fn().mockResolvedValue([]),
+        } as unknown as BacklinkRepo,
+        createEmptyAttachmentRepo(),
+      );
+      const [snapshot] = await service.exportPageSources({
+        workspaceId: 'workspace-1',
+        spaceId: 'space-1',
+        sourcePageIds: ['page-1'],
+      });
+      return snapshot.contentHash;
+    };
+
+    // This digest is the pre-WP4 hashSource output for this exact page (title +
+    // text + canonical content + empty image list, with no attachment segment).
+    // It is pinned so a regression that folds an attachment segment into
+    // attachment-free pages — forcing a needless full rebuild — fails loudly.
+    const expected =
+      'sha256:' +
+      createHash('sha256')
+        .update('No attachments')
+        .update('\n')
+        .update('Stable body')
+        .update('\n')
+        .update(
+          JSON.stringify({
+            content: [
+              {
+                content: [{ text: 'Stable body', type: 'text' }],
+                type: 'paragraph',
+              },
+            ],
+            type: 'doc',
+          }),
+        )
+        .update('\n')
+        .update(JSON.stringify([]))
+        .digest('hex');
+
+    expect(await buildHash()).toBe(expected);
+  });
+
   it('accepts convertible raster formats and excludes SVG attachments', async () => {
     const formats = [
       ['gif', 'image/gif', '.gif', 'image/gif'],
@@ -548,6 +788,7 @@ describe('KnowledgeSourceExporterService', () => {
       deletedAt: null,
     });
     const attachmentRepo = {
+      findByPageIds: jest.fn().mockResolvedValue([]),
       findByIds: jest.fn().mockResolvedValue([
         ...formats.map(([id, mimeType, fileExt]) =>
           attachment(id, mimeType, fileExt),
@@ -585,6 +826,7 @@ describe('KnowledgeSourceExporterService', () => {
 
 function createEmptyAttachmentRepo(): AttachmentRepo {
   return {
+    findByPageIds: jest.fn().mockResolvedValue([]),
     findByIds: jest.fn().mockResolvedValue([]),
   } as unknown as AttachmentRepo;
 }

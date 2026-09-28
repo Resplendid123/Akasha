@@ -14,6 +14,7 @@ import { executeWithCursorPagination } from '@akasha/db/pagination/cursor-pagina
 import { ExpressionBuilder, sql } from 'kysely';
 import { jsonObjectFrom } from 'kysely/helpers/postgres';
 import { NotificationSettingKey } from '../../../core/notification/notification.constants';
+import { UserType } from '../../../common/auth/user-type';
 
 @Injectable()
 export class UserRepo {
@@ -36,6 +37,7 @@ export class UserRepo {
     'updatedAt',
     'deletedAt',
     'hasGeneratedPassword',
+    'userType',
   ];
 
   async findById(
@@ -79,6 +81,32 @@ export class UserRepo {
       .$if(opts?.includeScimExternalId, (qb) => qb.select('scimExternalId'))
       .where(sql`LOWER(email)`, '=', sql`LOWER(${email})`)
       .where('workspaceId', '=', workspaceId)
+      .where('userType', '=', UserType.NORMAL)
+      .executeTakeFirst();
+  }
+
+  /**
+   * Returns the active workspace owner (role=owner, normal user, not deleted or
+   * deactivated). Used by the platform-to-platform agent provisioning flow,
+   * which has no logged-in user but must attribute the created API key to a
+   * real owner account. When multiple owners exist, the earliest-created one is
+   * chosen for stable attribution.
+   */
+  async findWorkspaceOwner(
+    workspaceId: string,
+    trx?: KyselyTransaction,
+  ): Promise<User | undefined> {
+    const db = dbOrTx(this.db, trx);
+    return db
+      .selectFrom('users')
+      .select(this.baseFields)
+      .where('workspaceId', '=', workspaceId)
+      .where('role', '=', 'owner')
+      .where('userType', '=', UserType.NORMAL)
+      .where('deletedAt', 'is', null)
+      .where('deactivatedAt', 'is', null)
+      .orderBy('createdAt', 'asc')
+      .limit(1)
       .executeTakeFirst();
   }
 
@@ -131,6 +159,31 @@ export class UserRepo {
       .executeTakeFirst();
   }
 
+  async insertAgentUser(
+    input: {
+      email: string;
+      name: string;
+      workspaceId: string;
+      role: string;
+    },
+    trx: KyselyTransaction,
+  ): Promise<User> {
+    return trx
+      .insertInto('users')
+      .values({
+        email: input.email.toLowerCase(),
+        name: input.name,
+        password: null,
+        locale: 'zh-CN',
+        role: input.role,
+        workspaceId: input.workspaceId,
+        userType: UserType.AGENT,
+        lastLoginAt: null,
+      })
+      .returning(this.baseFields)
+      .executeTakeFirstOrThrow();
+  }
+
   async roleCountByWorkspaceId(
     role: string,
     workspaceId: string,
@@ -150,6 +203,7 @@ export class UserRepo {
       .selectFrom('users')
       .select(this.baseFields)
       .where('workspaceId', '=', workspaceId)
+      .where('userType', '=', UserType.NORMAL)
       .where('deletedAt', 'is', null);
 
     if (pagination.query) {

@@ -3,8 +3,6 @@ import {
   buildKnowledgeAdminActionJobId,
   buildKnowledgeRebuildEmbeddingsContinuationJobId,
   buildKnowledgeReindexAccessContinuationJobId,
-  buildReviewDiscoverJobId,
-  buildReviewNegotiateJobId,
   uniqueValues,
 } from './knowledge-queue.utils';
 
@@ -13,7 +11,7 @@ describe('knowledge queue utils', () => {
     expect(KNOWLEDGE_COMPILE_RETRY_BACKOFF_MS).toBeGreaterThan(30_000);
   });
 
-  it('builds deterministic BullMQ-safe maintenance and review IDs', () => {
+  it('builds deterministic BullMQ-safe maintenance IDs', () => {
     const ids = [
       buildKnowledgeAdminActionJobId({
         action: 'rebuild_embeddings',
@@ -29,15 +27,6 @@ describe('knowledge queue utils', () => {
         workspaceId: 'workspace-1',
         spaceId: 'space-1',
         afterSourcePageId: 'page:1',
-      }),
-      buildReviewDiscoverJobId({
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-      }),
-      buildReviewNegotiateJobId({
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        itemId: 'item-1',
       }),
     ];
 

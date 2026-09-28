@@ -8,7 +8,11 @@ import { IconArrowUp } from "@tabler/icons-react";
 import { showAiMenuAtom } from "@/features/editor/atoms/editor-atoms.ts";
 import { useAiGenerateStreamMutation } from "@/ee/ai/queries/ai-query.ts";
 import { AiAction } from "@/ee/ai/types/ai.types.ts";
-import { CommandItem, commandItems, CommandSet } from "./command-items.ts";
+import {
+  CommandItem,
+  CommandSet,
+  getVisibleCommandItems,
+} from "./command-items.ts";
 import { CommandSelector } from "./command-selector.tsx";
 import { ResultPreview } from "./result-preview.tsx";
 import classes from "./ai-menu.module.css";
@@ -16,18 +20,25 @@ import { marked } from "marked";
 import { DOMSerializer } from "@tiptap/pm/model";
 import { copyToClipboard, htmlToMarkdown } from "@docmost/editor-ext";
 import { useLocation } from "react-router-dom";
+import { isFocusWithinAiMenu } from "./ai-menu.utils";
+import { notifications } from "@mantine/notifications";
 
 interface EditorAiMenuProps {
   editor: Editor | null;
+  readOnly?: boolean;
 }
 
-const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
+const EditorAiMenu = ({
+  editor,
+  readOnly = false,
+}: EditorAiMenuProps): JSX.Element | null => {
   const aiGenerateStreamMutation = useAiGenerateStreamMutation();
   const location = useLocation();
   const isSmBreakpoint = useMediaQuery("(max-width: 48em)");
   const [showAiMenu, setShowAiMenu] = useAtom(showAiMenuAtom);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const streamAbortControllerRef = useRef<AbortController | null>(null);
   const [prompt, setPrompt] = useState("");
   const [output, setOutput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -43,11 +54,10 @@ const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
     left: 0,
     width: 0,
   });
-  const currentItems = useMemo(() => {
-    return commandItems[activeCommandSet].filter((item) => {
-      return item.name.toLowerCase().includes(prompt.toLowerCase());
-    });
-  }, [prompt, output, activeCommandSet]);
+  const currentItems = useMemo(
+    () => getVisibleCommandItems(activeCommandSet, prompt, readOnly),
+    [prompt, activeCommandSet, readOnly],
+  );
   const updateMenuPlacement = useCallback(() => {
     if (!editor || !showAiMenu) return;
 
@@ -83,8 +93,12 @@ const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
     });
   }, [editor, showAiMenu, isSmBreakpoint]);
   const resetMenu = useCallback(() => {
+    streamAbortControllerRef.current?.abort();
+    streamAbortControllerRef.current = null;
     setPrompt("");
     setOutput("");
+    setIsLoading(false);
+    setSelectedIndex(-1);
     setActiveCommandSet("main");
     setLastAction(null);
     aiGenerateStreamMutation.reset();
@@ -124,16 +138,22 @@ const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
         action: command.action,
         prompt: command.prompt,
         content,
+        onController: (controller) => {
+          streamAbortControllerRef.current = controller;
+        },
         onChunk: (chunk) => {
           setOutput((output) => output + chunk.content);
         },
         onComplete: () => {
+          streamAbortControllerRef.current = null;
           setPrompt("");
           setIsLoading(false);
           setActiveCommandSet("result");
         },
-        onError: () => {
+        onError: (error) => {
+          streamAbortControllerRef.current = null;
           setIsLoading(false);
+          notifications.show({ message: error.error, color: "red" });
           resetMenu();
         },
       });
@@ -174,8 +194,8 @@ const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
         // then decode HTML entities via DOMParser since TipTap would otherwise
         // treat the tagless string as plain text and insert entities literally.
         const content = isSingleParagraph
-          ? new DOMParser().parseFromString(html.slice(3, -4), "text/html")
-              .body.innerHTML
+          ? new DOMParser().parseFromString(html.slice(3, -4), "text/html").body
+              .innerHTML
           : html;
 
         chain.insertContent(content).run();
@@ -248,21 +268,32 @@ const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
   useEffect(() => {
     if (!editor) return;
 
-    const handleClose = () => setShowAiMenu(false);
+    const handleFocus = () => setShowAiMenu(false);
+    const handleBlur = ({ event }: { event: FocusEvent }) => {
+      const nextTarget = event.relatedTarget;
+
+      // Opening the AI menu moves focus from ProseMirror to the prompt input.
+      // Keep the menu open when that focus transition is internal to the menu.
+      if (isFocusWithinAiMenu(nextTarget, containerRef.current)) {
+        return;
+      }
+
+      setShowAiMenu(false);
+    };
     const observer = new ResizeObserver(() => {
       debouncedUpdateMenuPlacement();
     });
 
     updateMenuPlacement();
-    editor.on("focus", handleClose);
-    editor.on("blur", handleClose);
+    editor.on("focus", handleFocus);
+    editor.on("blur", handleBlur);
     window.addEventListener("resize", debouncedUpdateMenuPlacement);
     window.addEventListener("scroll", debouncedUpdateMenuPlacement, true);
     observer.observe(editor.view.dom);
 
     return () => {
-      editor.off("focus", handleClose);
-      editor.off("blur", handleClose);
+      editor.off("focus", handleFocus);
+      editor.off("blur", handleBlur);
       window.removeEventListener("resize", debouncedUpdateMenuPlacement);
       window.removeEventListener("scroll", debouncedUpdateMenuPlacement, true);
       observer.disconnect();
@@ -275,8 +306,14 @@ const EditorAiMenu = ({ editor }: EditorAiMenuProps): JSX.Element | null => {
   useEffect(() => {
     if (showAiMenu) {
       resetMenu();
+    } else {
+      streamAbortControllerRef.current?.abort();
+      streamAbortControllerRef.current = null;
     }
   }, [showAiMenu, resetMenu]);
+  useEffect(() => {
+    return () => streamAbortControllerRef.current?.abort();
+  }, []);
   useEffect(() => {
     // Focus input when menu opens or command set changes
     requestAnimationFrame(() => {

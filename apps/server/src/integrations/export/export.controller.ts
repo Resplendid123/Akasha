@@ -131,7 +131,6 @@ export class ExportController {
     const exportFile = await this.exportService.exportSpace(
       dto.spaceId,
       dto.format,
-      dto.includeAttachments,
       user.id,
     );
 
@@ -142,7 +141,7 @@ export class ExportController {
       spaceId: dto.spaceId,
       metadata: {
         format: dto.format,
-        includeAttachments: dto.includeAttachments ?? false,
+        includeAttachments: true,
         spaceName: exportFile.spaceName,
       },
     });

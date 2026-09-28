@@ -604,6 +604,8 @@
   "List all subpages of the current page": "現在のページのすべてのサブページを一覧表示",
   "Attachments": "添付ファイル",
   "All spaces": "すべてのスペース",
+  "All permissions": "すべての権限",
+  "Filter by permission": "権限で絞り込む",
   "Unknown": "不明",
   "Find a space": "スペースを探す",
   "Search in all your spaces": "すべてのスペースを検索",

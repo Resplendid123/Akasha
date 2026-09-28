@@ -1,10 +1,13 @@
 import type { User } from '@akasha/db/types/entity.types';
+import { ApiKeyType } from './api-key-type';
 
 const API_KEY_ACCESS = Symbol('apiKeyAccess');
 
 export type ApiKeyAccess = {
   apiKeyId: string;
   personalSpaceId: string | null;
+  keyType?: ApiKeyType;
+  credentialVersion?: number;
 };
 
 type ApiKeyAuthenticatedUser = User & {
@@ -26,4 +29,13 @@ export function withApiKeyAccess(
 
 export function getApiKeyAccess(user: User): ApiKeyAccess | undefined {
   return (user as ApiKeyAuthenticatedUser)[API_KEY_ACCESS];
+}
+
+export function isAgentApiKeyAccess(
+  access: ApiKeyAccess | undefined,
+): access is ApiKeyAccess & {
+  keyType: ApiKeyType.AGENT;
+  credentialVersion: number;
+} {
+  return access?.keyType === ApiKeyType.AGENT;
 }

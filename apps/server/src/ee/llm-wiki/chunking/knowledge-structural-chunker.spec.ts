@@ -126,6 +126,132 @@ describe('chunkKnowledgeSource', () => {
       ['Overview', 'Details'],
     ]);
   });
+  it('keeps attachment markers whole, in one child, cleaned from output', () => {
+    const marker =
+      '[[AKASHA_ATTACHMENT:v1:550e8400-e29b-41d4-a716-446655440000]]';
+    const filler = 'A'.repeat(200);
+    const text = `${filler}\nconfig.xlsx ${marker}\n${filler}`;
+    const markerStart = text.indexOf('config.xlsx');
+    const markerEnd = text.indexOf(marker) + marker.length;
+
+    const parents = chunkKnowledgeSource({
+      pageTitle: 'Page',
+      text,
+      maxChildCharacters: 120,
+      attachmentOccurrences: [
+        { startOffset: markerStart, endOffset: markerEnd },
+      ],
+    });
+
+    const children = parents.flatMap((parent) => parent.children);
+    // No child text or embedding text may contain the internal marker.
+    for (const child of children) {
+      expect(child.text).not.toContain('AKASHA_ATTACHMENT');
+      expect(child.embeddingText).not.toContain('AKASHA_ATTACHMENT');
+      expect(child.quoteHash).toBe(hash(child.text));
+    }
+    // The file name survives for retrieval.
+    expect(children.some((child) => child.text.includes('config.xlsx'))).toBe(
+      true,
+    );
+    // Exactly one child carries the file name (marker not copied to neighbors).
+    expect(
+      children.filter((child) => child.text.includes('config.xlsx')),
+    ).toHaveLength(1);
+  });
+
+  it('does not cut inside a marker when it straddles a length boundary', () => {
+    const marker =
+      '[[AKASHA_ATTACHMENT:v1:550e8400-e29b-41d4-a716-446655440000]]';
+    // Force the raw split near the middle of the marker.
+    const head = 'x'.repeat(60);
+    const text = `${head} report.pdf ${marker} tail`;
+    const markerStart = text.indexOf('report.pdf');
+    const markerEnd = text.indexOf(marker) + marker.length;
+
+    const parents = chunkKnowledgeSource({
+      pageTitle: 'Page',
+      text,
+      maxChildCharacters: 80,
+      attachmentOccurrences: [
+        { startOffset: markerStart, endOffset: markerEnd },
+      ],
+    });
+
+    const children = parents.flatMap((parent) => parent.children);
+    // The raw source between offsets must never bisect the marker: any child
+    // whose raw range overlaps the marker must contain it entirely.
+    for (const child of children) {
+      const overlaps =
+        child.startOffset < markerEnd && child.endOffset > markerStart;
+      if (overlaps) {
+        expect(child.startOffset).toBeLessThanOrEqual(markerStart);
+        expect(child.endOffset).toBeGreaterThanOrEqual(markerEnd);
+      }
+      expect(child.text).not.toContain('AKASHA_ATTACHMENT');
+    }
+  });
+
+  it('preserves marker-shaped user text outside trusted occurrences', () => {
+    const marker = '[[AKASHA_ATTACHMENT:v1:user-written]]';
+    const trustedMarker = '[[AKASHA_ATTACHMENT:v1:att-1]]';
+    const text = `Literal ${marker}\nfile.pdf ${trustedMarker}`;
+    const occurrenceStart = text.indexOf('file.pdf');
+
+    const parents = chunkKnowledgeSource({
+      pageTitle: 'Page',
+      text,
+      attachmentOccurrences: [
+        { startOffset: occurrenceStart, endOffset: text.length },
+      ],
+    });
+    const output = parents
+      .flatMap((parent) => parent.children)
+      .map((child) => child.text)
+      .join('\n');
+
+    expect(output).toContain(marker);
+    expect(output).not.toContain(trustedMarker);
+    expect(output).toContain('file.pdf');
+  });
+
+  it('namespaces stable keys while keeping 64-char parent/child alignment', () => {
+    const text = '# Notes\nAlpha content here';
+    const plain = chunkKnowledgeSource({ pageTitle: 'Page', text });
+    const namespaced = chunkKnowledgeSource({
+      pageTitle: 'Page',
+      text,
+      stableKeyNamespace: 'source',
+    });
+    const again = chunkKnowledgeSource({
+      pageTitle: 'Page',
+      text,
+      stableKeyNamespace: 'source',
+    });
+
+    expect(namespaced[0].stableKey).toHaveLength(64);
+    expect(namespaced[0].children[0].stableKey).toHaveLength(64);
+    // Namespacing changes keys deterministically.
+    expect(namespaced[0].stableKey).not.toBe(plain[0].stableKey);
+    expect(namespaced[0].stableKey).toBe(again[0].stableKey);
+    expect(namespaced[0].children[0].stableKey).toBe(
+      again[0].children[0].stableKey,
+    );
+  });
+
+  it('keeps offsets correct across Chinese, emoji and newlines', () => {
+    const text = '第一段落 🚀\n第二段落包含表情 😀 结束';
+    const parents = chunkKnowledgeSource({ pageTitle: '页面', text });
+    for (const parent of parents) {
+      expect(text.slice(parent.startOffset, parent.endOffset)).toBe(
+        parent.text,
+      );
+      for (const child of parent.children) {
+        expect(text.slice(child.startOffset, child.endOffset)).toBe(child.text);
+        expect(child.quoteHash).toBe(hash(child.text));
+      }
+    }
+  });
 });
 
 function hash(value: string): string {

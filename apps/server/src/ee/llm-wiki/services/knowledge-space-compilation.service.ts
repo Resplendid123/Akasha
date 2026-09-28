@@ -104,18 +104,72 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     return results;
   }
 
-  async resetGenerationAttemptBudget(input: {
+  /**
+   * Clears the durable image-understanding cache for the given source pages so
+   * an explicit retry re-runs the VLM instead of reusing prior extractions.
+   */
+  async clearImageExtractionCache(input: {
     workspaceId: string;
     sourcePageIds: string[];
   }): Promise<number> {
-    return this.compilationRepo.resetGenerationAttemptBudget(input);
+    return this.imageExtractionRepo.deleteByPageIds(input);
   }
 
+  /**
+   * Returns the subset of the given Spaces that currently have a non-terminal
+   * (queued/compiling/aggregating) Run. A page retry checks this first and
+   * refuses while a Run is in flight: retrying mid-Run would coalesce into or
+   * re-request the live Run and, worse, `clearImageExtractionCache` would null
+   * out the still-published Run's `extraction_id`, dropping citation captions.
+   */
+  async findSpaceIdsWithActiveRun(input: {
+    workspaceId: string;
+    spaceIds: string[];
+  }): Promise<string[]> {
+    const spaceIds = [...new Set(input.spaceIds)];
+    const active = await Promise.all(
+      spaceIds.map(async (spaceId) => {
+        const run = await this.runRepo.findActiveRun({
+          workspaceId: input.workspaceId,
+          spaceId,
+        });
+        return run ? spaceId : undefined;
+      }),
+    );
+    return active.filter((spaceId): spaceId is string => spaceId !== undefined);
+  }
   async requestImmediatePagePublish(input: {
     workspaceId: string;
     spaceId: string;
     sourcePageId: string;
+    currentSourceVersion?: string;
   }) {
+    // Keep this lookup optional for lightweight callers that provide only the
+    // run-request repository contract; production repos always implement it.
+    const existing = this.runRepo.findLatestPageCompileStatus
+      ? await this.runRepo.findLatestPageCompileStatus({
+          workspaceId: input.workspaceId,
+          sourcePageId: input.sourcePageId,
+        })
+      : undefined;
+    const activeUnbound =
+      !existing && this.runRepo.findActiveRunForPage
+        ? await this.runRepo.findActiveRunForPage(input)
+        : undefined;
+    if (
+      (existing &&
+        ['queued', 'compiling', 'aggregating'].includes(
+          String(existing.runStatus),
+        )) ||
+      activeUnbound
+    ) {
+      const run =
+        activeUnbound ??
+        (this.runRepo.findRun
+          ? await this.runRepo.findRun(existing!.runId)
+          : undefined);
+      if (run) return { disposition: 'coalesced' as const, run };
+    }
     const [result] = await this.requestRuns([
       {
         workspaceId: input.workspaceId,
@@ -128,6 +182,64 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       await this.promoteWaitingSpaceJob(result.run.spaceJobId);
     }
     return result;
+  }
+
+  async getPageCompileStatus(input: {
+    workspaceId: string;
+    spaceId: string;
+    sourcePageId: string;
+    currentSourceVersion?: string;
+  }) {
+    const latest = await this.runRepo.findLatestPageCompileStatus(input);
+    if (!latest) {
+      const active = this.runRepo.findActiveRunForPage
+        ? await this.runRepo.findActiveRunForPage(input)
+        : undefined;
+      return active
+        ? {
+            status: 'compiling' as const,
+            runId: active.id,
+            startedAt: active.queuedAt,
+          }
+        : { status: 'not_compiled' as const };
+    }
+    const active = ['queued', 'compiling', 'aggregating'];
+    let status:
+      | 'completed'
+      | 'compiling'
+      | 'failed'
+      | 'not_compiled'
+      | 'outdated';
+    if (
+      active.includes(String(latest.runStatus)) ||
+      ['pending', 'queued', 'running'].includes(String(latest.pageStatus))
+    ) {
+      status = 'compiling';
+    } else if (
+      latest.pageStatus === 'succeeded' ||
+      latest.runStatus === 'succeeded'
+    ) {
+      status =
+        input.currentSourceVersion &&
+        latest.sourceVersion &&
+        input.currentSourceVersion !== latest.sourceVersion
+          ? 'outdated'
+          : 'completed';
+    } else if (
+      latest.pageStatus === 'failed' ||
+      latest.runStatus === 'failed'
+    ) {
+      status = 'failed';
+    } else {
+      status = 'not_compiled';
+    }
+    return {
+      status,
+      runId: latest.runId,
+      startedAt: latest.startedAt,
+      finishedAt: latest.finishedAt,
+      errorMessage: latest.errorMessage,
+    };
   }
 
   async cancelRun(input: {
@@ -228,10 +340,6 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       return {
         initialized: false,
         run,
-        aggregateRequired: run.aggregateRequired,
-        pageCompilationRequired:
-          run.expectedPageCount >
-          run.succeededPageCount + run.failedPageCount + run.skippedPageCount,
       };
     }
     const targetSourcePageIds = parseRunTargetSourcePageIds(
@@ -241,15 +349,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       targetSourcePageIds,
     });
     if (!initialized) return undefined;
-    return {
-      ...initialized,
-      aggregateRequired: initialized.run.aggregateRequired,
-      pageCompilationRequired:
-        initialized.run.expectedPageCount >
-        initialized.run.succeededPageCount +
-          initialized.run.failedPageCount +
-          initialized.run.skippedPageCount,
-    };
+    return initialized;
   }
 
   async bindLeasedRunPage(
@@ -434,7 +534,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     this.dispatching = true;
     try {
       await this.promoteDuePageSchedules();
-      await this.dispatchPendingSpaceSlices();
+      await this.dispatchPendingSpaceJobs();
       await this.dispatchPendingRunImages();
     } finally {
       this.dispatching = false;
@@ -462,12 +562,12 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     }
   }
 
-  private async dispatchPendingSpaceSlices(): Promise<void> {
-    const candidates = await this.runRepo.findSpaceSliceReservationCandidates();
+  private async dispatchPendingSpaceJobs(): Promise<void> {
+    const candidates = await this.runRepo.findSpaceJobReservationCandidates();
     for (const candidate of candidates) {
-      await this.runRepo.reserveNextSpaceSlice({ runId: candidate.id });
+      await this.runRepo.reserveNextSpaceJob({ runId: candidate.id });
     }
-    const slices = await this.runRepo.findUndispatchedSpaceSlices();
+    const slices = await this.runRepo.findUndispatchedSpaceJobs();
     for (const slice of slices) {
       const jobName =
         slice.jobPhase === 'text'
@@ -486,10 +586,10 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
           },
           {
             jobId: slice.spaceJobId,
-            priority: knowledgeSpaceSlicePriority(slice),
+            priority: knowledgeSpaceJobPriority(slice),
           },
         );
-        await this.runRepo.markSpaceSliceDispatched(slice);
+        await this.runRepo.markSpaceJobDispatched(slice);
       } catch {
         this.logger.warn(
           `Knowledge Space outbox dispatch will retry reservation ${slice.spaceJobId}.`,
@@ -588,7 +688,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
   }
 }
 
-function knowledgeSpaceSlicePriority(slice: {
+function knowledgeSpaceJobPriority(slice: {
   trigger?: string;
   jobPhase: 'text' | 'image_merge';
 }): number {

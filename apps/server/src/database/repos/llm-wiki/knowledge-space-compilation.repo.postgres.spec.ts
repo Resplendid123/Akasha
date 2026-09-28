@@ -83,7 +83,7 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
              max(expected_page_count)::integer as "pageCount"
       from knowledge_space_compile_runs
       where space_id = 'space-request'
-        and status in ('queued', 'compiling', 'aggregate_pending', 'aggregating')
+        and status in ('queued', 'compiling', 'aggregating')
     `.execute(db);
     expect(rows.rows).toEqual([
       { count: 1, initializedAt: null, pageCount: 0 },
@@ -127,7 +127,7 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
              count(*)::integer as count
       from knowledge_space_compile_runs
       where space_id = 'space-rerun'
-        and status in ('queued', 'compiling', 'aggregate_pending', 'aggregating')
+        and status in ('queued', 'compiling', 'aggregating')
     `.execute(db);
     expect(state.rows).toEqual([{ rerunRequested: true, count: 1 }]);
   });
@@ -137,30 +137,30 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
       insert into knowledge_space_compile_runs (
         id, workspace_id, space_id, trigger, mode, knowledge_generation, phase,
         status, expected_page_count, compiler_version, prompt_version,
-        catalog_snapshot, catalog_hash, queued_at, initialized_at,
+        queued_at, initialized_at,
         space_job_queued_at
       ) values
         (
           'run-old-text', 'workspace-1', 'space-fair-old', 'manual_compile',
           'incremental', 0, 'text', 'queued', 1, 'compiler-v1', 'prompt-v1',
-          '[]', 'sha256:old', now() - interval '10 minutes', now(),
+          now() - interval '10 minutes', now(),
           now() - interval '10 minutes'
         ),
         (
           'run-continuation', 'workspace-1', 'space-fair-continuation',
           'manual_compile', 'incremental', 0, 'text', 'queued', 6,
-          'compiler-v1', 'prompt-v1', '[]', 'sha256:continuation',
+          'compiler-v1', 'prompt-v1',
           now() - interval '20 minutes', now(), now() - interval '1 minute'
         ),
         (
           'run-merge', 'workspace-1', 'space-fair-merge', 'manual_compile',
           'incremental', 0, 'image_merge', 'queued', 1, 'compiler-v1',
-          'prompt-v1', '[]', 'sha256:merge', now() - interval '20 minutes',
+          'prompt-v1', now() - interval '20 minutes',
           now(), now()
         )
     `.execute(db);
 
-    const candidates = await repo.findSpaceSliceReservationCandidates(100);
+    const candidates = await repo.findSpaceJobReservationCandidates(100);
     const relevantIds = candidates
       .map((candidate) => candidate.id)
       .filter((id) =>
@@ -207,11 +207,9 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
     expect(evidence).toEqual({
       sourceStale: true,
       artifactStale: true,
-      overviewStale: true,
       childStaleCount: 5,
       contributionCount: 1,
       initializedAt: null,
-      aggregateRequired: true,
       status: 'queued',
       phase: 'text',
       sequence: 7,
@@ -257,7 +255,7 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
          where run.space_id like 'space-bulk-%') as "runPageCount"
       from knowledge_space_compile_runs
       where space_id like 'space-bulk-%'
-        and status in ('queued', 'compiling', 'aggregate_pending', 'aggregating')
+        and status in ('queued', 'compiling', 'aggregating')
     `.execute(db);
     expect(evidence.rows).toEqual([
       { runCount: 100, uninitializedCount: 100, runPageCount: 0 },
@@ -323,9 +321,8 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
 
     expect(second.disposition).toBe('rerun_requested');
     expect(second.run?.rerunRequested).toBe(true);
-    expect(
-      [...((second.run?.targetSourcePageIds as string[] | null) ?? [])].sort(),
-    ).toEqual(['page-update-a', 'page-update-b']);
+    expect(second.run?.targetSourcePageIds).toEqual(['page-update-a']);
+    expect(second.run?.followUpTargetSourcePageIds).toEqual(['page-update-b']);
   });
 
   it('narrows the follow-up of an initialized full-Space Run to the changed page', async () => {
@@ -362,7 +359,10 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
     });
 
     expect(updated.disposition).toBe('rerun_requested');
-    expect(updated.run?.targetSourcePageIds).toEqual(['page-full-active']);
+    expect(updated.run?.targetSourcePageIds).toBeNull();
+    expect(updated.run?.followUpTargetSourcePageIds).toEqual([
+      'page-full-active',
+    ]);
   });
 
   it('unions target pages when coalescing two page-scoped requests', async () => {
@@ -720,14 +720,14 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
              (select target_source_page_ids
               from knowledge_space_compile_runs
               where space_id = 'space-multi-instance-delay'
-                and status in ('queued', 'compiling', 'aggregate_pending', 'aggregating')
+                and status in ('queued', 'compiling', 'aggregating')
               limit 1) as "targetSourcePageIds",
              (select count(*)::integer
               from knowledge_page_compile_schedules
               where space_id = 'space-multi-instance-delay') as "scheduleCount"
       from knowledge_space_compile_runs
       where space_id = 'space-multi-instance-delay'
-        and status in ('queued', 'compiling', 'aggregate_pending', 'aggregating')
+        and status in ('queued', 'compiling', 'aggregating')
     `.execute(db);
     expect(evidence.rows[0].runCount).toBe(1);
     expect([...evidence.rows[0].targetSourcePageIds].sort()).toEqual([
@@ -766,10 +766,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       skipped_page_count integer not null default 0,
       compiler_version varchar not null,
       prompt_version varchar not null,
-      catalog_snapshot jsonb not null,
-      catalog_hash varchar not null,
       target_source_page_ids jsonb,
-      aggregate_required boolean not null default true,
+      follow_up_target_source_page_ids jsonb,
       aggregate_job_id varchar,
       aggregate_started_at timestamptz,
       imported_artifact_count integer not null default 0,
@@ -814,6 +812,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       target_effective_knowledge_hash varchar,
       merged_effective_knowledge_hash varchar,
       status varchar not null,
+      attempt_count integer not null default 0,
+      merge_attempt_count integer not null default 0,
       job_id varchar,
       error_code varchar,
       error_message varchar,
@@ -904,7 +904,7 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
     );
     create unique index uq_active_run on knowledge_space_compile_runs (
       workspace_id, space_id
-    ) where status in ('queued', 'compiling', 'aggregate_pending', 'aggregating');
+    ) where status in ('queued', 'compiling', 'aggregating');
     insert into spaces (id, workspace_id, name) values
       ('space-reused', 'workspace-1', 'Reused'),
       ('space-mixed', 'workspace-1', 'Mixed'),
@@ -930,7 +930,7 @@ async function seedInitializedRemovedSourcePlan(
   await sql`
     update knowledge_space_compile_runs
     set initialized_at = now(), status = 'compiling', space_job_sequence = 7,
-        execution_token = 'old-token', aggregate_required = false
+        execution_token = 'old-token'
     where id = ${runId}
   `.execute(db);
   await sql`
@@ -953,8 +953,7 @@ async function seedInitializedRemovedSourcePlan(
     insert into knowledge_pages (
       id, workspace_id, space_id, page_type, compile_scope
     ) values
-      ('artifact-removed', 'workspace-1', 'space-removed', 'concept', 'page'),
-      ('overview-removed', 'workspace-1', 'space-removed', 'overview', 'space');
+      ('artifact-removed', 'workspace-1', 'space-removed', 'concept', 'page');
     insert into knowledge_artifact_contributions (
       id, workspace_id, space_id, source_page_id, artifact_id
     ) values (
@@ -974,7 +973,7 @@ async function seedInitializedRemovedSourcePlan(
       'link-removed', 'workspace-1', 'artifact-removed', null
     );
     insert into knowledge_graph_edges values (
-      'edge-removed', 'workspace-1', 'overview-removed', null
+      'edge-removed', 'workspace-1', 'artifact-removed', null
     )
   `.execute(db);
 }
@@ -986,11 +985,9 @@ async function readRemovedSourceReplanEvidence(
   const result = await sql<{
     sourceStale: boolean;
     artifactStale: boolean;
-    overviewStale: boolean;
     childStaleCount: number;
     contributionCount: number;
     initializedAt: Date | null;
-    aggregateRequired: boolean;
     status: string;
     phase: string;
     sequence: number;
@@ -1002,8 +999,6 @@ async function readRemovedSourceReplanEvidence(
        where id = 'source-removed') as "sourceStale",
       (select stale_at is not null from knowledge_pages
        where id = 'artifact-removed') as "artifactStale",
-      (select stale_at is not null from knowledge_pages
-       where id = 'overview-removed') as "overviewStale",
       ((select count(*) from knowledge_parent_sections where stale_at is not null)
        + (select count(*) from knowledge_claims where stale_at is not null)
        + (select count(*) from knowledge_chunks where stale_at is not null)
@@ -1013,7 +1008,7 @@ async function readRemovedSourceReplanEvidence(
       (select count(*)::integer from knowledge_artifact_contributions
        where id = 'contribution-removed') as "contributionCount",
       run.initialized_at as "initializedAt",
-      run.aggregate_required as "aggregateRequired", run.status, run.phase,
+      run.status, run.phase,
       run.space_job_sequence as sequence,
       (select count(*)::integer from knowledge_space_compile_run_pages
        where run_id = run.id) as "runPageCount",

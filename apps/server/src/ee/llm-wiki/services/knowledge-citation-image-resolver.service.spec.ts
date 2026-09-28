@@ -172,6 +172,60 @@ describe('KnowledgeCitationImageResolverService', () => {
     ]);
   });
 
+  it('does not append a weak image when the citation has a valid strong image', async () => {
+    const strong = uid(2);
+    const weak = uid(3);
+    const { service } = buildService({
+      runImages: [
+        runImage('page-1', strong, { altText: 'primary topology' }),
+        runImage('page-1', weak, {
+          altText: 'deployment decoy',
+          extractionId: 'ext-decoy',
+        }),
+      ],
+      captions: new Map([[weak, 'primary topology deployment decoy']]),
+      attachments: [
+        attachment(strong, 'page-1', { fileName: 'primary.png' }),
+        attachment(weak, 'page-1', { fileName: 'decoy.png' }),
+      ],
+    });
+
+    const [resolved] = await service.resolveImagesForCitations({
+      workspaceId: WORKSPACE,
+      citations: [citation('page-1')],
+      citationEvidence: [
+        evidence('page-1', [
+          `附件 ID: ${strong} primary topology; not the deployment decoy`,
+        ]),
+      ],
+      answerText: 'primary topology deployment decoy',
+    });
+
+    expect(resolved.images.map((image) => image.attachmentId)).toEqual([
+      strong,
+    ]);
+  });
+
+  it('allows weak fallback when every evidence attachment id is invalid', async () => {
+    const invalidStrong = uid(4);
+    const weak = uid(5);
+    const { service } = buildService({
+      runImages: [runImage('page-1', weak, { altText: 'deployment guide' })],
+      attachments: [attachment(weak, 'page-1')],
+    });
+
+    const [resolved] = await service.resolveImagesForCitations({
+      workspaceId: WORKSPACE,
+      citations: [citation('page-1')],
+      citationEvidence: [
+        evidence('page-1', [`附件 ID: ${invalidStrong} deployment guide`]),
+      ],
+      answerText: 'deployment guide',
+    });
+
+    expect(resolved.images.map((image) => image.attachmentId)).toEqual([weak]);
+  });
+
   // 2. Weak association: highest-scoring run image whose alt hits answer text.
   it('returns the single highest-scoring weak image matching the answer text', async () => {
     const high = uid(10);
@@ -525,5 +579,28 @@ describe('KnowledgeCitationImageResolverService', () => {
 
     expect(resolved.images.map((i) => i.attachmentId)).toEqual([good]);
   });
-});
 
+  it('does not fall back to a weak image when strong-image signing fails', async () => {
+    const strong = uid(112);
+    const weak = uid(113);
+    const { service } = buildService({
+      runImages: [runImage('page-1', weak, { altText: 'deployment guide' })],
+      attachments: [attachment(strong, 'page-1'), attachment(weak, 'page-1')],
+      tokenImpl: async (attachmentId) => {
+        if (attachmentId === strong) throw new Error('token boom');
+        return `tok-${attachmentId}`;
+      },
+    });
+
+    const [resolved] = await service.resolveImagesForCitations({
+      workspaceId: WORKSPACE,
+      citations: [citation('page-1')],
+      citationEvidence: [
+        evidence('page-1', [`附件 ID: ${strong} deployment guide`]),
+      ],
+      answerText: 'deployment guide',
+    });
+
+    expect(resolved.images).toEqual([]);
+  });
+});

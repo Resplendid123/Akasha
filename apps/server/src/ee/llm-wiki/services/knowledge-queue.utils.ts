@@ -67,26 +67,6 @@ export function buildKnowledgeReindexAccessContinuationJobId(input: {
   ].join('__');
 }
 
-export function buildReviewDiscoverJobId(input: {
-  workspaceId: string;
-  spaceId: string;
-}): string {
-  return ['review-discover', input.workspaceId, input.spaceId].join('__');
-}
-
-export function buildReviewNegotiateJobId(input: {
-  workspaceId: string;
-  spaceId: string;
-  itemId: string;
-}): string {
-  return [
-    'review-negotiate',
-    input.workspaceId,
-    input.spaceId,
-    input.itemId,
-  ].join('__');
-}
-
 function buildKnowledgeRunKey(label: string, now = Date.now()): string {
   return `${label}-${now.toString(36)}`;
 }

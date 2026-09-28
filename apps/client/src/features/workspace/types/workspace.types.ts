@@ -79,6 +79,30 @@ export interface IInvitation {
   enforceSso: boolean;
 }
 
+export interface IWorkspaceMemberGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  isExternal: boolean;
+}
+
+export interface IWorkspaceMemberDetail {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+    role: string;
+    locale: string | null;
+    timezone: string | null;
+    lastLoginAt: string | null;
+    createdAt: string;
+    deactivatedAt: string | null;
+  };
+  groups: IWorkspaceMemberGroup[];
+}
+
 export interface IInvitationLink {
   inviteLink: string;
 }

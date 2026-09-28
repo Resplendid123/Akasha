@@ -6,6 +6,7 @@ import {
   CompileSpaceInput,
 } from '../types/compiler-artifact.types';
 import { KnowledgeSourceRef } from '../types/knowledge.types';
+import { buildAttachmentEvidenceContent } from '../adapters/knowledge-attachment-evidence';
 
 export interface QuarantinedKnowledgeArtifact {
   artifact: CompiledKnowledgeArtifact;
@@ -122,6 +123,8 @@ export class KnowledgeArtifactValidatorService {
       reasons,
     );
 
+    validateChunkAttachmentOccurrences(artifact, input, reasons);
+
     for (const link of artifact.links ?? []) {
       if (
         link.linkType === 'cross_space_reference' &&
@@ -209,6 +212,118 @@ function validateChildSourceRefs(
   }
   if (validation.hasQuoteHashMismatch) {
     reasons.push(`${label} quote hash does not match source range`);
+  }
+}
+
+type ChunkAttachmentOccurrence = NonNullable<
+  NonNullable<CompiledKnowledgeArtifact['chunks']>[number]['attachmentOccurrences']
+>[number];
+
+type ReconstructedAttachmentBlock = {
+  startOffset: number | null;
+  endOffset: number | null;
+  text: string;
+  occurrences: ChunkAttachmentOccurrence[];
+};
+
+/**
+ * Enforces design §6.2 for chunk attachment relations by INDEPENDENTLY
+ * reconstructing the deterministic attachment-evidence blocks from the trusted
+ * `attachmentSerializedText` in the compile input, instead of trusting the
+ * range and occurrences an artifact declares.
+ *
+ * A relation is accepted only when its chunk is byte-for-byte a block the
+ * deterministic chunker actually produces from the serialized source — same
+ * stable key, same range, same cleaned text — and the occurrence is one that
+ * block genuinely contains (matched by attachment id + exact marker range) with
+ * matching snapshot metadata. This closes the gap where a hand-crafted artifact
+ * (e.g. via the admin import endpoint) could wrap a real occurrence in an
+ * unrelated chunk with a giant self-declared range: such a chunk matches no
+ * reconstructed block and is quarantined. It is fail-closed — a source that
+ * omits `attachmentSerializedText` yields no legitimate blocks, so any relation
+ * riding on it is rejected rather than trusted.
+ */
+function validateChunkAttachmentOccurrences(
+  artifact: CompiledKnowledgeArtifact,
+  input: CompileSpaceInput,
+  reasons: string[],
+): void {
+  const legitByStableKey = new Map<string, ReconstructedAttachmentBlock[]>();
+  for (const source of input.sources) {
+    const evidence = buildAttachmentEvidenceContent({
+      source,
+      sourceRef: {
+        workspaceId: source.workspaceId,
+        spaceId: source.spaceId,
+        sourcePageId: source.sourcePageId,
+        sourceVersion: source.sourceVersion,
+        contentHash: source.contentHash,
+      },
+      pageTitle: source.title,
+    });
+    for (const chunk of evidence.chunks) {
+      if (!chunk.stableKey) continue;
+      const blocks = legitByStableKey.get(chunk.stableKey) ?? [];
+      blocks.push({
+        startOffset: chunk.startOffset ?? null,
+        endOffset: chunk.endOffset ?? null,
+        text: chunk.text,
+        occurrences: chunk.attachmentOccurrences ?? [],
+      });
+      legitByStableKey.set(chunk.stableKey, blocks);
+    }
+  }
+
+  let hasUnverifiable = false;
+  let hasSnapshotMismatch = false;
+  for (const chunk of artifact.chunks ?? []) {
+    const declared = chunk.attachmentOccurrences ?? [];
+    if (declared.length === 0) continue;
+
+    // The chunk must BE a real deterministic block, not merely declare a range
+    // that happens to cover a marker: same stable key, range and cleaned text.
+    const candidates = chunk.stableKey
+      ? legitByStableKey.get(chunk.stableKey) ?? []
+      : [];
+    const block = candidates.find(
+      (candidate) =>
+        candidate.startOffset === (chunk.startOffset ?? null) &&
+        candidate.endOffset === (chunk.endOffset ?? null) &&
+        candidate.text === chunk.text,
+    );
+    if (!block) {
+      hasUnverifiable = true;
+      continue;
+    }
+
+    for (const occurrence of declared) {
+      const trusted = block.occurrences.find(
+        (candidate) =>
+          candidate.attachmentId === occurrence.attachmentId &&
+          candidate.startOffset === occurrence.startOffset &&
+          candidate.endOffset === occurrence.endOffset,
+      );
+      if (!trusted) {
+        hasUnverifiable = true;
+        continue;
+      }
+      if (
+        occurrence.sourceVersion !== trusted.sourceVersion ||
+        occurrence.sourceContentHash !== trusted.sourceContentHash ||
+        occurrence.attachmentUpdatedAt !== trusted.attachmentUpdatedAt
+      ) {
+        hasSnapshotMismatch = true;
+      }
+    }
+  }
+
+  if (hasUnverifiable) {
+    reasons.push(
+      'chunk attachment occurrence is not backed by a deterministic source block',
+    );
+  }
+  if (hasSnapshotMismatch) {
+    reasons.push('chunk attachment occurrence does not match source snapshot');
   }
 }
 

@@ -1,4 +1,5 @@
 import { Container, Title, Text, Group, Box } from "@mantine/core";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Helmet } from "react-helmet-async";
 import { getAppName } from "@/lib/config";
@@ -12,12 +13,20 @@ import useUserRole from "@/hooks/use-user-role";
 export default function Spaces() {
   const { t } = useTranslation();
   const { isAdmin } = useUserRole();
-  const { search, cursor, goNext, goPrev, handleSearch } = usePaginateAndSearch();
+  const { search, cursor, goNext, goPrev, handleSearch, resetCursor } =
+    usePaginateAndSearch();
+  const [role, setRole] = useState<string | null>(null);
+
+  const handleRoleChange = (value: string | null) => {
+    setRole(value);
+    resetCursor();
+  };
 
   const { data, isLoading } = useGetSpacesQuery({
     cursor,
     limit: 30,
     query: search,
+    role: role ?? undefined,
   });
 
   return (
@@ -44,6 +53,8 @@ export default function Spaces() {
           <AllSpacesList
             spaces={data?.items || []}
             onSearch={handleSearch}
+            role={role}
+            onRoleChange={handleRoleChange}
             hasPrevPage={data?.meta?.hasPrevPage}
             hasNextPage={data?.meta?.hasNextPage}
             onNext={() => goNext(data?.meta?.nextCursor)}

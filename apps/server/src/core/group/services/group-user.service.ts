@@ -21,6 +21,7 @@ import {
   IAuditService,
 } from '../../../integrations/audit/audit.service';
 import { dbOrTx } from '@akasha/db/utils';
+import { UserType } from '../../../common/auth/user-type';
 
 @Injectable()
 export class GroupUserService {
@@ -68,6 +69,7 @@ export class GroupUserService {
       .select(['id', 'name'])
       .where('users.id', 'in', userIds)
       .where('users.workspaceId', '=', workspaceId)
+      .where('users.userType', '=', UserType.NORMAL)
       .execute();
 
     if (validUsers.length === 0) return;
@@ -117,6 +119,10 @@ export class GroupUserService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.userType !== UserType.NORMAL) {
+      throw new BadRequestException('Agent users are system managed');
     }
 
     if (group.isDefault) {

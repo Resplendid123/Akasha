@@ -10,3 +10,21 @@ export interface IGroup {
   updatedAt: Date;
   memberCount: number;
 }
+
+export interface IGroupTreeMember {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string;
+}
+
+export interface IGroupTreeNode {
+  id: string;
+  name: string;
+  displayName: string;
+  memberCount: number;
+  isDefault: boolean;
+  isExternal: boolean;
+  children: IGroupTreeNode[];
+  members: IGroupTreeMember[];
+}

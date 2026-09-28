@@ -25,7 +25,7 @@ describe('KnowledgeRunReaperService', () => {
           recoveryKind: 'expired',
         }),
       );
-      expect(fixture.repo.requeueMissingSpaceSlice).toHaveBeenCalledWith(
+      expect(fixture.repo.requeueMissingSpaceJob).toHaveBeenCalledWith(
         fixture.lease,
       );
       expect(fixture.repo.finishRun).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe('KnowledgeRunReaperService', () => {
   it('requeues a missing exact job at most three times', async () => {
     const fixture = createFixture({ missing: true, recoveryCount: 2 });
     await fixture.service.reap();
-    expect(fixture.repo.requeueMissingSpaceSlice).toHaveBeenCalledWith(
+    expect(fixture.repo.requeueMissingSpaceJob).toHaveBeenCalledWith(
       fixture.lease,
     );
     expect(fixture.repo.finishRun).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe('KnowledgeRunReaperService', () => {
   it('fails an expired leased executable job after bounded recovery is exhausted', async () => {
     const fixture = createFixture({ state: 'active', recoveryCount: 3 });
     await fixture.service.reap();
-    expect(fixture.repo.requeueMissingSpaceSlice).not.toHaveBeenCalled();
+    expect(fixture.repo.requeueMissingSpaceJob).not.toHaveBeenCalled();
     expect(fixture.repo.finishRun).toHaveBeenCalledWith(
       fixture.lease,
       'failed',
@@ -120,7 +120,7 @@ function createFixture(input: {
         candidate({ spaceJobRecoveryCount: input.recoveryCount ?? 0 }),
       ]),
     claimRecoveryLease: jest.fn().mockResolvedValue(lease),
-    requeueMissingSpaceSlice: jest.fn().mockResolvedValue(true),
+    requeueMissingSpaceJob: jest.fn().mockResolvedValue(true),
     finishRun: jest.fn().mockResolvedValue({ run: { status: 'failed' } }),
   };
   const queue = {

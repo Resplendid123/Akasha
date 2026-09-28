@@ -170,6 +170,114 @@ export class GroupService {
     return this.groupRepo.getGroupsPaginated(workspaceId, paginationOptions);
   }
 
+  async getGroupTree(workspaceId: string) {
+    const groups = await this.groupRepo.findAllByWorkspace(workspaceId);
+
+    const allGroupUsers = await this.db
+      .selectFrom('groupUsers')
+      .innerJoin('users', 'users.id', 'groupUsers.userId')
+      .innerJoin('groups', 'groups.id', 'groupUsers.groupId')
+      .select([
+        'groupUsers.groupId',
+        'users.id',
+        'users.name',
+        'users.email',
+        'users.avatarUrl',
+      ])
+      .where('groups.workspaceId', '=', workspaceId)
+      .execute();
+
+    const membersByGroup = new Map<
+      string,
+      { id: string; name: string; email: string; avatarUrl: string }[]
+    >();
+    for (const row of allGroupUsers) {
+      if (!membersByGroup.has(row.groupId)) {
+        membersByGroup.set(row.groupId, []);
+      }
+      membersByGroup
+        .get(row.groupId)
+        .push({ id: row.id, name: row.name, email: row.email, avatarUrl: row.avatarUrl });
+    }
+
+    const SEPARATOR = '｜';
+
+    groups.sort(
+      (a, b) =>
+        a.name.split(SEPARATOR).length - b.name.split(SEPARATOR).length,
+    );
+
+    const nodeMap = new Map<string, any>();
+    const roots: any[] = [];
+
+    for (const group of groups) {
+      const segments = group.name.split(SEPARATOR);
+      const displayName = segments[segments.length - 1];
+      const parentKey =
+        segments.length > 1
+          ? segments.slice(0, -1).join(SEPARATOR)
+          : '';
+
+      const node = {
+        id: group.id,
+        name: group.name,
+        displayName,
+        memberCount: Number(group.memberCount) || 0,
+        isDefault: group.isDefault,
+        isExternal: group.isExternal,
+        children: [] as any[],
+        members: [] as any[],
+      };
+
+      nodeMap.set(group.name, node);
+
+      if (parentKey && nodeMap.has(parentKey)) {
+        nodeMap.get(parentKey).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    const collectDescendantGroupIds = (node: any): Set<string> => {
+      const ids = new Set<string>();
+      for (const child of node.children) {
+        ids.add(child.id);
+        for (const id of collectDescendantGroupIds(child)) {
+          ids.add(id);
+        }
+      }
+      return ids;
+    };
+
+    for (const [, node] of nodeMap) {
+      const directMembers = membersByGroup.get(node.id) || [];
+      const descendantIds = collectDescendantGroupIds(node);
+
+      if (descendantIds.size === 0) {
+        node.members = directMembers;
+      } else {
+        const descendantUserIds = new Set<string>();
+        for (const descId of descendantIds) {
+          const descMembers = membersByGroup.get(descId) || [];
+          for (const m of descMembers) {
+            descendantUserIds.add(m.id);
+          }
+        }
+        node.members = directMembers.filter(
+          (m) => !descendantUserIds.has(m.id),
+        );
+      }
+    }
+
+    const sortChildren = (nodes: any[]) => {
+      nodes.sort((a, b) => b.memberCount - a.memberCount);
+      nodes.forEach((n) => sortChildren(n.children));
+    };
+    sortChildren(roots);
+
+    return roots;
+  }
+
   async deleteGroup(groupId: string, workspaceId: string): Promise<void> {
     const group = await this.findAndValidateGroup(groupId, workspaceId);
     if (group.isDefault) {

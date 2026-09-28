@@ -9,6 +9,7 @@ export enum QueueName {
   KNOWLEDGE_TEXT_QUEUE = '{knowledge-text-queue}',
   KNOWLEDGE_IMAGE_QUEUE = '{knowledge-image-queue}',
   HISTORY_QUEUE = '{history-queue}',
+  HISTORY_DIFF_QUEUE = '{history-diff-queue}',
   NOTIFICATION_QUEUE = '{notification-queue}',
   AUDIT_QUEUE = '{audit-queue}',
 }
@@ -66,10 +67,9 @@ export enum QueueJob {
   KNOWLEDGE_REINDEX_ACCESS = 'knowledge-reindex-access',
   KNOWLEDGE_MARK_SOURCES_STALE = 'knowledge-mark-sources-stale',
   KNOWLEDGE_RETIRE_SOURCES = 'knowledge-retire-sources',
-  REVIEW_DISCOVER = 'review-discover',
-  REVIEW_NEGOTIATE = 'review-negotiate',
 
   PAGE_HISTORY = 'page-history',
+  PAGE_HISTORY_DIFF = 'page-history-diff',
 
   COMMENT_NOTIFICATION = 'comment-notification',
   COMMENT_RESOLVED_NOTIFICATION = 'comment-resolved-notification',

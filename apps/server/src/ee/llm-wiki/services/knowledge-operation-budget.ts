@@ -1,13 +1,21 @@
 export const MAX_KNOWLEDGE_ARTIFACTS_PER_PAGE = 20;
 export const MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE = 8;
+/**
+ * Prose/derived chunks stay deliberately small. Table rows are accounted for
+ * separately because row-level retrieval fixed the poor recall produced by
+ * embedding a whole table as one document. A table must never grant unrelated
+ * chunks an exemption from this limit.
+ */
 export const MAX_KNOWLEDGE_CHUNKS_PER_PAGE = 200;
+export const MAX_KNOWLEDGE_TABLE_ROWS_PER_PAGE = 2_000;
 export const DEFAULT_KNOWLEDGE_SPACE_SLOT_WORST_CASE_MS =
   300_000 + 900_000 + 300_000 + 5_000;
 
 export type KnowledgeComplexityLimitKind =
   | 'artifacts'
   | 'materializations'
-  | 'chunks';
+  | 'chunks'
+  | 'table_rows';
 
 export class KnowledgeComplexityLimitError extends Error {
   readonly code = 'page_complexity_limit';
@@ -50,6 +58,10 @@ export class KnowledgeOperationBudget {
 
   assertChunkCount(count: number): void {
     assertLimit('chunks', count, MAX_KNOWLEDGE_CHUNKS_PER_PAGE);
+  }
+
+  assertTableRowCount(count: number): void {
+    assertLimit('table_rows', count, MAX_KNOWLEDGE_TABLE_ROWS_PER_PAGE);
   }
 }
 

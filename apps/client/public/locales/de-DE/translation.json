@@ -604,6 +604,8 @@
   "List all subpages of the current page": "Alle Unterseiten der aktuellen Seite auflisten",
   "Attachments": "Anhänge",
   "All spaces": "Alle Bereiche",
+  "All permissions": "Alle Berechtigungen",
+  "Filter by permission": "Nach Berechtigung filtern",
   "Unknown": "Unbekannt",
   "Find a space": "Einen Bereich finden",
   "Search in all your spaces": "In all Ihren Bereichen suchen",

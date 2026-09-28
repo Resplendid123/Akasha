@@ -22,6 +22,8 @@ import {
   getDeletedPages,
   restorePage,
   publishPageKnowledge,
+  getPagePublishCooldown,
+  getPageCompileStatus,
 } from "@/features/page/services/page-service";
 import {
   IMovePage,
@@ -120,6 +122,25 @@ export function useUpdatePageMutation() {
 export function usePublishPageKnowledgeMutation() {
   return useMutation({
     mutationFn: (pageId: string) => publishPageKnowledge(pageId),
+  });
+}
+
+export function usePagePublishCooldownQuery(pageId?: string) {
+  return useQuery({
+    queryKey: ["page-publish-cooldown", pageId],
+    queryFn: () => getPagePublishCooldown(pageId!),
+    enabled: !!pageId,
+    refetchInterval: 60_000,
+  });
+}
+
+export function usePageCompileStatusQuery(pageId?: string) {
+  return useQuery({
+    queryKey: ["page-compile-status", pageId],
+    queryFn: () => getPageCompileStatus(pageId!),
+    enabled: !!pageId,
+    refetchInterval: (query) =>
+      query.state.data?.status === "compiling" ? 5_000 : false,
   });
 }
 
@@ -249,7 +270,10 @@ export function useRestorePageMutation() {
       queryClient.setQueryData<IPage>(["pages", restoredPage.slugId], merge);
     },
     onError: (error) => {
-      notifications.show({ message: t("Failed to restore page"), color: "red" });
+      notifications.show({
+        message: t("Failed to restore page"),
+        color: "red",
+      });
     },
   });
 }
@@ -260,10 +284,10 @@ export function useGetSidebarPagesQuery(
   return useInfiniteQuery({
     queryKey: ["sidebar-pages", data],
     enabled: !!data?.pageId || !!data?.spaceId,
-    queryFn: ({ pageParam }) => getSidebarPages({ ...data, cursor: pageParam, limit: 100 }),
+    queryFn: ({ pageParam }) =>
+      getSidebarPages({ ...data, cursor: pageParam, limit: 100 }),
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) =>
-      lastPage.meta?.nextCursor ?? undefined,
+    getNextPageParam: (lastPage) => lastPage.meta?.nextCursor ?? undefined,
   });
 }
 
@@ -271,11 +295,14 @@ export function useGetRootSidebarPagesQuery(data: SidebarPagesParams) {
   return useInfiniteQuery({
     queryKey: ["root-sidebar-pages", data.spaceId],
     queryFn: async ({ pageParam }) => {
-      return getSidebarPages({ spaceId: data.spaceId, cursor: pageParam, limit: 100 });
+      return getSidebarPages({
+        spaceId: data.spaceId,
+        cursor: pageParam,
+        limit: 100,
+      });
     },
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) =>
-      lastPage.meta?.nextCursor ?? undefined,
+    getNextPageParam: (lastPage) => lastPage.meta?.nextCursor ?? undefined,
   });
 }
 
@@ -313,11 +340,15 @@ export function useRecentChangesQuery(spaceId?: string) {
   });
 }
 
-export function useCreatedByQuery(params?: { userId?: string; spaceId?: string }) {
+export function useCreatedByQuery(params?: {
+  userId?: string;
+  spaceId?: string;
+}) {
   const { userId, spaceId } = params ?? {};
   return useInfiniteQuery({
     queryKey: ["pages-created-by-user", { userId, spaceId }],
-    queryFn: ({ pageParam }) => getCreatedByPages({ userId, spaceId, cursor: pageParam, limit: 15 }),
+    queryFn: ({ pageParam }) =>
+      getCreatedByPages({ userId, spaceId, cursor: pageParam, limit: 15 }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.meta.hasNextPage ? lastPage.meta.nextCursor : undefined,

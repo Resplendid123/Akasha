@@ -19,6 +19,7 @@ import {
   Users,
   Workspaces,
   PageHistory as History,
+  PageVisits,
   GroupUsers,
   SpaceMembers,
   WorkspaceInvitations,
@@ -31,6 +32,7 @@ import {
   Favorites,
   FileTasks,
   KnowledgeChunks,
+  KnowledgeChunkAttachments,
   KnowledgeArtifactContributions,
   KnowledgeCompilationAttempts,
   KnowledgeChunkSources,
@@ -46,8 +48,6 @@ import {
   KnowledgeParentSections,
   KnowledgeParentSectionSources,
   KnowledgeQueryAudit,
-  KnowledgeReviewApplications,
-  KnowledgeReviewSnapshots,
   KnowledgeQuarantinedArtifacts,
   KnowledgeSourceAccessPolicy as _KnowledgeSourceAccessPolicy,
   KnowledgeSourceAccessPrincipals as _KnowledgeSourceAccessPrincipals,
@@ -190,6 +190,10 @@ export type UpdatableKnowledgeChunk = Updateable<Omit<KnowledgeChunks, 'id'>>;
 export type KnowledgeChunkSource = Selectable<KnowledgeChunkSources>;
 export type InsertableKnowledgeChunkSource = Insertable<KnowledgeChunkSources>;
 
+export type KnowledgeChunkAttachment = Selectable<KnowledgeChunkAttachments>;
+export type InsertableKnowledgeChunkAttachment =
+  Insertable<KnowledgeChunkAttachments>;
+
 export type KnowledgeLink = Selectable<KnowledgeLinks>;
 export type InsertableKnowledgeLink = Insertable<KnowledgeLinks>;
 export type UpdatableKnowledgeLink = Updateable<Omit<KnowledgeLinks, 'id'>>;
@@ -227,21 +231,6 @@ export type InsertableKnowledgeSourceAccessPrincipal =
 export type KnowledgeQueryAuditEntry = Selectable<KnowledgeQueryAudit>;
 export type InsertableKnowledgeQueryAuditEntry =
   Insertable<KnowledgeQueryAudit>;
-
-export type KnowledgeReviewSnapshot = Selectable<KnowledgeReviewSnapshots>;
-export type InsertableKnowledgeReviewSnapshot =
-  Insertable<KnowledgeReviewSnapshots>;
-export type UpdatableKnowledgeReviewSnapshot = Updateable<
-  Omit<KnowledgeReviewSnapshots, 'id'>
->;
-
-export type KnowledgeReviewApplication =
-  Selectable<KnowledgeReviewApplications>;
-export type InsertableKnowledgeReviewApplication =
-  Insertable<KnowledgeReviewApplications>;
-export type UpdatableKnowledgeReviewApplication = Updateable<
-  Omit<KnowledgeReviewApplications, 'id'>
->;
 
 export type KnowledgeQuarantinedArtifact =
   Selectable<KnowledgeQuarantinedArtifacts>;
@@ -412,6 +401,10 @@ export type InsertablePageLabel = Insertable<PageLabels>;
 export type PageAccess = Selectable<_PageAccess>;
 export type InsertablePageAccess = Insertable<_PageAccess>;
 export type UpdatablePageAccess = Updateable<Omit<_PageAccess, 'id'>>;
+
+// Page Visit
+export type PageVisit = Selectable<PageVisits>;
+export type InsertablePageVisit = Insertable<PageVisits>;
 
 // Page Permission
 export type PagePermission = Selectable<_PagePermissions>;

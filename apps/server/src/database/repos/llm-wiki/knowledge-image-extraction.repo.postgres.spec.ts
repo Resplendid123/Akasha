@@ -141,6 +141,59 @@ describePostgres('KnowledgeImageExtractionRepo PostgreSQL round trip', () => {
       expect.objectContaining({ id: 'ready-same-fingerprint' }),
     ]);
   });
+
+  it('reconstructs a frozen merge input only from its exact ready extraction ids', async () => {
+    const frozen = await repo.findReadyByIds({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      extractionIds: ['ready-same-fingerprint'],
+    });
+    expect(frozen).toEqual([
+      expect.objectContaining({
+        id: 'ready-same-fingerprint',
+        attachmentId: 'attachment-1',
+        ocrText: '数据库连接成功',
+      }),
+    ]);
+
+    await expect(
+      repo.findReadyByIds({
+        workspaceId: 'workspace-1',
+        spaceId: 'space-1',
+        extractionIds: ['unknown-or-replaced-extraction'],
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it('deletes the durable image cache for a retried source page only', async () => {
+    await expect(
+      repo.deleteByPageIds({ workspaceId: 'workspace-1', sourcePageIds: [] }),
+    ).resolves.toBe(0);
+
+    await expect(
+      repo.deleteByPageIds({
+        workspaceId: 'workspace-1',
+        sourcePageIds: ['page-without-attachments'],
+      }),
+    ).resolves.toBe(0);
+    expect(await extractionEvidence(db)).not.toHaveLength(0);
+
+    // A wrong workspace must not reach this workspace's attachments.
+    await expect(
+      repo.deleteByPageIds({
+        workspaceId: 'workspace-other',
+        sourcePageIds: ['page-1'],
+      }),
+    ).resolves.toBe(0);
+    expect(await extractionEvidence(db)).not.toHaveLength(0);
+
+    const deleted = await repo.deleteByPageIds({
+      workspaceId: 'workspace-1',
+      sourcePageIds: ['page-1'],
+    });
+    expect(deleted).toBeGreaterThan(0);
+    expect(await extractionEvidence(db)).toEqual([]);
+  });
 });
 
 async function createFixture(

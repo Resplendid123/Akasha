@@ -194,6 +194,7 @@ export class HoidcService {
             'invitedById',
             'password',
             'scimExternalId',
+            'userType',
           ])
           .executeTakeFirst();
 

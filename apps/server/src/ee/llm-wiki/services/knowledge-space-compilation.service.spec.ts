@@ -24,12 +24,12 @@ describe('KnowledgeSpaceCompilationService', () => {
   it('dispatches a DB-reserved Space slice and never fans out page jobs', async () => {
     const fixture = createService({
       reservationCandidates: [{ id: 'run-space' }],
-      undispatchedSpaceSlices: [spaceSlice()],
+      undispatchedSpaceJobs: [spaceSlice()],
     });
 
     await fixture.service.dispatchPending();
 
-    expect(fixture.repo.reserveNextSpaceSlice).toHaveBeenCalledWith({
+    expect(fixture.repo.reserveNextSpaceJob).toHaveBeenCalledWith({
       runId: 'run-space',
     });
     expect(fixture.spaceQueue.add).toHaveBeenCalledWith(
@@ -44,14 +44,39 @@ describe('KnowledgeSpaceCompilationService', () => {
         priority: 5,
       },
     );
-    expect(fixture.repo.markSpaceSliceDispatched).toHaveBeenCalledWith(
+    expect(fixture.repo.markSpaceJobDispatched).toHaveBeenCalledWith(
       expect.objectContaining({ spaceJobId: spaceSlice().spaceJobId }),
     );
   });
 
+  it('reports only the Spaces that currently hold an active Run', async () => {
+    const fixture = createService();
+    fixture.repo.findActiveRun
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: 'run-busy' });
+
+    await expect(
+      fixture.service.findSpaceIdsWithActiveRun({
+        workspaceId: 'workspace-1',
+        // duplicate is collapsed before probing the repo.
+        spaceIds: ['space-idle', 'space-busy', 'space-idle'],
+      }),
+    ).resolves.toEqual(['space-busy']);
+
+    expect(fixture.repo.findActiveRun).toHaveBeenCalledTimes(2);
+    expect(fixture.repo.findActiveRun).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-idle',
+    });
+    expect(fixture.repo.findActiveRun).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-busy',
+    });
+  });
+
   it('gives image merge slices priority over newly queued text slices', async () => {
     const fixture = createService({
-      undispatchedSpaceSlices: [
+      undispatchedSpaceJobs: [
         {
           ...spaceSlice(),
           runId: 'run-image-merge',
@@ -74,7 +99,7 @@ describe('KnowledgeSpaceCompilationService', () => {
 
   it('dispatches manual page publish slices ahead of regular text work', async () => {
     const fixture = createService({
-      undispatchedSpaceSlices: [
+      undispatchedSpaceJobs: [
         {
           ...spaceSlice(),
           trigger: KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER,
@@ -251,7 +276,7 @@ describe('KnowledgeSpaceCompilationService', () => {
     const fixture = createService();
 
     await expect(fixture.service.initializeLeasedRun(lease())).resolves.toEqual(
-      expect.objectContaining({ pageCompilationRequired: true }),
+      expect.objectContaining({ initialized: true }),
     );
 
     expect(fixture.executionRepo.initializeRun).toHaveBeenCalledWith(lease(), {
@@ -275,7 +300,6 @@ describe('KnowledgeSpaceCompilationService', () => {
       compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
       promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
       initializedAt: new Date('2026-08-03T00:00:00.000Z'),
-      aggregateRequired: false,
       expectedPageCount: 1,
       succeededPageCount: 1,
       failedPageCount: 0,
@@ -285,8 +309,6 @@ describe('KnowledgeSpaceCompilationService', () => {
     await expect(fixture.service.initializeLeasedRun(lease())).resolves.toEqual(
       expect.objectContaining({
         initialized: false,
-        aggregateRequired: false,
-        pageCompilationRequired: false,
       }),
     );
 
@@ -460,7 +482,7 @@ describe('KnowledgeSpaceCompilationService', () => {
 function createService(
   overrides: {
     reservationCandidates?: unknown[];
-    undispatchedSpaceSlices?: unknown[];
+    undispatchedSpaceJobs?: unknown[];
     exportedSources?: ReturnType<typeof sourceSnapshot>[];
     reuseCandidates?: unknown[];
     readyExtractions?: unknown[];
@@ -479,17 +501,18 @@ function createService(
       promotedPageCount: 0,
       runRequestCount: 0,
     }),
-    findSpaceSliceReservationCandidates: jest
+    findSpaceJobReservationCandidates: jest
       .fn()
       .mockResolvedValue(overrides.reservationCandidates ?? []),
-    reserveNextSpaceSlice: jest.fn().mockResolvedValue(undefined),
-    findUndispatchedSpaceSlices: jest
+    reserveNextSpaceJob: jest.fn().mockResolvedValue(undefined),
+    findUndispatchedSpaceJobs: jest
       .fn()
-      .mockResolvedValue(overrides.undispatchedSpaceSlices ?? []),
-    markSpaceSliceDispatched: jest.fn().mockResolvedValue(true),
+      .mockResolvedValue(overrides.undispatchedSpaceJobs ?? []),
+    markSpaceJobDispatched: jest.fn().mockResolvedValue(true),
     reserveRunImagesFairly: jest.fn().mockResolvedValue([]),
     findUndispatchedRunImages: jest.fn().mockResolvedValue([]),
     markRunImageDispatched: jest.fn().mockResolvedValue(true),
+    findActiveRun: jest.fn().mockResolvedValue(undefined),
   };
   const spaceQueue = { add: jest.fn(), getJob: jest.fn() };
   const imageQueue = { add: jest.fn(), getJob: jest.fn() };
@@ -522,7 +545,6 @@ function createService(
       succeededPageCount: 0,
       failedPageCount: 0,
       skippedPageCount: 0,
-      aggregateRequired: true,
     }),
     initializeRun: jest.fn().mockResolvedValue({
       initialized: true,
@@ -532,7 +554,6 @@ function createService(
         succeededPageCount: 0,
         failedPageCount: 0,
         skippedPageCount: 0,
-        aggregateRequired: true,
       },
     }),
     bindTextPage: jest.fn().mockImplementation((_lease, input) =>

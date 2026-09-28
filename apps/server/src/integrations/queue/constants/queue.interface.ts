@@ -22,6 +22,12 @@ export interface IPageHistoryJob {
   pageId: string;
 }
 
+export interface IPageHistoryDiffJob {
+  fromHistoryId: string;
+  toHistoryId: string;
+  algorithmVersion: string;
+}
+
 export interface INotificationCreateJob {
   userId: string;
   workspaceId: string;
@@ -114,7 +120,7 @@ export interface IApprovalRejectedNotificationJob {
   comment?: string;
 }
 
-export interface IKnowledgeSpaceSliceJob {
+export interface IKnowledgeSpaceJob {
   workspaceId: string;
   spaceId: string;
   spaceRunId: string;
@@ -156,15 +162,3 @@ export interface IKnowledgeRetireSourcesJob {
   sourcePageIds: string[];
 }
 
-export interface IReviewDiscoverJob {
-  workspaceId: string;
-  spaceId: string;
-  limit?: number;
-}
-
-export interface IReviewNegotiateJob {
-  workspaceId: string;
-  spaceId: string;
-  item: unknown;
-  feedback?: string;
-}

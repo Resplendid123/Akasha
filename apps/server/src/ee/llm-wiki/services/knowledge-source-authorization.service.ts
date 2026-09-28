@@ -22,6 +22,7 @@ export class KnowledgeSourceAuthorizationService {
   async filterReadableSources(input: {
     workspaceId: string;
     userId: string;
+    supplementalUserId?: string;
     sourcePageIds: string[];
     // Optional request-scoped cache. When provided it MUST be bound to the same
     // (workspaceId, userId) — a mismatch fails closed. See KnowledgeAuthorizationCache.
@@ -48,6 +49,7 @@ export class KnowledgeSourceAuthorizationService {
       const freshlyReadable = await this.resolveReadable({
         workspaceId: input.workspaceId,
         userId: input.userId,
+        supplementalUserId: input.supplementalUserId,
         pageIds: unknown,
         cache,
       });
@@ -75,6 +77,7 @@ export class KnowledgeSourceAuthorizationService {
   private async resolveReadable(input: {
     workspaceId: string;
     userId: string;
+    supplementalUserId?: string;
     pageIds: string[];
     cache?: KnowledgeAuthorizationCache;
   }): Promise<Set<string>> {
@@ -120,6 +123,61 @@ export class KnowledgeSourceAuthorizationService {
     const pagesInReadableSpaces = existingPages.filter((page) =>
       readableSpaceSet.has(page.spaceId),
     );
+
+    if (input.supplementalUserId) {
+      const requirements =
+        await this.pagePermissionRepo.findRestrictedAncestorRequirementsForPages(
+          pagesInReadableSpaces.map((page) => page.id),
+        );
+      const restrictedIds = new Set(
+        requirements.map((requirement) => requirement.sourcePageId),
+      );
+      const readable = new Set(
+        pagesInReadableSpaces
+          .filter((page) => !restrictedIds.has(page.id))
+          .map((page) => page.id),
+      );
+      const supplementalUser = await this.userRepo.findById(
+        input.supplementalUserId,
+        input.workspaceId,
+      );
+      if (supplementalUser && restrictedIds.size > 0) {
+        const supplementalSpaceIds =
+          await this.spaceAuthorization.filterReadableSpaceIds({
+            user: supplementalUser,
+            spaceIds: unique(
+              pagesInReadableSpaces
+                .filter((page) => restrictedIds.has(page.id))
+                .map((page) => page.spaceId),
+            ),
+          });
+        const supplementalSpaceSet = new Set(supplementalSpaceIds);
+        const eligibleRestrictedPages = pagesInReadableSpaces.filter(
+          (page) =>
+            restrictedIds.has(page.id) &&
+            supplementalSpaceSet.has(page.spaceId),
+        );
+        if (supplementalUser.role === UserRole.OWNER) {
+          eligibleRestrictedPages.forEach((page) => readable.add(page.id));
+        } else {
+          for (const [spaceId, spacePages] of groupBy(
+            eligibleRestrictedPages,
+            (page) => page.spaceId,
+          )) {
+            const allowedPageIds =
+              await this.pagePermissionRepo.filterAccessiblePageIds({
+                pageIds: spacePages.map((page) => page.id),
+                userId: supplementalUser.id,
+                spaceId,
+              });
+            allowedPageIds.forEach((pageId) => readable.add(pageId));
+          }
+        }
+      }
+
+      cache?.recordPages(input.pageIds, readable);
+      return readable;
+    }
 
     const readable = new Set<string>();
     for (const [spaceId, spacePages] of groupBy(

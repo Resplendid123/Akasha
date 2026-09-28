@@ -1,7 +1,7 @@
 import { Modal, Text, Button, Group, Stack } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 
-import { useRevokeApiKeyMutation } from "@/ee/api-key/queries/api-key-query.ts";
+import { useRevokeApiKeyMutation, useDeleteAgentApiKeyMutation } from "@/ee/api-key/queries/api-key-query.ts";
 import { IApiKey } from "@/ee/api-key";
 
 interface RevokeApiKeyModalProps {
@@ -17,12 +17,12 @@ export function RevokeApiKeyModal({
 }: RevokeApiKeyModalProps) {
   const { t } = useTranslation();
   const revokeApiKeyMutation = useRevokeApiKeyMutation();
+  const deleteAgentMutation = useDeleteAgentApiKeyMutation();
 
   const handleRevoke = async () => {
     if (!apiKey) return;
-    await revokeApiKeyMutation.mutateAsync({
-      apiKeyId: apiKey.id,
-    });
+    if (apiKey.keyType === "agent") await deleteAgentMutation.mutateAsync({ apiKeyId: apiKey.id });
+    else await revokeApiKeyMutation.mutateAsync({ apiKeyId: apiKey.id });
     onClose();
   };
 
@@ -30,14 +30,18 @@ export function RevokeApiKeyModal({
     <Modal
       opened={opened}
       onClose={onClose}
-      title={t("Revoke {{credential}}", { credential: t("API key") })}
+      title={t("{{action}} {{credential}}", {
+        action: apiKey?.keyType === "agent" ? t("Delete") : t("Revoke"),
+        credential: apiKey?.keyType === "agent" ? t("Agent") : t("API key"),
+      })}
       size="md"
       closeButtonProps={{ "aria-label": t("Close") }}
     >
       <Stack gap="md">
         <Text>
-          {t("Are you sure you want to revoke this {{credential}}", {
-            credential: t("API key"),
+          {t("Are you sure you want to {{action}} this {{credential}}", {
+            action: apiKey?.keyType === "agent" ? t("delete") : t("revoke"),
+            credential: apiKey?.keyType === "agent" ? t("Agent") : t("API key"),
           })}{" "}
           <strong>{apiKey?.name}</strong>?
         </Text>
@@ -56,7 +60,7 @@ export function RevokeApiKeyModal({
             onClick={handleRevoke}
             loading={revokeApiKeyMutation.isPending}
           >
-            {t("Revoke")}
+            {apiKey?.keyType === "agent" ? t("Delete") : t("Revoke")}
           </Button>
         </Group>
       </Stack>

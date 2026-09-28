@@ -1,193 +1,315 @@
 import "@/features/editor/styles/index.css";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { mainExtensions } from "@/features/editor/extensions/extensions";
 import { Title } from "@mantine/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import historyClasses from "./css/history.module.css";
-import { recreateTransform } from "@docmost/editor-ext";
-import { DOMSerializer, Node } from "@tiptap/pm/model";
-import { ChangeSet, simplifyChanges } from "@tiptap/pm/changeset";
-import { useAtom } from "jotai";
+import { DOMSerializer, Node, Schema } from "@tiptap/pm/model";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
+  DiffCounts,
   diffCountsAtom,
+  diffStateAtom,
   highlightChangesAtom,
 } from "@/features/page-history/atoms/history-atoms";
+import type { DiffChange } from "@/features/page-history/workers/diff.worker";
+import { IPageHistoryDiff } from "@/features/page-history/types/page.types";
 
 export interface HistoryEditorProps {
   title: string;
   content: any;
   previousContent?: any;
+  prevHistoryId?: string;
+  persistedDiff?: IPageHistoryDiff;
+  isDiffLoading: boolean;
+  isPreviousLoading: boolean;
+  isPreviousError: boolean;
+}
+
+function extractSchemaSpec(schema: Schema) {
+  const nodes: Record<string, any> = {};
+  schema.spec.nodes.forEach((name: string, spec: any) => {
+    nodes[name] = {
+      content: spec.content,
+      group: spec.group,
+      inline: spec.inline,
+      atom: spec.atom,
+      attrs: spec.attrs,
+      marks: spec.marks,
+      defining: spec.defining,
+      isolating: spec.isolating,
+      selectable: spec.selectable,
+      draggable: spec.draggable,
+      code: spec.code,
+      whitespace: spec.whitespace,
+    };
+  });
+  const marks: Record<string, any> = {};
+  schema.spec.marks?.forEach((name: string, spec: any) => {
+    marks[name] = {
+      attrs: spec.attrs,
+      inclusive: spec.inclusive,
+      excludes: spec.excludes,
+      group: spec.group,
+      spanning: spec.spanning,
+    };
+  });
+  return { nodes, marks, topNode: schema.spec.topNode };
+}
+
+function buildDecorations(
+  schema: Schema,
+  content: any,
+  changes: DiffChange[],
+): DecorationSet {
+  const newContent = Node.fromJSON(schema, content);
+  const decorations: Decoration[] = [];
+  let changeIndex = 0;
+
+  for (const change of changes) {
+    if (change.fromB < change.toB) {
+      changeIndex++;
+      const idx = String(changeIndex);
+
+      if (change.addedSpecialNode) {
+        decorations.push(
+          Decoration.node(
+            change.addedSpecialNode.pos,
+            change.addedSpecialNode.nodeEnd,
+            { class: "history-diff-node-added", "data-diff-index": idx },
+          ),
+        );
+      } else {
+        decorations.push(
+          Decoration.inline(change.fromB, change.toB, {
+            class: "history-diff-added",
+            "data-diff-index": idx,
+          }),
+        );
+      }
+    }
+
+    if (change.fromA < change.toA) {
+      changeIndex++;
+      const idx = String(changeIndex);
+
+      if (change.deletedSpecialNode) {
+        const nodeJSON = change.deletedSpecialNode.nodeJSON;
+        decorations.push(
+          Decoration.widget(change.fromB, () => {
+            const wrapper = document.createElement("div");
+            wrapper.className = "history-diff-node-deleted";
+            wrapper.setAttribute("data-diff-index", idx);
+            const serializer = DOMSerializer.fromSchema(schema);
+            const node = schema.nodeFromJSON(nodeJSON);
+            const dom = serializer.serializeNode(node);
+            wrapper.appendChild(dom);
+            return wrapper;
+          }),
+        );
+      } else if (change.deletedText) {
+        const text = change.deletedText;
+        decorations.push(
+          Decoration.widget(change.fromB, () => {
+            const span = document.createElement("span");
+            span.className = "history-diff-deleted";
+            span.setAttribute("data-diff-index", idx);
+            span.textContent = text;
+            return span;
+          }),
+        );
+      }
+    }
+  }
+
+  return DecorationSet.create(newContent, decorations);
 }
 
 export function HistoryEditor({
   title,
   content,
   previousContent,
+  prevHistoryId,
+  persistedDiff,
+  isDiffLoading,
+  isPreviousLoading,
+  isPreviousError,
 }: HistoryEditorProps) {
-  const [highlightChanges] = useAtom(highlightChangesAtom);
+  const highlightChanges = useAtomValue(highlightChangesAtom);
   const [, setDiffCounts] = useAtom(diffCountsAtom);
+  const diffState = useAtomValue(diffStateAtom);
+  const setDiffState = useSetAtom(diffStateAtom);
+
+  const updateDiffCounts = (v: DiffCounts | null) => {
+    // @ts-ignore - Jotai atom type inference limitation
+    setDiffCounts(v);
+  };
+  const decorationSetRef = useRef<DecorationSet>(DecorationSet.empty);
 
   const editor = useEditor({
     extensions: mainExtensions,
     editable: false,
   });
 
+  // Effect 1: immediate content render
   useEffect(() => {
     if (!editor || !content) return;
+    decorationSetRef.current = DecorationSet.empty;
+    editor.commands.setContent(content);
+  }, [editor, content]);
 
-    let decorationSet = DecorationSet.empty;
-    let addedCount = 0;
-    let deletedCount = 0;
-
-    if (previousContent) {
-      try {
-        const schema = editor.schema;
-        const oldContent = Node.fromJSON(schema, previousContent);
-        const newContent = Node.fromJSON(schema, content);
-
-        const tr = recreateTransform(oldContent, newContent, {
-          complexSteps: false,
-          wordDiffs: true,
-          simplifyDiff: true,
-        });
-
-        const changeSet = ChangeSet.create(oldContent).addSteps(
-          tr.doc,
-          tr.mapping.maps,
-          [],
-        );
-        const changes = simplifyChanges(changeSet.changes, newContent);
-
-        editor.commands.setContent(content);
-
-        const specialNodeTypes = new Set([
-          "image",
-          "attachment",
-          "video",
-          "excalidraw",
-          "drawio",
-          "mermaid",
-          "mathBlock",
-          "mathInline",
-          "table",
-          "details",
-          "callout",
-        ]);
-
-        const decorations: Decoration[] = [];
-        let changeIndex = 0;
-
-        for (const change of changes) {
-          if (change.toB > change.fromB) {
-            changeIndex++;
-            const currentIndex = changeIndex;
-            let foundSpecialNode: { node: Node; pos: number } | null = null;
-            newContent.nodesBetween(change.fromB, change.toB, (node, pos) => {
-              if (specialNodeTypes.has(node.type.name)) {
-                const nodeEnd = pos + node.nodeSize;
-                if (change.fromB <= pos && change.toB >= nodeEnd) {
-                  foundSpecialNode = { node, pos };
-                  return false;
-                }
-              }
-            });
-
-            if (foundSpecialNode) {
-              const nodeEnd =
-                foundSpecialNode.pos + foundSpecialNode.node.nodeSize;
-              decorations.push(
-                Decoration.node(foundSpecialNode.pos, nodeEnd, {
-                  class: "history-diff-node-added",
-                  "data-diff-index": String(currentIndex),
-                }),
-              );
-            } else {
-              decorations.push(
-                Decoration.inline(change.fromB, change.toB, {
-                  class: "history-diff-added",
-                  "data-diff-index": String(currentIndex),
-                }),
-              );
-            }
-            addedCount += 1;
-          }
-          if (change.toA > change.fromA) {
-            changeIndex++;
-            const currentIndex = changeIndex;
-            let foundDeletedNode: { node: Node; pos: number } | null = null;
-            oldContent.nodesBetween(change.fromA, change.toA, (node, pos) => {
-              if (specialNodeTypes.has(node.type.name)) {
-                const nodeEnd = pos + node.nodeSize;
-                if (change.fromA <= pos && change.toA >= nodeEnd) {
-                  foundDeletedNode = { node, pos };
-                  return false;
-                }
-              }
-            });
-
-            if (foundDeletedNode) {
-              decorations.push(
-                Decoration.widget(change.fromB, () => {
-                  const wrapper = document.createElement("div");
-                  wrapper.className = "history-diff-node-deleted";
-                  wrapper.setAttribute("data-diff-index", String(currentIndex));
-                  const serializer = DOMSerializer.fromSchema(schema);
-                  const dom = serializer.serializeNode(foundDeletedNode!.node);
-                  wrapper.appendChild(dom);
-                  return wrapper;
-                }),
-              );
-            } else {
-              const deletedText = oldContent.textBetween(
-                change.fromA,
-                change.toA,
-                "",
-              );
-              if (deletedText) {
-                decorations.push(
-                  Decoration.widget(change.fromB, () => {
-                    const span = document.createElement("span");
-                    span.className = "history-diff-deleted";
-                    span.setAttribute("data-diff-index", String(currentIndex));
-                    span.textContent = deletedText;
-                    return span;
-                  }),
-                );
-              }
-            }
-            deletedCount += 1;
-          }
-        }
-
-        decorationSet = DecorationSet.create(newContent, decorations);
-      } catch (e) {
-        console.error("History diff failed:", e);
-        editor.commands.setContent(content);
-      }
-    } else {
-      editor.commands.setContent(content);
+  // Effect 2: use persisted diff first and fall back to the Web Worker
+  useEffect(() => {
+    if (!editor || !content || !prevHistoryId) {
+      setDiffState("idle");
+      updateDiffCounts(null);
+      decorationSetRef.current = DecorationSet.empty;
+      return;
     }
 
-    const total = addedCount + deletedCount;
-    // @ts-ignore
-    setDiffCounts({ added: addedCount, deleted: deletedCount, total });
+    const applyResult = (
+      changes: DiffChange[],
+      addedCount: number,
+      deletedCount: number,
+    ) => {
+      try {
+        const total = addedCount + deletedCount;
+        decorationSetRef.current = buildDecorations(
+          editor.schema,
+          content,
+          changes,
+        );
+        updateDiffCounts({ added: addedCount, deleted: deletedCount, total });
+        setDiffState("ready");
+      } catch (error) {
+        console.error("History diff decorations failed:", error);
+        decorationSetRef.current = DecorationSet.empty;
+        updateDiffCounts(null);
+        setDiffState("error");
+      }
+    };
 
+    if (
+      persistedDiff?.status === "ready" &&
+      persistedDiff.fromHistoryId === prevHistoryId
+    ) {
+      applyResult(
+        persistedDiff.changes,
+        persistedDiff.addedCount,
+        persistedDiff.deletedCount,
+      );
+      return;
+    }
+
+    if (persistedDiff?.status === "too_large") {
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState("tooLarge");
+      return;
+    }
+
+    if (
+      isDiffLoading ||
+      persistedDiff?.status === "pending" ||
+      persistedDiff?.status === "running"
+    ) {
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState("computing");
+      return;
+    }
+
+    if (isPreviousLoading || !previousContent) {
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState(isPreviousError ? "error" : "loadingPrevious");
+      return;
+    }
+
+    setDiffState("computing");
+
+    let worker: Worker;
+    try {
+      worker = new Worker(
+        new URL("../workers/diff.worker.ts", import.meta.url),
+        { type: "module" },
+      );
+    } catch (error) {
+      console.error("History diff worker creation failed:", error);
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState("error");
+      return;
+    }
+
+    worker.onmessage = (e: MessageEvent) => {
+      if (e.data.type === "result") {
+        const { changes, addedCount, deletedCount } = e.data;
+        applyResult(changes, addedCount, deletedCount);
+      } else {
+        console.error("History diff worker failed:", e.data.message);
+        decorationSetRef.current = DecorationSet.empty;
+        updateDiffCounts(null);
+        setDiffState("error");
+      }
+      worker.terminate();
+    };
+
+    worker.onerror = (err) => {
+      console.error("History diff worker error:", err);
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState("error");
+      worker.terminate();
+    };
+
+    worker.onmessageerror = (err) => {
+      console.error("History diff worker message error:", err);
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState("error");
+      worker.terminate();
+    };
+
+    try {
+      const schemaSpec = extractSchemaSpec(editor.schema);
+      worker.postMessage({ schemaSpec, previousContent, content });
+    } catch (error) {
+      console.error("History diff worker start failed:", error);
+      decorationSetRef.current = DecorationSet.empty;
+      updateDiffCounts(null);
+      setDiffState("error");
+      worker.terminate();
+    }
+
+    return () => {
+      worker.terminate();
+    };
+  }, [
+    editor,
+    content,
+    previousContent,
+    prevHistoryId,
+    persistedDiff,
+    isDiffLoading,
+    isPreviousLoading,
+    isPreviousError,
+    setDiffCounts,
+    setDiffState,
+  ]);
+
+  // Effect 3: apply/toggle decorations
+  useEffect(() => {
+    if (!editor) return;
     editor.setOptions({
       editorProps: {
         ...editor.options.editorProps,
         decorations: () =>
-          highlightChanges ? decorationSet : DecorationSet.empty,
+          highlightChanges ? decorationSetRef.current : DecorationSet.empty,
       },
     });
-  }, [
-    title,
-    content,
-    editor,
-    previousContent,
-    highlightChanges,
-    setDiffCounts,
-  ]);
+  }, [editor, highlightChanges, diffState]);
 
   return (
     <div>

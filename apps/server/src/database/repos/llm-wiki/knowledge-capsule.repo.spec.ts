@@ -144,7 +144,7 @@ function basePage(id: string) {
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    compileScope: 'space',
+    compileScope: 'page',
     title: id,
     slug: id,
     body: 'body',
@@ -318,6 +318,30 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(sql).toContain('ts_rank_cd');
     expect(sql).toContain('not exists ( select');
     expect(sql.indexOf('not exists')).toBeLessThan(sql.indexOf('limit'));
+  });
+
+  it('applies OR page-label filtering to every chunk source before candidate limits', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      labelNames: ['项目计划', 'kafka'],
+      query: 'Akasha wiki',
+      limit: 10,
+    });
+
+    const compiled = queries[0];
+    const sql = compiled.sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_chunk_sources as label_source');
+    expect(sql).toContain('page_labels as matching_page_label');
+    expect(sql).toContain('labels as matching_label');
+    expect(sql).toContain('matching_label.name in');
+    expect(sql.indexOf('label_source')).toBeLessThan(sql.indexOf('limit'));
+    expect(compiled.parameters).toEqual(
+      expect.arrayContaining(['项目计划', 'kafka']),
+    );
   });
 
   it('normalizes titles and authorizes every source before title limits', async () => {
@@ -497,7 +521,7 @@ describe('KnowledgeCapsuleRepo', () => {
           id: 'knowledge-page-1',
           workspaceId: 'workspace-1',
           spaceId: 'space-1',
-          compileScope: 'space',
+          compileScope: 'page',
           title: 'Compiled',
           slug: 'compiled',
           body: 'body',
@@ -657,41 +681,6 @@ describe('KnowledgeCapsuleRepo', () => {
         }),
       ],
     });
-  });
-
-  it('marks only Space-scope artifacts and their children stale', async () => {
-    const query = new FakeKyselyQuery({
-      knowledgePages: [{ id: 'space-artifact-1' }],
-    });
-    const repo = createRepo(query);
-
-    await repo.markCompileScopeStale({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-    });
-
-    expect(query.calls).toEqual(
-      expect.arrayContaining([
-        { method: 'updateTable', args: ['knowledgePages'] },
-        { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-        { method: 'where', args: ['spaceId', '=', 'space-1'] },
-        { method: 'where', args: ['compileScope', '=', 'space'] },
-        { method: 'returning', args: ['id'] },
-        { method: 'updateTable', args: ['knowledgeParentSections'] },
-        { method: 'updateTable', args: ['knowledgeClaims'] },
-        { method: 'updateTable', args: ['knowledgeChunks'] },
-        { method: 'updateTable', args: ['knowledgeLinks'] },
-        { method: 'updateTable', args: ['knowledgeGraphEdges'] },
-        {
-          method: 'where',
-          args: ['knowledgePageId', 'in', ['space-artifact-1']],
-        },
-        {
-          method: 'where',
-          args: ['fromKnowledgePageId', 'in', ['space-artifact-1']],
-        },
-      ]),
-    );
   });
 
   it('does not query dependency sources when knowledgePageIds is empty', async () => {

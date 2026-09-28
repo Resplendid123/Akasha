@@ -15,11 +15,11 @@ import {
   JwtPayload,
   JwtPdfExportDownloadPayload,
   JwtPdfRenderPayload,
-  JwtPublicApiKeyPayload,
   JwtType,
 } from '../dto/jwt-payload';
 import { User } from '@akasha/db/types/entity.types';
 import { isUserDisabled } from '../../../common/helpers';
+import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class TokenService {
@@ -102,8 +102,9 @@ export class TokenService {
     user: User;
     workspaceId: string;
     expiresIn?: StringValue | number;
+    credentialVersion?: number;
   }): Promise<string> {
-    const { apiKeyId, user, workspaceId, expiresIn } = opts;
+    const { apiKeyId, user, workspaceId, expiresIn, credentialVersion } = opts;
     if (isUserDisabled(user)) {
       throw new ForbiddenException();
     }
@@ -113,26 +114,15 @@ export class TokenService {
       apiKeyId: apiKeyId,
       workspaceId,
       type: JwtType.API_KEY,
+      ...(credentialVersion === undefined ? {} : { credentialVersion }),
     };
 
-    return this.jwtService.sign(payload, expiresIn ? { expiresIn } : {});
-  }
-
-  async generatePublicApiToken(opts: {
-    apiKeyId: string;
-    workspaceId: string;
-    expiresIn?: StringValue | number;
-  }): Promise<string> {
-    const payload: JwtPublicApiKeyPayload = {
-      apiKeyId: opts.apiKeyId,
-      workspaceId: opts.workspaceId,
-      type: JwtType.PUBLIC_API_KEY,
-    };
-
-    return this.jwtService.sign(
-      payload,
-      opts.expiresIn ? { expiresIn: opts.expiresIn } : {},
-    );
+    if (expiresIn === undefined) {
+      return jwt.sign(payload, this.environmentService.getAppSecret(), {
+        issuer: 'Akasha',
+      });
+    }
+    return this.jwtService.sign(payload, { expiresIn });
   }
 
   async generatePdfRenderToken(

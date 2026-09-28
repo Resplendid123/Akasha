@@ -87,6 +87,7 @@ export class KnowledgeMcpToolExtension
     const result = await this.chatService.chat({
       workspaceId: context.workspace.id,
       userId: context.user.id,
+      supplementalUserId: context.agentAccess?.delegatedUser?.id,
       query: args.query,
       spaceIds,
       chatContext: args.chatContext,

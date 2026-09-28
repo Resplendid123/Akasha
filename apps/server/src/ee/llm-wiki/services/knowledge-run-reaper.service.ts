@@ -81,7 +81,7 @@ export class KnowledgeRunReaperService {
           (state === 'missing' || EXECUTABLE_JOB_STATES.has(state)) &&
           candidate.spaceJobRecoveryCount < 3
         ) {
-          await this.executionRepo.requeueMissingSpaceSlice(recoveryLease);
+          await this.executionRepo.requeueMissingSpaceJob(recoveryLease);
           continue;
         }
         const errorCode =

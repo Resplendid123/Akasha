@@ -77,3 +77,16 @@
   flex: 1;
   padding: rem(16px) rem(40px);
 }
+
+.diffProgressBar {
+  display: flex;
+  align-items: center;
+  gap: rem(8px);
+  padding: rem(8px) rem(12px);
+  margin-bottom: rem(8px);
+  border-radius: var(--mantine-radius-sm);
+  background-color: light-dark(
+    var(--mantine-color-gray-0),
+    var(--mantine-color-dark-6)
+  );
+}

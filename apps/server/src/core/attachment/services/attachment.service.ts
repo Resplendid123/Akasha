@@ -30,38 +30,6 @@ import { createByteCountingStream } from '../../../common/helpers/utils';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { EventName } from '../../../common/events/event.contants';
 
-const KNOWLEDGE_IMAGE_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/pjpeg',
-  'image/png',
-  'image/x-png',
-  'image/apng',
-  'image/gif',
-  'image/webp',
-  'image/avif',
-  'image/tiff',
-  'image/x-tiff',
-  'image/bmp',
-  'image/x-bmp',
-  'image/x-ms-bmp',
-]);
-
-const KNOWLEDGE_IMAGE_EXTENSIONS = new Set([
-  '.jpg',
-  '.jpeg',
-  '.jpe',
-  '.png',
-  '.apng',
-  '.gif',
-  '.webp',
-  '.avif',
-  '.tif',
-  '.tiff',
-  '.bmp',
-  '.dib',
-]);
-
 @Injectable()
 export class AttachmentService {
   private readonly logger = new Logger(AttachmentService.name);
@@ -167,7 +135,11 @@ export class AttachmentService {
           },
         );
       }
-      this.emitKnowledgeRasterPageUpdated(attachment);
+      // A newly uploaded file has a page id before the editor persists the
+      // actual attachment node. The subsequent page-content save is the
+      // authoritative compilation trigger. Overwrites change a file already
+      // referenced by a page and must still invalidate immediately.
+      if (isUpdate) this.emitKnowledgePageAttachmentUpdated(attachment);
     } catch (err) {
       // delete uploaded file on error
       this.logger.error(err);
@@ -272,7 +244,7 @@ export class AttachmentService {
       await this.storageService.delete(filePath);
       const deleted =
         await this.attachmentRepo.deleteAttachmentByFilePath(filePath);
-      this.emitKnowledgeRasterPageUpdated(deleted);
+      this.emitKnowledgePageAttachmentUpdated(deleted);
     } catch (error) {
       this.logger.error('deleteRedundantFile', error);
     }
@@ -341,7 +313,7 @@ export class AttachmentService {
             const deleted = await this.attachmentRepo.deleteAttachmentById(
               attachment.id,
             );
-            this.emitKnowledgeRasterPageUpdated(deleted);
+            this.emitKnowledgePageAttachmentUpdated(deleted);
           } catch (err) {
             this.logger.log(
               `DeleteAiChatAttachments: failed to delete attachment ${attachment.id}:`,
@@ -371,7 +343,7 @@ export class AttachmentService {
             const deleted = await this.attachmentRepo.deleteAttachmentById(
               attachment.id,
             );
-            this.emitKnowledgeRasterPageUpdated(deleted);
+            this.emitKnowledgePageAttachmentUpdated(deleted);
           } catch (err) {
             failedDeletions.push(attachment.id);
             this.logger.log(
@@ -412,7 +384,7 @@ export class AttachmentService {
             const deleted = await this.attachmentRepo.deleteAttachmentById(
               attachment.id,
             );
-            this.emitKnowledgeRasterPageUpdated(deleted);
+            this.emitKnowledgePageAttachmentUpdated(deleted);
           } catch (err) {
             this.logger.log(
               `DeleteUserAvatar: failed to delete user avatar ${attachment.id}:`,
@@ -509,8 +481,8 @@ export class AttachmentService {
     await this.workspaceRepo.updateWorkspace({ logo: null }, workspace.id);
   }
 
-  private emitKnowledgeRasterPageUpdated(attachment?: Attachment): void {
-    if (!attachment || !isKnowledgeRasterAttachment(attachment)) return;
+  private emitKnowledgePageAttachmentUpdated(attachment?: Attachment): void {
+    if (!attachment || !isKnowledgePageFileAttachment(attachment)) return;
     this.eventEmitter.emit(EventName.PAGE_UPDATED, {
       pageIds: [attachment.pageId],
       workspaceId: attachment.workspaceId,
@@ -518,14 +490,16 @@ export class AttachmentService {
   }
 }
 
-function isKnowledgeRasterAttachment(attachment: Attachment): boolean {
-  if (attachment.type !== AttachmentType.File || !attachment.pageId) {
-    return false;
-  }
-  const mimeType = attachment.mimeType?.trim().toLowerCase();
-  if (mimeType && KNOWLEDGE_IMAGE_MIME_TYPES.has(mimeType)) return true;
-  return (
-    (!mimeType || mimeType === 'application/octet-stream') &&
-    KNOWLEDGE_IMAGE_EXTENSIONS.has(attachment.fileExt.toLowerCase())
-  );
+/**
+ * A page-owned File attachment whose overwrite/replace/delete must refresh the
+ * owning page's knowledge (§9.1). This deliberately covers every non-image File
+ * as well as images: a replaced file changes `updated_at` without touching the
+ * page ProseMirror, and the Knowledge source fingerprint (§9.1) now folds in
+ * that timestamp, so the recompile regenerates the attachment mapping. Avatars,
+ * workspace/space icons and chat attachments are not `File`-with-`pageId`, and
+ * files uploaded but never inserted into a page contribute no serializer
+ * occurrence, so their recompile is a cheap fingerprint-reuse no-op.
+ */
+function isKnowledgePageFileAttachment(attachment: Attachment): boolean {
+  return attachment.type === AttachmentType.File && Boolean(attachment.pageId);
 }

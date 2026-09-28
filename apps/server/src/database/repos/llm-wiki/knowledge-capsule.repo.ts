@@ -11,12 +11,12 @@ import {
   InsertableKnowledgeClaimSource,
   InsertableKnowledgeChunk,
   InsertableKnowledgeChunkSource,
+  InsertableKnowledgeChunkAttachment,
   InsertableKnowledgeLink,
   InsertableKnowledgeLinkSource,
   InsertableKnowledgeGraphEdge,
   InsertableKnowledgeGraphEdgeSource,
   KnowledgeChunk,
-  KnowledgeClaim,
   KnowledgeGraphEdge,
   KnowledgeGraphEdgeSource,
   KnowledgeLink,
@@ -50,6 +50,7 @@ export type UpsertCompiledArtifactInput = {
   claimSources?: InsertableKnowledgeClaimSource[];
   chunks?: InsertableKnowledgeChunk[];
   chunkSources?: InsertableKnowledgeChunkSource[];
+  chunkAttachments?: InsertableKnowledgeChunkAttachment[];
   links?: InsertableKnowledgeLink[];
   linkSources?: InsertableKnowledgeLinkSource[];
   graphEdges?: InsertableKnowledgeGraphEdge[];
@@ -87,6 +88,8 @@ export type AuthorizedCandidateInput = {
   workspaceId: string;
   spaceIds: string[];
   principals: KnowledgeAccessPrincipal[];
+  /** Normalized page label names. A source page may match any supplied label. */
+  labelNames?: string[];
   retrievalChannel?: 'evidence' | 'memory';
   authorizationMode?: 'policy' | 'final-authorization-fallback';
 };
@@ -414,6 +417,11 @@ export class KnowledgeCapsuleRepo {
     );
     await this.insertArtifactChildren(
       db,
+      inputs.flatMap((input) => input.chunkAttachments ?? []),
+      'knowledgeChunkAttachments',
+    );
+    await this.insertArtifactChildren(
+      db,
       inputs.flatMap((input) => input.links ?? []),
       'knowledgeLinks',
     );
@@ -480,6 +488,7 @@ export class KnowledgeCapsuleRepo {
       | 'knowledgeClaimSources'
       | 'knowledgeChunks'
       | 'knowledgeChunkSources'
+      | 'knowledgeChunkAttachments'
       | 'knowledgeLinks'
       | 'knowledgeLinkSources'
       | 'knowledgeGraphEdges'
@@ -497,52 +506,6 @@ export class KnowledgeCapsuleRepo {
         .values(rows.slice(offset, offset + CHILD_INSERT_BATCH_SIZE) as never)
         .execute();
     }
-  }
-
-  async markCompileScopeStale(
-    input: { workspaceId: string; spaceId: string },
-    trx?: KyselyTransaction,
-  ): Promise<void> {
-    const db = dbOrTx(this.db, trx);
-    const staleAt = new Date();
-    const stalePages = await db
-      .updateTable('knowledgePages')
-      .set({ staleAt })
-      .where('workspaceId', '=', input.workspaceId)
-      .where('spaceId', '=', input.spaceId)
-      .where('compileScope', '=', 'space')
-      .returning('id')
-      .execute();
-    const artifactIds = stalePages.map((page) => page.id);
-    if (artifactIds.length === 0) return;
-
-    await Promise.all([
-      db
-        .updateTable('knowledgeParentSections')
-        .set({ staleAt })
-        .where('knowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeClaims')
-        .set({ staleAt })
-        .where('knowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeChunks')
-        .set({ staleAt })
-        .where('knowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeLinks')
-        .set({ staleAt })
-        .where('fromKnowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeGraphEdges')
-        .set({ staleAt })
-        .where('fromKnowledgePageId', 'in', artifactIds)
-        .execute(),
-    ]);
   }
 
   async markArtifactsStaleByIds(
@@ -1132,28 +1095,6 @@ export class KnowledgeCapsuleRepo {
       .filter(Boolean) as KnowledgePage[];
   }
 
-  /**
-   * 读取一批 knowledge page 的 claims(供 LLM Wiki review 阶段做论断级审查)。
-   * 只读、不改任何编译产物;按 (knowledgePageId, position) 升序,保证每页 claims
-   * 顺序与编译时一致。过滤 staleAt 与现有读取方法保持一致(只返回有效产物)。
-   */
-  async findClaimsByPageIds(
-    input: { workspaceId: string; knowledgePageIds: string[] },
-    trx?: KyselyTransaction,
-  ): Promise<KnowledgeClaim[]> {
-    if (input.knowledgePageIds.length === 0) return [];
-
-    return dbOrTx(this.db, trx)
-      .selectFrom('knowledgeClaims')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .where('knowledgePageId', 'in', input.knowledgePageIds)
-      .where('staleAt', 'is', null)
-      .orderBy('knowledgePageId')
-      .orderBy('position')
-      .execute();
-  }
-
   async findGraphCandidatesForSpace(
     input: { workspaceId: string; spaceId: string; limit: number },
     trx?: KyselyTransaction,
@@ -1419,6 +1360,57 @@ export class KnowledgeCapsuleRepo {
     }));
   }
 
+  async findChunkAttachmentsByChunkIds(
+    input: { workspaceId: string; chunkIds: string[] },
+    trx?: KyselyTransaction,
+  ): Promise<
+    Array<{
+      chunkId: string;
+      attachments: Array<{
+        occurrenceOrder: number;
+        attachmentId: string;
+        sourcePageId: string;
+        sourceVersion: string;
+        sourceContentHash: string;
+        attachmentUpdatedAt: Date;
+      }>;
+    }>
+  > {
+    if (input.chunkIds.length === 0) return [];
+
+    const rows = await dbOrTx(this.db, trx)
+      .selectFrom('knowledgeChunkAttachments')
+      .select([
+        'knowledgeChunkAttachments.chunkId',
+        'knowledgeChunkAttachments.occurrenceOrder',
+        'knowledgeChunkAttachments.attachmentId',
+        'knowledgeChunkAttachments.sourcePageId',
+        'knowledgeChunkAttachments.sourceVersion',
+        'knowledgeChunkAttachments.sourceContentHash',
+        'knowledgeChunkAttachments.attachmentUpdatedAt',
+      ])
+      .where('knowledgeChunkAttachments.workspaceId', '=', input.workspaceId)
+      .where('knowledgeChunkAttachments.chunkId', 'in', input.chunkIds)
+      .orderBy('knowledgeChunkAttachments.occurrenceOrder', 'asc')
+      .execute();
+    const attachmentsByChunkId = groupBy(rows, (row) => row.chunkId);
+
+    return input.chunkIds.map((chunkId) => ({
+      chunkId,
+      attachments: (attachmentsByChunkId.get(chunkId) ?? [])
+        .slice()
+        .sort((a, b) => a.occurrenceOrder - b.occurrenceOrder)
+        .map((row) => ({
+          occurrenceOrder: row.occurrenceOrder,
+          attachmentId: row.attachmentId,
+          sourcePageId: row.sourcePageId,
+          sourceVersion: row.sourceVersion,
+          sourceContentHash: row.sourceContentHash,
+          attachmentUpdatedAt: new Date(row.attachmentUpdatedAt),
+        })),
+    }));
+  }
+
   async markCapsulesStaleBySourcePageIds(
     input: { workspaceId: string; sourcePageIds: string[] },
     trx?: KyselyTransaction,
@@ -1621,12 +1613,36 @@ export class KnowledgeCapsuleRepo {
           AND source_presence.chunk_id = knowledge_chunks.id
       )
     `;
+    const labelScope =
+      input.labelNames && input.labelNames.length > 0
+        ? sql<boolean>`
+            NOT EXISTS (
+              SELECT 1
+              FROM knowledge_chunk_sources AS label_source
+              WHERE label_source.workspace_id = ${input.workspaceId}
+                AND label_source.chunk_id = knowledge_chunks.id
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM page_labels AS matching_page_label
+                  INNER JOIN labels AS matching_label
+                    ON matching_label.id = matching_page_label.label_id
+                  WHERE matching_page_label.page_id = label_source.source_page_id
+                    AND matching_label.workspace_id = ${input.workspaceId}
+                    AND matching_label.type = 'page'
+                    AND matching_label.name IN (${sql.join(input.labelNames)})
+                )
+            )
+          `
+        : sql<boolean>`TRUE`;
     if (input.authorizationMode === 'final-authorization-fallback') {
-      return (query as any).where(sourcePresence);
+      return (query as any).where(sql<boolean>`
+        ${sourcePresence} AND ${labelScope}
+      `);
     }
 
     return (query as any).where(sql<boolean>`
       ${sourcePresence}
+      AND ${labelScope}
       AND NOT EXISTS (
         SELECT 1
         FROM knowledge_chunk_sources AS acl_source

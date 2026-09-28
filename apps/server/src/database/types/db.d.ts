@@ -68,7 +68,9 @@ export interface AiModelConfigs {
 }
 
 export interface ApiKeys {
+  agentUserId: string | null;
   createdAt: Generated<Timestamp>;
+  credentialVersion: Int8 | null;
   creatorId: string;
   deletedAt: Timestamp | null;
   expiresAt: Timestamp | null;
@@ -318,6 +320,17 @@ export interface KnowledgeChunks {
   workspaceId: string;
 }
 
+export interface KnowledgeChunkAttachments {
+  attachmentId: string;
+  attachmentUpdatedAt: Timestamp;
+  chunkId: string;
+  occurrenceOrder: number;
+  sourceContentHash: string;
+  sourcePageId: string;
+  sourceVersion: string;
+  workspaceId: string;
+}
+
 export interface KnowledgeChunkSources {
   attachmentId: string | null;
   chunkId: string;
@@ -370,8 +383,6 @@ export interface KnowledgeCompilationAttempts {
   errorCode: string | null;
   errorMessage: string | null;
   finishedAt: Timestamp | null;
-  generationAttemptCount: Generated<number>;
-  generationAttemptSourceHash: string | null;
   generationCandidateHash: string | null;
   generationCandidateIds: Generated<Json>;
   id: Generated<string>;
@@ -379,11 +390,6 @@ export interface KnowledgeCompilationAttempts {
   lastSuccessfulEffectiveHash: string | null;
   lastSuccessfulSourceHash: string | null;
   lastSuccessfulSourceVersion: string | null;
-  pendingCreatedAt: Timestamp | null;
-  pendingEffectiveKnowledgeHash: string | null;
-  pendingImport: Json | null;
-  pendingSourceVersion: string | null;
-  pendingSpaceId: string | null;
   promptVersion: string;
   queuedAt: Generated<Timestamp>;
   resultQuality: Generated<string>;
@@ -578,45 +584,6 @@ export interface KnowledgeQueryAudit {
   workspaceId: string;
 }
 
-export interface KnowledgeReviewApplications {
-  afterContent: string;
-  afterContentHash: string;
-  appliedAt: Timestamp | null;
-  appliedBy: string;
-  baseContentHash: string | null;
-  basePageVersion: string | null;
-  beforeContent: string | null;
-  createdAt: Generated<Timestamp>;
-  createdPageId: string | null;
-  id: Generated<string>;
-  operation: string;
-  patch: Json | null;
-  rationale: Generated<string>;
-  revertedAt: Timestamp | null;
-  reviewItemId: string;
-  sourceRefs: Generated<Json>;
-  spaceId: string;
-  status: Generated<string>;
-  targetHeadingPath: Generated<Json>;
-  targetPageId: string | null;
-  targetPageTitle: string | null;
-  updatedAt: Generated<Timestamp>;
-  workspaceId: string;
-}
-
-export interface KnowledgeReviewSnapshots {
-  discoveredAt: Generated<Timestamp>;
-  docs: Generated<Json>;
-  id: Generated<string>;
-  items: Generated<Json>;
-  jobs: Generated<Json>;
-  resolvedReviews: Generated<Json>;
-  spaceId: string;
-  updatedAt: Generated<Timestamp>;
-  version: Generated<string>;
-  workspaceId: string;
-}
-
 export interface KnowledgeSourceAccessPolicy {
   policyHash: string;
   policyVersion: Generated<number>;
@@ -718,6 +685,7 @@ export interface KnowledgeSpaceCompileRunImages {
 }
 
 export interface KnowledgeSpaceCompileRunPages {
+  attemptCount: Generated<number>;
   bindingStatus: Generated<string>;
   boundAt: Generated<Timestamp | null>;
   createdAt: Generated<Timestamp>;
@@ -733,6 +701,7 @@ export interface KnowledgeSpaceCompileRunPages {
   imageJobId: string | null;
   imageStatus: Generated<string>;
   jobId: string | null;
+  mergeAttemptCount: Generated<number>;
   mergedEffectiveKnowledgeHash: string | null;
   mergeJobId: string | null;
   mergeStatus: Generated<string>;
@@ -753,10 +722,7 @@ export interface KnowledgeSpaceCompileRunPages {
 
 export interface KnowledgeSpaceCompileRuns {
   aggregateJobId: string | null;
-  aggregateRequired: Generated<boolean>;
   aggregateStartedAt: Timestamp | null;
-  catalogHash: string;
-  catalogSnapshot: Generated<Json>;
   compilerVersion: string;
   createdAt: Generated<Timestamp>;
   errorCode: string | null;
@@ -766,6 +732,7 @@ export interface KnowledgeSpaceCompileRuns {
   expectedPageCount: Generated<number>;
   failedPageCount: Generated<number>;
   finishedAt: Timestamp | null;
+  followUpTargetSourcePageIds: Json | null;
   heartbeatAt: Timestamp | null;
   id: Generated<string>;
   importedArtifactCount: Generated<number>;
@@ -858,16 +825,34 @@ export interface PageHistory {
   contributorIds: Generated<string[] | null>;
   coverPhoto: string | null;
   createdAt: Generated<Timestamp>;
+  diffAddedCount: Generated<number>;
+  diffAlgorithmVersion: string | null;
+  diffChanges: Json | null;
+  diffDeletedCount: Generated<number>;
+  diffErrorCode: string | null;
+  diffFromContentHash: string | null;
+  diffSchemaVersion: string | null;
+  diffStatus: string | null;
+  diffToContentHash: string | null;
   icon: string | null;
   id: Generated<string>;
   lastUpdatedById: string | null;
   pageId: string;
+  previousHistoryId: string | null;
   slug: string | null;
   slugId: string | null;
   spaceId: string;
   title: string | null;
   updatedAt: Generated<Timestamp>;
   version: number | null;
+  workspaceId: string;
+}
+
+export interface PageVisits {
+  id: Generated<string>;
+  lastVisitedAt: Generated<Timestamp>;
+  pageId: string;
+  userId: string;
   workspaceId: string;
 }
 
@@ -1076,6 +1061,7 @@ export interface Users {
   settings: Json | null;
   timezone: string | null;
   updatedAt: Generated<Timestamp>;
+  userType: Generated<string>;
   workspaceId: string | null;
 }
 
@@ -1174,6 +1160,7 @@ export interface DB {
   groups: Groups;
   groupUsers: GroupUsers;
   knowledgeArtifactContributions: KnowledgeArtifactContributions;
+  knowledgeChunkAttachments: KnowledgeChunkAttachments;
   knowledgeChunks: KnowledgeChunks;
   knowledgeChunkSources: KnowledgeChunkSources;
   knowledgeClaims: KnowledgeClaims;
@@ -1191,8 +1178,6 @@ export interface DB {
   knowledgeParentSectionSources: KnowledgeParentSectionSources;
   knowledgeQuarantinedArtifacts: KnowledgeQuarantinedArtifacts;
   knowledgeQueryAudit: KnowledgeQueryAudit;
-  knowledgeReviewApplications: KnowledgeReviewApplications;
-  knowledgeReviewSnapshots: KnowledgeReviewSnapshots;
   knowledgeSourceAccessPolicy: KnowledgeSourceAccessPolicy;
   knowledgeSourceAccessPrincipals: KnowledgeSourceAccessPrincipals;
   knowledgeSourceAccessRequirements: KnowledgeSourceAccessRequirements;
@@ -1207,6 +1192,7 @@ export interface DB {
   notifications: Notifications;
   pageAccess: PageAccess;
   pageHistory: PageHistory;
+  pageVisits: PageVisits;
   pageLabels: PageLabels;
   pagePermissions: PagePermissions;
   pages: Pages;

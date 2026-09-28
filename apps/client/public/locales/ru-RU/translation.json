@@ -604,6 +604,8 @@
   "List all subpages of the current page": "Показать все подстраницы текущей страницы",
   "Attachments": "Вложения",
   "All spaces": "Все пространства",
+  "All permissions": "Все разрешения",
+  "Filter by permission": "Фильтр по разрешению",
   "Unknown": "Неизвестно",
   "Find a space": "Найти пространство",
   "Search in all your spaces": "Искать во всех ваших пространствах",

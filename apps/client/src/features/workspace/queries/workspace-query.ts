@@ -19,6 +19,7 @@ import {
   deleteWorkspaceMember,
   deactivateWorkspaceMember,
   activateWorkspaceMember,
+  GetWorkspaceMember,
 } from "@/features/workspace/services/workspace-service";
 import { IPagination, QueryParams } from "@/lib/types.ts";
 import { notifications } from "@mantine/notifications";
@@ -28,6 +29,7 @@ import {
   IPublicWorkspace,
   IVersion,
   IWorkspace,
+  IWorkspaceMemberDetail,
 } from "@/features/workspace/types/workspace.types.ts";
 import { IUser } from "@/features/user/types/user.types.ts";
 import { useTranslation } from "react-i18next";
@@ -59,6 +61,17 @@ export function useWorkspaceMembersQuery(
   });
 }
 
+export function useWorkspaceMemberQuery(
+  userId: string,
+  enabled = true,
+): UseQueryResult<IWorkspaceMemberDetail, Error> {
+  return useQuery({
+    queryKey: ["workspaceMember", userId],
+    queryFn: () => GetWorkspaceMember(userId),
+    enabled: enabled && !!userId,
+  });
+}
+
 export function useDeleteWorkspaceMemberMutation() {
   const queryClient = useQueryClient();
 
@@ -74,6 +87,10 @@ export function useDeleteWorkspaceMemberMutation() {
       notifications.show({ message: "Member deleted successfully" });
       queryClient.invalidateQueries({
         queryKey: ["workspaceMembers"],
+      });
+      queryClient.removeQueries({
+        queryKey: ["workspaceMember", variables.userId],
+        exact: true,
       });
     },
     onError: (error) => {
@@ -98,6 +115,9 @@ export function useDeactivateWorkspaceMemberMutation() {
       queryClient.invalidateQueries({
         queryKey: ["workspaceMembers"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["workspaceMember"],
+      });
     },
     onError: (error) => {
       const errorMessage = error["response"]?.data?.message;
@@ -121,6 +141,9 @@ export function useActivateWorkspaceMemberMutation() {
       queryClient.invalidateQueries({
         queryKey: ["workspaceMembers"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["workspaceMember"],
+      });
     },
     onError: (error) => {
       const errorMessage = error["response"]?.data?.message;
@@ -138,6 +161,9 @@ export function useChangeMemberRoleMutation() {
       notifications.show({ message: "Member role updated successfully" });
       queryClient.refetchQueries({
         queryKey: ["workspaceMembers"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["workspaceMember"],
       });
     },
     onError: (error) => {

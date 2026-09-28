@@ -17,8 +17,8 @@ export class SsoUserLifecycleService {
     if (!workspace) throw new NotFoundException('Workspace not initialized');
 
     const user = await this.userRepo.findByEmail(dto.email, workspace.id);
-    if (!user || user.deletedAt) return;
+    if (!user || user.deletedAt || user.deactivatedAt) return;
 
-    await this.workspaceService.deleteUserBySso(user.id, workspace.id);
+    await this.workspaceService.deactivateUserBySso(user.id, workspace.id);
   }
 }

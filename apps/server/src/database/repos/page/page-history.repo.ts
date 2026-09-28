@@ -11,7 +11,29 @@ import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
 import { executeWithCursorPagination } from '@akasha/db/pagination/cursor-pagination';
 import { jsonArrayFrom, jsonObjectFrom } from 'kysely/helpers/postgres';
 import { ExpressionBuilder, sql } from 'kysely';
-import { DB } from '@akasha/db/types/db';
+import { DB, JsonValue } from '@akasha/db/types/db';
+
+export type PageHistoryDiffStatus =
+  | 'pending'
+  | 'running'
+  | 'ready'
+  | 'failed'
+  | 'too_large';
+
+interface CreatePageHistoryDiffInput {
+  fromHistoryId: string;
+  toHistoryId: string;
+  algorithmVersion: string;
+  schemaVersion: string;
+}
+
+interface CompletePageHistoryDiffInput {
+  changes: JsonValue;
+  addedCount: number;
+  deletedCount: number;
+  fromContentHash: string;
+  toContentHash: string;
+}
 
 @Injectable()
 export class PageHistoryRepo {
@@ -65,8 +87,8 @@ export class PageHistoryRepo {
   async saveHistory(
     page: Page,
     opts?: { contributorIds?: string[]; trx?: KyselyTransaction },
-  ): Promise<void> {
-    await this.insertPageHistory(
+  ): Promise<PageHistory> {
+    return this.insertPageHistory(
       {
         pageId: page.id,
         slugId: page.slugId,
@@ -81,6 +103,110 @@ export class PageHistoryRepo {
       },
       opts?.trx,
     );
+  }
+
+  async findPreviousHistory(history: PageHistory): Promise<PageHistory> {
+    return this.db
+      .selectFrom('pageHistory')
+      .select(this.baseFields)
+      .where('pageId', '=', history.pageId)
+      .where((eb) =>
+        eb.or([
+          eb('createdAt', '<', history.createdAt),
+          eb.and([
+            eb('createdAt', '=', history.createdAt),
+            eb('id', '<', history.id),
+          ]),
+        ]),
+      )
+      .orderBy('createdAt', 'desc')
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+  }
+
+  async findDiffByTargetHistoryId(
+    toHistoryId: string,
+    algorithmVersion: string,
+    schemaVersion: string,
+  ) {
+    return this.db
+      .selectFrom('pageHistory')
+      .select([
+        'previousHistoryId as fromHistoryId',
+        'id as toHistoryId',
+        'diffAlgorithmVersion as algorithmVersion',
+        'diffSchemaVersion as schemaVersion',
+        'diffFromContentHash as fromContentHash',
+        'diffToContentHash as toContentHash',
+        'diffStatus as status',
+        'diffChanges as changes',
+        'diffAddedCount as addedCount',
+        'diffDeletedCount as deletedCount',
+        'diffErrorCode as errorCode',
+      ])
+      .where('id', '=', toHistoryId)
+      .where('diffAlgorithmVersion', '=', algorithmVersion)
+      .where('diffSchemaVersion', '=', schemaVersion)
+      .where('diffStatus', 'is not', null)
+      .executeTakeFirst();
+  }
+
+  async createPendingDiff(input: CreatePageHistoryDiffInput) {
+    return this.db
+      .updateTable('pageHistory')
+      .set({
+        previousHistoryId: input.fromHistoryId,
+        diffAlgorithmVersion: input.algorithmVersion,
+        diffSchemaVersion: input.schemaVersion,
+        diffFromContentHash: null,
+        diffToContentHash: null,
+        diffStatus: 'pending',
+        diffChanges: null,
+        diffAddedCount: 0,
+        diffDeletedCount: 0,
+        diffErrorCode: null,
+      })
+      .where('id', '=', input.toHistoryId)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  async updateDiffStatus(
+    toHistoryId: string,
+    algorithmVersion: string,
+    status: PageHistoryDiffStatus,
+    errorCode: string | null = null,
+  ) {
+    await this.db
+      .updateTable('pageHistory')
+      .set({
+        diffStatus: status,
+        diffErrorCode: errorCode,
+      })
+      .where('id', '=', toHistoryId)
+      .where('diffAlgorithmVersion', '=', algorithmVersion)
+      .execute();
+  }
+
+  async completeDiff(
+    toHistoryId: string,
+    algorithmVersion: string,
+    input: CompletePageHistoryDiffInput,
+  ) {
+    await this.db
+      .updateTable('pageHistory')
+      .set({
+        diffChanges: input.changes,
+        diffAddedCount: input.addedCount,
+        diffDeletedCount: input.deletedCount,
+        diffFromContentHash: input.fromContentHash,
+        diffToContentHash: input.toContentHash,
+        diffStatus: 'ready',
+        diffErrorCode: null,
+      })
+      .where('id', '=', toHistoryId)
+      .where('diffAlgorithmVersion', '=', algorithmVersion)
+      .execute();
   }
 
   async findPageHistoryByPageId(pageId: string, pagination: PaginationOptions) {

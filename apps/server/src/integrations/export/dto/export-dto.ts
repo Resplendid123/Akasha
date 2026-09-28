@@ -37,8 +37,4 @@ export class ExportSpaceDto {
   @IsString()
   @IsIn(['html', 'markdown'])
   format: ExportFormat;
-
-  @IsOptional()
-  @IsBoolean()
-  includeAttachments?: boolean;
 }

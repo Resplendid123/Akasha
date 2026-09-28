@@ -53,6 +53,61 @@ describe('KnowledgeImageEnrichmentService', () => {
     expect(fixture.storageService.read).not.toHaveBeenCalled();
   });
 
+  it('rebuilds the merge input from frozen extraction ids without drift', async () => {
+    const fixture = createFixture();
+    fixture.extractionRepo.findReadyByIds.mockResolvedValue([
+      {
+        ...extraction({
+          id: 'extraction-1',
+          status: 'ready',
+          ocrText: 'frozen OCR',
+          caption: 'frozen caption',
+        }),
+        workspaceId: 'workspace-1',
+        attachmentId: 'image-1',
+        attachmentVersion: new Date('2026-07-27T00:01:00.000Z'),
+        currentAttachmentVersion: new Date('2026-07-27T00:01:00.000Z'),
+        attachmentWorkspaceId: 'workspace-1',
+        attachmentSpaceId: 'space-1',
+        attachmentPageId: 'page-1',
+        cacheFingerprint: 'sha256:cache',
+        contentHash: 'sha256:image',
+        model: 'sha256:provider-identity',
+        promptVersion: 'akasha-page-image-understanding-v1',
+      },
+    ]);
+
+    const result = await fixture.service.readFrozenSource(source('正文'), [
+      'extraction-1',
+    ]);
+
+    expect(result.source.text).toContain('frozen OCR');
+    expect(result.readyExtractionIds).toEqual(['extraction-1']);
+    expect(result.missingExtractionIds).toEqual([]);
+    // Reads by frozen id, never the live "currently ready" lookup.
+    expect(
+      fixture.extractionRepo.findCurrentReadyForSnapshotImages,
+    ).not.toHaveBeenCalled();
+    expect(fixture.extractionRepo.findReadyByIds).toHaveBeenCalledWith(
+      expect.objectContaining({ extractionIds: ['extraction-1'] }),
+    );
+  });
+
+  it('reports a missing id when a frozen extraction can no longer be reproduced', async () => {
+    const fixture = createFixture();
+    // The frozen extraction id resolves to nothing (deleted, identity changed,
+    // or re-extracted): findReadyByIds returns no matching row.
+    fixture.extractionRepo.findReadyByIds.mockResolvedValue([]);
+
+    const result = await fixture.service.readFrozenSource(source('正文'), [
+      'extraction-frozen',
+    ]);
+
+    expect(result.readyImages).toEqual([]);
+    expect(result.readyExtractionIds).toEqual([]);
+    expect(result.missingExtractionIds).toEqual(['extraction-frozen']);
+  });
+
   it('returns explicit terminal counters for a ready cache hit', async () => {
     const fixture = createFixture();
     fixture.extractionRepo.claim.mockResolvedValue({
@@ -477,6 +532,7 @@ function createFixture(overrides?: { pageId?: string; bytes?: Buffer }) {
   };
   const extractionRepo = {
     findCurrentReadyForSnapshotImages: jest.fn().mockResolvedValue([]),
+    findReadyByIds: jest.fn().mockResolvedValue([]),
     claim: jest.fn().mockResolvedValue({
       state: 'claimed',
       extraction: extraction(),

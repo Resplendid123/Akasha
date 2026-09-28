@@ -46,7 +46,7 @@ describe('reconcileFollowUpTargetScope', () => {
   it('narrows the first post-initialization edit after a full Run to that page', () => {
     expect(
       reconcileFollowUpTargetScope({
-        runTargetSourcePageIds: null,
+        followUpTargetSourcePageIds: null,
         requestTargetSourcePageIds: ['page-a'],
         rerunAlreadyRequested: false,
       }),
@@ -56,11 +56,24 @@ describe('reconcileFollowUpTargetScope', () => {
   it('does not narrow an already requested full-Space follow-up', () => {
     expect(
       reconcileFollowUpTargetScope({
-        runTargetSourcePageIds: null,
+        followUpTargetSourcePageIds: null,
         requestTargetSourcePageIds: ['page-a'],
         rerunAlreadyRequested: true,
       }),
     ).toEqual({ changed: false, targetSourcePageIds: null });
+  });
+
+  it('unions later page changes into an existing bounded follow-up', () => {
+    expect(
+      reconcileFollowUpTargetScope({
+        followUpTargetSourcePageIds: ['page-a'],
+        requestTargetSourcePageIds: ['page-b'],
+        rerunAlreadyRequested: true,
+      }),
+    ).toEqual({
+      changed: true,
+      targetSourcePageIds: ['page-a', 'page-b'],
+    });
   });
 });
 

@@ -350,15 +350,6 @@ export class EnvironmentService {
     );
   }
 
-  getKnowledgeAggregateDeadlineMs(): number {
-    return Number(
-      this.configService.get<string | number>(
-        'KNOWLEDGE_AGGREGATE_DEADLINE_MS',
-        300_000,
-      ),
-    );
-  }
-
   getKnowledgeImageJobDeadlineMs(): number {
     return Number(
       this.configService.get<string | number>(
@@ -383,7 +374,7 @@ export class EnvironmentService {
     );
   }
 
-  getKnowledgeSpaceSliceMaxPages(): number {
+  getKnowledgeSpaceLeaseMaxPages(): number {
     return Number(
       this.configService.get<string | number>(
         'KNOWLEDGE_SPACE_SLICE_MAX_PAGES',
@@ -392,7 +383,7 @@ export class EnvironmentService {
     );
   }
 
-  getKnowledgeSpaceSliceMaxMs(): number {
+  getKnowledgeSpaceLeaseMaxMs(): number {
     return Number(
       this.configService.get<string | number>(
         'KNOWLEDGE_SPACE_SLICE_MAX_MS',
@@ -470,6 +461,10 @@ export class EnvironmentService {
 
   getSsoArchToken(): string {
     return this.configService.get<string>('SSO_ARCH_TOKEN', '');
+  }
+
+  getIselfApiKeySecret(): string {
+    return this.configService.get<string>('ISELF_API_KEY_SECRET', '');
   }
 
   isIframeEmbedAllowed(): boolean {

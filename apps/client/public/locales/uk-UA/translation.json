@@ -604,6 +604,8 @@
   "List all subpages of the current page": "Показати всі підсторінки поточної сторінки",
   "Attachments": "Вкладення",
   "All spaces": "Усі простори",
+  "All permissions": "Усі дозволи",
+  "Filter by permission": "Фільтрувати за дозволом",
   "Unknown": "Невідомо",
   "Find a space": "Знайти простір",
   "Search in all your spaces": "Шукати в усіх ваших просторах",

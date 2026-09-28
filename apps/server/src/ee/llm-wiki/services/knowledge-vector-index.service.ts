@@ -115,7 +115,6 @@ export class KnowledgeVectorIndexService {
       .where('chunk.workspaceId', '=', input.workspaceId)
       .where('chunk.spaceId', '=', input.spaceId)
       .where('chunk.staleAt', 'is', null)
-      .where('page.pageType', '!=', 'overview')
       .$if(Boolean(input.afterChunkId), (query) =>
         query.where('chunk.id', '>', input.afterChunkId!),
       )

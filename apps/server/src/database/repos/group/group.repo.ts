@@ -180,6 +180,41 @@ export class GroupRepo {
       .as('memberCount');
   }
 
+  async ListUserGroup(userId: string, workspaceId: string) {
+    return this.db
+      .selectFrom('groupUsers')
+      .innerJoin('groups', 'groups.id', 'groupUsers.groupId')
+      .select([
+        'groups.id',
+        'groups.name',
+        'groups.description',
+        'groups.isDefault',
+        'groups.isExternal',
+      ])
+      .where('groupUsers.userId', '=', userId)
+      .where('groups.workspaceId', '=', workspaceId)
+      .where('groups.deletedAt', 'is', null)
+      .orderBy('groups.isDefault', 'desc')
+      .orderBy('groups.name', 'asc')
+      .orderBy('groups.id', 'asc')
+      .execute();
+  }
+
+  async findAllByWorkspace(workspaceId: string) {
+    return this.db
+      .selectFrom('groups')
+      .select([
+        'groups.id',
+        'groups.name',
+        'groups.description',
+        'groups.isDefault',
+        'groups.isExternal',
+      ])
+      .select((eb) => this.withMemberCount(eb))
+      .where('workspaceId', '=', workspaceId)
+      .execute();
+  }
+
   async delete(
     groupId: string,
     workspaceId: string,

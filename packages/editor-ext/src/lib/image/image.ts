@@ -9,6 +9,13 @@ import { ResizableNodeView } from "../resizable-nodeview";
 import type { ResizableNodeViewDirection } from "../resizable-nodeview";
 import { normalizeFileUrl } from "../media-utils";
 
+export const IMAGE_VIEWER_EVENT = "akasha:open-image-viewer";
+
+export function openImageLightbox(src: string, alt?: string): void {
+  document.dispatchEvent(
+    new CustomEvent(IMAGE_VIEWER_EVENT, { detail: { src, alt } }),
+  );
+}
 export type ImageResizeOptions = {
   enabled: boolean;
   directions?: ResizableNodeViewDirection[];
@@ -257,6 +264,13 @@ export const TiptapImage = Image.extend<ImageOptions>({
       el.style.display = "block";
       el.style.maxWidth = "100%";
       el.style.borderRadius = "8px";
+      el.style.cursor = "zoom-in";
+
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openImageLightbox(el.src, el.alt);
+      });
 
       if (typeof node.attrs.width === "number" && node.attrs.width > 0) {
         el.style.width = `${node.attrs.width}px`;

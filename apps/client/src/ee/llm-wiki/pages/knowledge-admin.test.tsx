@@ -298,7 +298,7 @@ describe("KnowledgeAdminPage", () => {
       expect(getKnowledgeRunDiagnosticsSummary).toHaveBeenCalledWith({}),
     );
     expect(getKnowledgeRunDiagnostics).toHaveBeenCalledWith({
-      statuses: ["queued", "compiling", "aggregate_pending", "aggregating"],
+      statuses: ["queued", "compiling", "aggregating"],
       page: 1,
       limit: 50,
     });
@@ -449,7 +449,7 @@ describe("KnowledgeAdminPage", () => {
     await waitFor(() =>
       expect(getKnowledgeRunDiagnostics).toHaveBeenCalledWith({
         spaceIds: ["space-1"],
-        statuses: ["queued", "compiling", "aggregate_pending", "aggregating"],
+        statuses: ["queued", "compiling", "aggregating"],
         page: 1,
         limit: 50,
       }),
@@ -464,7 +464,7 @@ describe("KnowledgeAdminPage", () => {
       ).toBeGreaterThan(callsBeforeReturningToAll),
     );
     expect(getKnowledgeRunDiagnostics).toHaveBeenLastCalledWith({
-      statuses: ["queued", "compiling", "aggregate_pending", "aggregating"],
+      statuses: ["queued", "compiling", "aggregating"],
       page: 1,
       limit: 50,
     });

@@ -106,7 +106,6 @@ describe('multi-space compilation migration contract', () => {
     const database = interfaceBody(databaseTypes, 'DB');
 
     expect(runs).toContain('initializedAt: Timestamp | null;');
-    expect(runs).toContain('aggregateRequired: Generated<boolean>;');
     expect(runs).toContain('spaceJobSequence: Generated<number>;');
     expect(runs).toContain('spaceJobRecoveryCount: Generated<number>;');
     expect(runs).toContain('executionToken: string | null;');

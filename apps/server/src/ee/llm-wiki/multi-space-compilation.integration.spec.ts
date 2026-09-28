@@ -31,7 +31,7 @@ describe('multi-Space compilation architecture', () => {
         run: { id: `run-${index + 1}`, spaceId: request.spaceId },
       })),
     );
-    runRepo.findSpaceSliceReservationCandidates.mockResolvedValue(
+    runRepo.findSpaceJobReservationCandidates.mockResolvedValue(
       slices.map((slice) => ({
         id: slice.runId,
         workspaceId: slice.workspaceId,
@@ -40,13 +40,13 @@ describe('multi-Space compilation architecture', () => {
         spaceJobQueuedAt: slice.spaceJobQueuedAt,
       })),
     );
-    runRepo.findUndispatchedSpaceSlices.mockResolvedValue(slices);
+    runRepo.findUndispatchedSpaceJobs.mockResolvedValue(slices);
     const { service, spaceQueue, imageQueue } = createService(runRepo);
 
     await expect(service.requestRuns(requests)).resolves.toHaveLength(100);
 
     expect(runRepo.requestRuns.mock.calls[0][0].requests).toHaveLength(100);
-    expect(runRepo.reserveNextSpaceSlice).toHaveBeenCalledTimes(100);
+    expect(runRepo.reserveNextSpaceJob).toHaveBeenCalledTimes(100);
     expect(spaceQueue.add).toHaveBeenCalledTimes(100);
     expect(
       spaceQueue.add.mock.calls.every(
@@ -150,10 +150,10 @@ function createRunRepo() {
       promotedPageCount: 0,
       runRequestCount: 0,
     }),
-    findSpaceSliceReservationCandidates: jest.fn().mockResolvedValue([]),
-    reserveNextSpaceSlice: jest.fn().mockResolvedValue(true),
-    findUndispatchedSpaceSlices: jest.fn().mockResolvedValue([]),
-    markSpaceSliceDispatched: jest.fn().mockResolvedValue(true),
+    findSpaceJobReservationCandidates: jest.fn().mockResolvedValue([]),
+    reserveNextSpaceJob: jest.fn().mockResolvedValue(true),
+    findUndispatchedSpaceJobs: jest.fn().mockResolvedValue([]),
+    markSpaceJobDispatched: jest.fn().mockResolvedValue(true),
     reserveRunImagesFairly: jest.fn().mockResolvedValue([]),
     findUndispatchedRunImages: jest.fn().mockResolvedValue([]),
     markRunImageDispatched: jest.fn().mockResolvedValue(true),

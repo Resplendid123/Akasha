@@ -1,14 +1,12 @@
 import {
   ForbiddenException,
   Controller,
-  Headers,
   HttpCode,
   HttpStatus,
   Inject,
   Logger,
   Optional,
   Post,
-  UnauthorizedException,
   UseGuards,
   Body,
 } from '@nestjs/common';
@@ -22,7 +20,6 @@ import {
   IAuditService,
   AUDIT_SERVICE,
 } from '../../integrations/audit/audit.service';
-import { ApiKeyService } from '../api-key/api-key.service';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 import { QueryKnowledgeDto } from './dto/query-knowledge.dto';
 import {
@@ -31,10 +28,17 @@ import {
 } from './services/ai-knowledge-chat.service';
 import { KnowledgeCitationImageResolverService } from './services/knowledge-citation-image-resolver.service';
 import { KnowledgeCitationAttachmentResolverService } from './services/knowledge-citation-attachment-resolver.service';
-import { IsElfAgentAuthGuard } from './guards/iself-agent-auth.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AgentCallable } from '../../common/decorators/agent-callable.decorator';
+import { AgentCapability } from '../../common/auth/agent-capability';
+import { AuthCredentials } from '../../common/decorators/auth-credentials.decorator';
+import { AuthCredentialPolicy } from '../../common/auth/auth-credential-policy';
+import { AgentAccess } from '../../common/decorators/agent-access.decorator';
+import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { AgentAccessService } from '../../core/page/page-access/agent-access.service';
 
 /** HTTP boundary for iself agents, with the same knowledge-chat behavior as the regular API. */
-@UseGuards(IsElfAgentAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('iself/llm-wiki')
 export class IsElfLlmWikiController {
   private readonly logger = new Logger(IsElfLlmWikiController.name);
@@ -43,7 +47,7 @@ export class IsElfLlmWikiController {
     private readonly chatService: AiKnowledgeChatService,
     private readonly citationImageResolver: KnowledgeCitationImageResolverService,
     private readonly queryAuditRepo: KnowledgeQueryAuditRepo,
-    private readonly apiKeyService: ApiKeyService,
+    private readonly agentAccessService: AgentAccessService,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
     @Optional() private readonly environmentService?: EnvironmentService,
     @Optional()
@@ -52,25 +56,21 @@ export class IsElfLlmWikiController {
 
   @HttpCode(HttpStatus.OK)
   @Post('query')
+  @AgentCallable(AgentCapability.KNOWLEDGE_QUERY)
+  @AuthCredentials(AuthCredentialPolicy.AGENT_AND_SSO)
   async queryKnowledge(
     @Body() dto: QueryKnowledgeDto,
     @AuthUser() user: User,
     @AuthWorkspace() workspace: Workspace,
-    @Headers('x-akasha-public-key') publicApiKey?: string,
+    @AgentAccess() agentAccess: AgentAccessContext,
   ) {
     if (!this.chatService.isEnabledForWorkspace(workspace)) {
       throw new ForbiddenException('AI knowledge chat is disabled');
     }
 
-    if (!publicApiKey) {
-      throw new UnauthorizedException('Public API key is required');
-    }
-
-    const publicAccess = await this.apiKeyService.validatePublicApiKey(
-      publicApiKey,
-      workspace.id,
+    const allowedSpaceIds = new Set(
+      await this.agentAccessService.getBoundSpaceIds(agentAccess),
     );
-    const allowedSpaceIds = new Set(publicAccess.spaceIds);
     const unauthorizedSpaceIds = dto.spaceIds.filter(
       (spaceId) => !allowedSpaceIds.has(spaceId),
     );
@@ -83,8 +83,10 @@ export class IsElfLlmWikiController {
     const result = await this.chatService.chat({
       workspaceId: workspace.id,
       userId: user.id,
+      supplementalUserId: agentAccess.delegatedUser!.id,
       query: dto.query,
       spaceIds: dto.spaceIds,
+      ...(dto.labels?.length ? { labelNames: dto.labels } : {}),
       chatContext: dto.chatContext,
       workspace,
       // iself is intentionally fail-closed for general knowledge. The caller
@@ -94,9 +96,19 @@ export class IsElfLlmWikiController {
       ...(dto.scoreThreshold !== undefined
         ? { scoreThreshold: dto.scoreThreshold }
         : {}),
+      ...(dto.rawResultsOnly === true ? { rawResultsOnly: true } : {}),
+      ...(dto.queryRewriteEnabled !== undefined
+        ? { queryRewriteEnabled: dto.queryRewriteEnabled }
+        : {}),
     });
     const queryHash = hashQuery(dto.query);
-    const { retrievalDiagnostics, retrievalScope, ...response } = result;
+    // Strip internal-only fields so they never leak through `...response`.
+    const {
+      retrievalDiagnostics,
+      retrievalScope,
+      attachmentHitContext,
+      ...response
+    } = result;
     const requestedSpaceIds = retrievalScope?.requestedSpaceIds ?? dto.spaceIds;
     const effectiveSpaceIds =
       retrievalScope?.effectiveSpaceIds ?? requestedSpaceIds;
@@ -110,10 +122,11 @@ export class IsElfLlmWikiController {
         origin: 'iself_knowledge_query',
         queryHash,
         spaceIds: dto.spaceIds,
+        ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
-        publicApiKeyId: publicAccess.apiKeyId,
+        publicApiKeyId: agentAccess.apiKeyId,
         citationCount: response.citations.length,
       },
     });
@@ -127,10 +140,11 @@ export class IsElfLlmWikiController {
       metadata: {
         origin: 'iself_knowledge_query',
         spaceIds: dto.spaceIds,
+        ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
-        publicApiKeyId: publicAccess.apiKeyId,
+        publicApiKeyId: agentAccess.apiKeyId,
         queryEmbeddingAvailable: retrievalDiagnostics.queryEmbeddingAvailable,
         candidateSourceCount: retrievalDiagnostics.candidateSourceCount,
         policyCandidateSourceCount:
@@ -153,11 +167,13 @@ export class IsElfLlmWikiController {
       citations: response.citations,
       citationEvidence: response.citationEvidence,
     });
+    // Top-level attachments are gated strictly by `attachments: true`;
+    // `includeCitations` only controls citations (§8.1).
     const attachments =
-      dto.attachments === true || dto.includeCitations === true
+      dto.attachments === true
         ? await this.resolveAttachments({
             workspaceId: workspace.id,
-            citations: response.citations,
+            directHitChunkIds: attachmentHitContext?.directHitChunkIds ?? [],
           })
         : undefined;
     const appUrl = this.environmentService?.getAppUrl();
@@ -227,7 +243,7 @@ export class IsElfLlmWikiController {
 
   private async resolveAttachments(input: {
     workspaceId: string;
-    citations: AiKnowledgeChatResult['citations'];
+    directHitChunkIds: string[];
   }) {
     if (!this.attachmentResolver) return [];
     try {

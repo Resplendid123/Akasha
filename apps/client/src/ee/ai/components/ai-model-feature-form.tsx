@@ -13,7 +13,10 @@ import { notifications } from "@mantine/notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { updateAiModelConfig } from "@/ee/ai/services/ai-model-config-service.ts";
+import {
+  testAiModelConfig,
+  updateAiModelConfig,
+} from "@/ee/ai/services/ai-model-config-service.ts";
 import type {
   AiModelConfigFeature,
   AiModelConfigView,
@@ -71,7 +74,23 @@ export default function AiModelFeatureForm({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const copy = useFeatureCopy(config.feature);
+
+  // Build the request payload from the current form values. apiKey is only sent
+  // when the admin typed a new one, so a blank field reuses the stored key.
+  const buildInput = (values: FormValues): UpdateAiModelConfigInput => {
+    const input: UpdateAiModelConfigInput = {
+      provider: values.provider,
+      model: values.model.trim(),
+      baseUrl: values.baseUrl.trim() || undefined,
+      parameters: buildParameters(config.feature, values),
+    };
+    if (values.apiKey.length > 0) {
+      input.apiKey = values.apiKey;
+    }
+    return input;
+  };
 
   const form = useForm<FormValues>({
     initialValues: {
@@ -91,21 +110,41 @@ export default function AiModelFeatureForm({
     },
   });
 
+  const handleTest = async () => {
+    if (form.values.model.trim().length === 0) return;
+    setIsTesting(true);
+    try {
+      const result = await testAiModelConfig(
+        config.feature,
+        buildInput(form.values),
+      );
+      if (result.ok) {
+        notifications.show({
+          message: result.latencyMs
+            ? t("Connection succeeded ({{ms}} ms)", { ms: result.latencyMs })
+            : t("Connection succeeded"),
+          color: "green",
+        });
+      } else {
+        notifications.show({
+          message: result.message ?? t("Connection failed"),
+          color: "red",
+        });
+      }
+    } catch (error: any) {
+      notifications.show({
+        message: error?.response?.data?.message ?? t("Connection failed"),
+        color: "red",
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleSubmit = async (values: FormValues) => {
     setIsSaving(true);
     try {
-      const input: UpdateAiModelConfigInput = {
-        provider: values.provider,
-        model: values.model.trim(),
-        baseUrl: values.baseUrl.trim() || undefined,
-        parameters: buildParameters(config.feature, values),
-      };
-      // Only send apiKey when the admin typed a new one, so a blank field
-      // preserves the stored key rather than clearing it.
-      if (values.apiKey.length > 0) {
-        input.apiKey = values.apiKey;
-      }
-
+      const input = buildInput(values);
       const saved = await updateAiModelConfig(config.feature, input);
       queryClient.setQueryData<AiModelConfigView[]>(
         ["ai-model-configs"],
@@ -180,14 +219,26 @@ export default function AiModelFeatureForm({
           </Group>
         )}
 
-        <Button
-          type="submit"
-          loading={isSaving}
-          disabled={isSaving || !form.isDirty()}
-          style={{ alignSelf: "flex-start" }}
-        >
-          {t("Save")}
-        </Button>
+        <Group>
+          <Button
+            type="submit"
+            loading={isSaving}
+            disabled={isSaving || !form.isDirty()}
+          >
+            {t("Save")}
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            loading={isTesting}
+            disabled={
+              isTesting || isSaving || form.values.model.trim().length === 0
+            }
+            onClick={handleTest}
+          >
+            {t("Test")}
+          </Button>
+        </Group>
       </Stack>
     </form>
   );

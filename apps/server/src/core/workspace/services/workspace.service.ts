@@ -22,6 +22,7 @@ import { executeTx } from '@akasha/db/utils';
 import { InjectKysely } from 'nestjs-kysely';
 import { Feature } from '../../../common/features';
 import { User } from '@akasha/db/types/entity.types';
+import { UserType } from '../../../common/auth/user-type';
 import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import { GroupRepo } from '@akasha/db/repos/group/group.repo';
 import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
@@ -612,6 +613,32 @@ export class WorkspaceService {
     return this.userRepo.getUsersPaginated(workspaceId, pagination);
   }
 
+  async GetWorkspaceMember(userId: string, workspaceId: string) {
+    const user = await this.userRepo.findById(userId, workspaceId);
+
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('Workspace member not found');
+    }
+
+    const groups = await this.groupRepo.ListUserGroup(userId, workspaceId);
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+        locale: user.locale,
+        timezone: user.timezone,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
+        deactivatedAt: user.deactivatedAt,
+      },
+      groups,
+    };
+  }
+
   async updateWorkspaceUserRole(
     authUser: User,
     userRoleDto: UpdateWorkspaceUserRoleDto,
@@ -624,6 +651,7 @@ export class WorkspaceService {
     if (!user) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     // prevent ADMIN from managing OWNER role
     if (
@@ -723,6 +751,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     if (user.deactivatedAt) {
       throw new BadRequestException('User is already deactivated');
@@ -785,6 +814,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     if (!user.deactivatedAt) {
       throw new BadRequestException('User is not deactivated');
@@ -826,6 +856,7 @@ export class WorkspaceService {
     if (!user || user.deletedAt) {
       throw new BadRequestException('Workspace member not found');
     }
+    this.assertNormalUser(user);
 
     const workspaceOwnerCount = await this.userRepo.roleCountByWorkspaceId(
       UserRole.OWNER,
@@ -853,11 +884,47 @@ export class WorkspaceService {
     const user = await this.userRepo.findById(userId, workspaceId);
 
     if (!user || user.deletedAt) return;
+    this.assertNormalUser(user);
     if (user.role === UserRole.OWNER) {
       throw new ConflictException('SSO cannot delete a workspace owner');
     }
 
     await this.deleteUserInternal(user, userId, workspaceId);
+  }
+
+  async deactivateUserBySso(
+    userId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const user = await this.userRepo.findById(userId, workspaceId);
+
+    if (!user || user.deletedAt || user.deactivatedAt) return;
+    if (user.role === UserRole.OWNER) {
+      throw new ConflictException('SSO cannot deactivate a workspace owner');
+    }
+
+    await executeTx(this.db, async (trx) => {
+      await this.userRepo.updateUser(
+        { deactivatedAt: new Date() },
+        userId,
+        workspaceId,
+        trx,
+      );
+      await this.userSessionRepo.revokeByUserId(userId, workspaceId, trx);
+    });
+
+    this.auditService.log({
+      event: AuditEvent.USER_DEACTIVATED,
+      resourceType: AuditResource.USER,
+      resourceId: user.id,
+      changes: {
+        before: {
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+    });
   }
 
   private async deleteUserInternal(
@@ -890,5 +957,11 @@ export class WorkspaceService {
         },
       },
     });
+  }
+
+  private assertNormalUser(user: User): void {
+    if (user.userType === UserType.AGENT) {
+      throw new BadRequestException('Agent users are system managed');
+    }
   }
 }

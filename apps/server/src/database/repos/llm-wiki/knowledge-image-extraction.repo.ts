@@ -86,6 +86,35 @@ export class KnowledgeImageExtractionRepo {
       .executeTakeFirst();
   }
 
+  /**
+   * Drops the durable image-understanding cache for every attachment that
+   * belongs to the given source pages. An explicit page retry uses this to
+   * force VLM re-extraction instead of reusing a prior `ready` result: the
+   * cache key is (workspaceId, attachmentId, cacheFingerprint) and carries no
+   * pageId, so we reach the attachments through `attachments.pageId`.
+   */
+  async deleteByPageIds(input: {
+    workspaceId: string;
+    sourcePageIds: string[];
+  }): Promise<number> {
+    const sourcePageIds = [...new Set(input.sourcePageIds)];
+    if (sourcePageIds.length === 0) return 0;
+    const result = await this.db
+      .deleteFrom('knowledgeImageExtractions')
+      .where('workspaceId', '=', input.workspaceId)
+      .where(
+        'attachmentId',
+        'in',
+        this.db
+          .selectFrom('attachments')
+          .select('id')
+          .where('workspaceId', '=', input.workspaceId)
+          .where('pageId', 'in', sourcePageIds),
+      )
+      .executeTakeFirst();
+    return Number(result.numDeletedRows ?? 0n);
+  }
+
   async findCurrentReadyForSnapshotImages(input: {
     workspaceId: string;
     spaceId: string;
@@ -170,6 +199,76 @@ export class KnowledgeImageExtractionRepo {
         Boolean(row.ocrText?.trim() || row.caption?.trim())
       );
     });
+  }
+
+  /**
+   * Reads extraction rows by the exact ids a run froze into its plan, and only
+   * returns rows that still pass the same identity gate as the live snapshot
+   * lookup (attachment ownership/version, ready status, model + prompt identity,
+   * non-empty content). Unlike findCurrentReadyForSnapshotImages this is keyed
+   * by the frozen extraction id rather than "whatever is currently ready for
+   * this attachment", so the merge build compiles the exact extractions the run
+   * planned. A caller detects drift by comparing the returned ids against the
+   * expected set: any id missing here (re-extraction, identity change, deletion)
+   * means the frozen plan can no longer be reproduced and must not be published.
+   */
+  async findReadyByIds(input: {
+    workspaceId: string;
+    spaceId: string;
+    extractionIds: string[];
+  }): Promise<CurrentReadyKnowledgeImageExtraction[]> {
+    if (input.extractionIds.length === 0) return [];
+    const extractionIds = [...new Set(input.extractionIds)];
+    const rows: CurrentReadyKnowledgeImageExtraction[] = [];
+    for (const idBatch of batches(
+      extractionIds,
+      SNAPSHOT_IMAGE_LOOKUP_BATCH_SIZE,
+    )) {
+      rows.push(
+        ...(await this.db
+          .selectFrom('knowledgeImageExtractions as extraction')
+          .innerJoin(
+            'attachments as attachment',
+            'attachment.id',
+            'extraction.attachmentId',
+          )
+          .selectAll('extraction')
+          .select([
+            'attachment.updatedAt as currentAttachmentVersion',
+            'attachment.workspaceId as attachmentWorkspaceId',
+            'attachment.spaceId as attachmentSpaceId',
+            'attachment.pageId as attachmentPageId',
+          ])
+          .where('extraction.id', 'in', idBatch)
+          .where('extraction.workspaceId', '=', input.workspaceId)
+          .where('extraction.status', '=', 'ready')
+          .where('extraction.cacheFingerprint', '!=', '')
+          .where('extraction.contentHash', '!=', '')
+          .where('attachment.workspaceId', '=', input.workspaceId)
+          .where('attachment.spaceId', '=', input.spaceId)
+          .where('attachment.deletedAt', 'is', null)
+          .where('extraction.attachmentVersion', 'is not', null)
+          .where(
+            sql<boolean>`date_trunc('milliseconds', extraction.attachment_version) = date_trunc('milliseconds', attachment.updated_at)`,
+          )
+          .where(
+            sql<boolean>`(
+              length(trim(coalesce(extraction.ocr_text, ''))) > 0
+              OR length(trim(coalesce(extraction.caption, ''))) > 0
+            )`,
+          )
+          .execute()),
+      );
+    }
+    return rows.filter(
+      (row) =>
+        row.attachmentVersion?.toISOString() ===
+          row.currentAttachmentVersion.toISOString() &&
+        row.status === 'ready' &&
+        Boolean(row.cacheFingerprint.trim()) &&
+        Boolean(row.contentHash.trim()) &&
+        Boolean(row.ocrText?.trim() || row.caption?.trim()),
+    );
   }
 
   /**

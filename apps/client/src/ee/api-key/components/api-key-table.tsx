@@ -1,5 +1,5 @@
 import { ActionIcon, Group, Menu, Table, Text } from "@mantine/core";
-import { IconDots, IconEdit, IconTrash } from "@tabler/icons-react";
+import { IconDots, IconEdit, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { IApiKey } from "@/ee/api-key";
 import { CustomAvatar } from "@/components/ui/custom-avatar.tsx";
@@ -11,18 +11,26 @@ interface ApiKeyTableProps {
   apiKeys: IApiKey[];
   isLoading?: boolean;
   showUserColumn?: boolean;
+  userColumnLabel?: string;
+  keyNameLabel?: string;
+  isAgentTable?: boolean;
   showSpacesColumn?: boolean;
   onUpdate?: (apiKey: IApiKey) => void;
   onRevoke?: (apiKey: IApiKey) => void;
+  onRotate?: (apiKey: IApiKey) => void;
 }
 
 export function ApiKeyTable({
   apiKeys,
   isLoading,
   showUserColumn = false,
+  userColumnLabel,
+  keyNameLabel,
+  isAgentTable = false,
   showSpacesColumn = false,
   onUpdate,
   onRevoke,
+  onRotate,
 }: ApiKeyTableProps) {
   const { t } = useTranslation();
   const locale = useDateFnsLocale();
@@ -38,16 +46,16 @@ export function ApiKeyTable({
   };
 
   return (
-    <Table.ScrollContainer minWidth={500}>
+    <Table.ScrollContainer minWidth={isAgentTable ? 1120 : 500}>
       <Table highlightOnHover verticalSpacing="sm">
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>{t("Name")}</Table.Th>
-            {showUserColumn && <Table.Th>{t("User")}</Table.Th>}
+            <Table.Th w={isAgentTable ? 220 : undefined}>{keyNameLabel ?? t("Name")}</Table.Th>
+            {showUserColumn && <Table.Th w={isAgentTable ? 300 : undefined}>{userColumnLabel ?? t("User")}</Table.Th>}
             {showSpacesColumn && <Table.Th w={320}>{t("Spaces")}</Table.Th>}
-            <Table.Th>{t("Last used")}</Table.Th>
-            <Table.Th>{t("Expires")}</Table.Th>
-            <Table.Th>{t("Created")}</Table.Th>
+            <Table.Th w={isAgentTable ? 140 : undefined}>{t("Last used")}</Table.Th>
+            <Table.Th w={isAgentTable ? 120 : undefined}>{t("Expires")}</Table.Th>
+            <Table.Th w={isAgentTable ? 140 : undefined}>{t("Created")}</Table.Th>
             <Table.Th aria-label={t("Action")} />
           </Table.Tr>
         </Table.Thead>
@@ -56,29 +64,35 @@ export function ApiKeyTable({
           {apiKeys && apiKeys.length > 0 ? (
             apiKeys.map((apiKey: IApiKey, index: number) => (
               <Table.Tr key={index}>
-                <Table.Td>
+                <Table.Td w={isAgentTable ? 220 : undefined}>
                   <Text fz="sm" fw={500}>
                     {apiKey.name}
                   </Text>
                 </Table.Td>
 
-                {showUserColumn && apiKey.creator && (
-                  <Table.Td>
-                    <Group gap="4" wrap="nowrap">
-                      <CustomAvatar
-                        avatarUrl={apiKey.creator?.avatarUrl}
-                        name={apiKey.creator.name}
-                        size="sm"
-                      />
+                {showUserColumn && (apiKey.agentUser || apiKey.creator) && (
+                  <Table.Td w={isAgentTable ? 300 : undefined}>
+                    {isAgentTable ? (
                       <Text fz="sm" lineClamp={1}>
-                        {apiKey.creator.name}
+                        {apiKey.agentUser?.email || "-"}
                       </Text>
-                    </Group>
+                    ) : (
+                      <Group gap="4" wrap="nowrap">
+                        <CustomAvatar
+                          avatarUrl={apiKey.creator?.avatarUrl}
+                          name={apiKey.creator?.name}
+                          size="sm"
+                        />
+                        <Text fz="sm" lineClamp={1}>
+                          {apiKey.creator?.name || "-"}
+                        </Text>
+                      </Group>
+                    )}
                   </Table.Td>
                 )}
 
                 {showSpacesColumn && (
-                  <Table.Td w={320} maw={320}>
+                  <Table.Td w={isAgentTable ? 360 : 320} maw={isAgentTable ? 360 : 320}>
                     <Text fz="sm" lineClamp={2}>
                       {(apiKey.spaces ?? [])
                         .map((space) => space.name ?? space.id)
@@ -134,9 +148,7 @@ export function ApiKeyTable({
                           leftSection={<IconEdit size={16} />}
                           onClick={() => onUpdate(apiKey)}
                         >
-                          {apiKey.keyType === "public_retrieval"
-                            ? t("Edit")
-                            : t("Rename")}
+                          {apiKey.keyType === "agent" ? t("Edit Agent") : t("Edit")}
                         </Menu.Item>
                       )}
                       {onRevoke && (
@@ -145,7 +157,15 @@ export function ApiKeyTable({
                           color="red"
                           onClick={() => onRevoke(apiKey)}
                         >
-                          {t("Revoke")}
+                          {apiKey.keyType === "agent" ? t("Delete Agent") : t("Revoke")}
+                        </Menu.Item>
+                      )}
+                      {isAgentTable && onRotate && (
+                        <Menu.Item
+                          leftSection={<IconRefresh size={16} />}
+                          onClick={() => onRotate(apiKey)}
+                        >
+                          {t("Rotate key")}
                         </Menu.Item>
                       )}
                     </Menu.Dropdown>

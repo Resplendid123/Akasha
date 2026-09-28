@@ -45,7 +45,7 @@ export default function ExportModal({
         });
       }
       if (type === "space") {
-        await exportSpace({ spaceId: id, format, includeAttachments });
+        await exportSpace({ spaceId: id, format });
       }
       notifications.show({
         message: t("Export successful"),
@@ -108,24 +108,6 @@ export default function ExportModal({
               </Group>
 
               <Group justify="space-between" wrap="nowrap" mt="md">
-                <div>
-                  <Text size="md">{t("Include attachments")}</Text>
-                </div>
-                <Switch
-                  onChange={(event) =>
-                    setIncludeAttachments(event.currentTarget.checked)
-                  }
-                  checked={includeAttachments}
-                />
-              </Group>
-            </>
-          )}
-
-          {type === "space" && (
-            <>
-              <Divider my="sm" />
-
-              <Group justify="space-between" wrap="nowrap">
                 <div>
                   <Text size="md">{t("Include attachments")}</Text>
                 </div>

@@ -13,7 +13,6 @@ import { QueueJob } from '../../integrations/queue/constants';
 import { KNOWLEDGE_COMPLETENESS_NOTICE } from './services/knowledge-retrieval.service';
 import { AiKnowledgeChatService } from './services/ai-knowledge-chat.service';
 import { KnowledgeCitationImageResolverService } from './services/knowledge-citation-image-resolver.service';
-import { KnowledgeImportService } from './services/knowledge-import.service';
 import { LlmWikiController } from './llm-wiki.controller';
 import { KnowledgeDiagnosticsService } from './services/knowledge-diagnostics.service';
 import { KnowledgeGraphService } from './services/knowledge-graph.service';
@@ -23,6 +22,7 @@ import { KnowledgeSourceExporterService } from './services/knowledge-source-expo
 import { KnowledgeSpaceCompilationService } from './services/knowledge-space-compilation.service';
 import { KnowledgeSpaceResetService } from './services/knowledge-space-reset.service';
 import { AiModelConfigService } from './services/ai-model-config.service';
+import { AiModelConfigTestService } from './services/ai-model-config-test.service';
 import { SpaceAuthorizationService } from '../../core/space/services/space-authorization.service';
 import { PageAccessService } from '../../core/page/page-access/page-access.service';
 import { ApiKeyService } from '../api-key/api-key.service';
@@ -75,6 +75,9 @@ describe('LlmWikiController', () => {
           requestedSpaceIds: ['space-1'],
           effectiveSpaceIds: ['space-1'],
         },
+        // Internal retrieval detail the shared chat service attaches on every
+        // branch; the regular query API must strip it, never expose it (§7.1).
+        attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
       }),
     };
     const auditService = {
@@ -89,6 +92,8 @@ describe('LlmWikiController', () => {
       queryAuditRepo,
     });
 
+    // Exact match: proves attachmentHitContext/retrievalDiagnostics/retrievalScope
+    // are all stripped, not just absent from the mock.
     await expect(
       controller.queryKnowledge(
         { query: 'How do we use Kafka?', spaceIds: ['space-1'] },
@@ -634,138 +639,6 @@ describe('LlmWikiController', () => {
     expect(graphService.getSpaceGraph).not.toHaveBeenCalled();
   });
 
-  it('rejects compile result imports when workspace AI knowledge chat is disabled', async () => {
-    const chatService = {
-      isEnabledForWorkspace: jest.fn().mockReturnValue(false),
-      chat: jest.fn(),
-    };
-    const importService = {
-      importCompileResult: jest.fn(),
-    };
-    const controller = createController({ chatService, importService });
-
-    await expect(
-      controller.importCompileResult(
-        compileResultDto(),
-        adminUser(),
-        workspace(),
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-
-    expect(importService.importCompileResult).not.toHaveBeenCalled();
-  });
-
-  it('rejects compile result imports from workspace members', async () => {
-    const importService = {
-      importCompileResult: jest.fn(),
-    };
-    const controller = createController({ importService });
-
-    await expect(
-      controller.importCompileResult(
-        compileResultDto(),
-        user({ role: UserRole.MEMBER }),
-        workspace(),
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-
-    expect(importService.importCompileResult).not.toHaveBeenCalled();
-  });
-
-  it('imports compile results through the database import service and audits metadata only', async () => {
-    const importService = {
-      importCompileResult: jest.fn().mockResolvedValue({
-        importedArtifactCount: 1,
-        quarantinedArtifactCount: 0,
-      }),
-    };
-    const auditService = {
-      log: jest.fn(),
-    };
-    const controller = createController({ importService, auditService });
-
-    await expect(
-      controller.importCompileResult(
-        compileResultDto(),
-        adminUser(),
-        workspace(),
-      ),
-    ).resolves.toEqual({
-      importedArtifactCount: 1,
-      quarantinedArtifactCount: 0,
-    });
-
-    expect(importService.importCompileResult).toHaveBeenCalledWith({
-      input: {
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        compilerVersion: 'test-compiler',
-        promptVersion: 'test-prompt',
-        sources: [
-          {
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            sourcePageId: 'page-1',
-            sourceVersion: 'v1',
-            contentHash: 'sha256:page-1',
-            title: 'Kafka',
-            text: 'Kafka backs async events.',
-            references: [],
-          },
-        ],
-      },
-      artifacts: [
-        {
-          workspaceId: 'workspace-1',
-          spaceId: 'space-1',
-          artifactId: '11111111-1111-4111-8111-111111111111',
-          title: 'Kafka usage',
-          contentMarkdown: 'Kafka backs async events.',
-          sourcePageIds: ['page-1'],
-          compilerVersion: 'test-compiler',
-          promptVersion: 'test-prompt',
-          inputSourceRefs: [
-            {
-              workspaceId: 'workspace-1',
-              spaceId: 'space-1',
-              sourcePageId: 'page-1',
-              sourceVersion: 'v1',
-              contentHash: 'sha256:page-1',
-            },
-          ],
-          chunks: [
-            {
-              text: 'Kafka backs async events.',
-              inputSourceRefs: [
-                {
-                  workspaceId: 'workspace-1',
-                  spaceId: 'space-1',
-                  sourcePageId: 'page-1',
-                  sourceVersion: 'v1',
-                  contentHash: 'sha256:page-1',
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    });
-    expect(auditService.log).toHaveBeenCalledWith({
-      event: AuditEvent.KNOWLEDGE_IMPORT,
-      resourceType: AuditResource.KNOWLEDGE,
-      resourceId: 'space-1',
-      metadata: {
-        artifactCount: 1,
-        sourceCount: 1,
-        importedArtifactCount: 1,
-        quarantinedArtifactCount: 0,
-      },
-    });
-    expect(JSON.stringify(auditService.log.mock.calls)).not.toContain(
-      'Kafka backs async events.',
-    );
-  });
-
   it('creates or coalesces durable runs without directly writing Redis', async () => {
     const knowledgeQueue = {
       add: jest.fn().mockResolvedValue(undefined),
@@ -908,6 +781,54 @@ describe('LlmWikiController', () => {
         priority: 0,
       },
     });
+  });
+
+  it('rejects immediate publish while the page cooldown is active', async () => {
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue({ step: 1, expiresAt: Date.now() + 60_000 }),
+      set: jest.fn(),
+      del: jest.fn(),
+    };
+    const requestImmediatePagePublish = jest.fn();
+    const controller = createController({
+      cacheManager,
+      spaceCompilation: { requestImmediatePagePublish },
+      pageRepo: {
+        findById: jest.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111',
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          deletedAt: null,
+        }),
+      },
+    });
+
+    await expect(
+      controller.publishPageKnowledge(
+        '11111111-1111-4111-8111-111111111111',
+        user(),
+        workspace(),
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: 'Page publish is cooling down',
+      }),
+      status: 429,
+    });
+    expect(requestImmediatePagePublish).not.toHaveBeenCalled();
+  });
+
+  it('returns and clears an expired final publish cooldown', async () => {
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue({ step: 3, expiresAt: Date.now() - 1 }),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const controller = createController({ cacheManager });
+
+    await expect(
+      controller.getPagePublishCooldown('11111111-1111-4111-8111-111111111111'),
+    ).resolves.toEqual({ expiresAt: null, step: 0 });
+    expect(cacheManager.del).toHaveBeenCalled();
   });
 
   it('queues admin space actions with explicit operational job ids', async () => {
@@ -1312,7 +1233,8 @@ describe('LlmWikiController', () => {
         { disposition: 'created', run: { id: 'run-space-1' } },
         { disposition: 'coalesced', run: { id: 'run-space-2' } },
       ]),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
+      clearImageExtractionCache: jest.fn().mockResolvedValue(3),
+      findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),
     };
     const controller = createController({
       pageRepo,
@@ -1349,7 +1271,10 @@ describe('LlmWikiController', () => {
         targetSourcePageIds: ['page-2'],
       },
     ]);
-    expect(spaceCompilation.resetGenerationAttemptBudget).toHaveBeenCalledWith({
+    expect(spaceCompilation).not.toHaveProperty(
+      'resetGenerationAttemptBudget',
+    );
+    expect(spaceCompilation.clearImageExtractionCache).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       sourcePageIds: ['page-1', 'page-2'],
     });
@@ -1373,10 +1298,7 @@ describe('LlmWikiController', () => {
       ]),
     };
     const sourceExporter = { exportPageSources: jest.fn() };
-    const spaceCompilation = {
-      requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
-    };
+    const spaceCompilation = { requestRuns: jest.fn() };
     const controller = createController({
       pageRepo,
       sourceExporter,
@@ -1400,7 +1322,7 @@ describe('LlmWikiController', () => {
     expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
   });
 
-  it('coalesces retry requests when a Space Run is already active', async () => {
+  it('refuses a retry while a Space Run is still in progress, before mutating', async () => {
     const pageRepo = {
       findExistingPageRefs: jest.fn().mockResolvedValue([
         {
@@ -1424,11 +1346,10 @@ describe('LlmWikiController', () => {
         .mockResolvedValue(['page-1', 'page-2']),
     };
     const spaceCompilation = {
-      requestRuns: jest.fn().mockResolvedValue([
-        { disposition: 'coalesced', run: { id: 'run-1' } },
-        { disposition: 'rerun_requested', run: { id: 'run-2' } },
-      ]),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(2),
+      requestRuns: jest.fn(),
+      clearImageExtractionCache: jest.fn(),
+      // space-2 still has a live Run; the whole retry must be refused.
+      findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue(['space-2']),
     };
     const controller = createController({
       pageRepo,
@@ -1443,24 +1364,23 @@ describe('LlmWikiController', () => {
         adminUser(),
         workspace(),
       ),
-    ).resolves.toEqual({
-      queuedPageCount: 2,
-      jobIds: ['run-1', 'run-2'],
-    });
+    ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(diagnosticsService.findCompiledPageIds).toHaveBeenCalled();
+    expect(spaceCompilation.findSpaceIdsWithActiveRun).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1', 'space-2'],
+    });
+    // No mutation may run once the guard trips.
+    expect(spaceCompilation.clearImageExtractionCache).not.toHaveBeenCalled();
+    expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
     expect(sourceExporter.exportPageSources).not.toHaveBeenCalled();
-    expect(spaceCompilation.requestRuns).toHaveBeenCalledTimes(1);
   });
 
   it('rejects page retries from workspace members before reading or queueing pages', async () => {
     const pageRepo = { findExistingPageRefs: jest.fn() };
     const diagnosticsService = { findCompiledPageIds: jest.fn() };
     const sourceExporter = { exportPageSources: jest.fn() };
-    const spaceCompilation = {
-      requestRuns: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn(),
-    };
+    const spaceCompilation = { requestRuns: jest.fn() };
     const controller = createController({
       pageRepo,
       diagnosticsService,
@@ -1478,6 +1398,56 @@ describe('LlmWikiController', () => {
     ).not.toHaveBeenCalled();
     expect(sourceExporter.exportPageSources).not.toHaveBeenCalled();
     expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
+  });
+
+  it('delegates a model config test to the test service for admins', async () => {
+    const aiModelConfigTestService = {
+      testConfig: jest.fn().mockResolvedValue({ ok: true, latencyMs: 42 }),
+    };
+    const controller = createController({ aiModelConfigTestService });
+
+    await expect(
+      controller.testModelConfig(
+        'answer',
+        { provider: 'openai-compatible', model: 'qwen-max' } as never,
+        adminUser(),
+      ),
+    ).resolves.toEqual({ ok: true, latencyMs: 42 });
+
+    expect(aiModelConfigTestService.testConfig).toHaveBeenCalledWith(
+      'answer',
+      expect.objectContaining({ provider: 'openai-compatible', model: 'qwen-max' }),
+    );
+  });
+
+  it('rejects a model config test from workspace members before testing', async () => {
+    const aiModelConfigTestService = { testConfig: jest.fn() };
+    const controller = createController({ aiModelConfigTestService });
+
+    await expect(
+      controller.testModelConfig(
+        'answer',
+        { provider: 'openai-compatible', model: 'qwen-max' } as never,
+        user(),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(aiModelConfigTestService.testConfig).not.toHaveBeenCalled();
+  });
+
+  it('rejects a model config test for an unknown feature', async () => {
+    const aiModelConfigTestService = { testConfig: jest.fn() };
+    const controller = createController({ aiModelConfigTestService });
+
+    await expect(
+      controller.testModelConfig(
+        'bogus',
+        { provider: 'openai-compatible', model: 'qwen-max' } as never,
+        adminUser(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(aiModelConfigTestService.testConfig).not.toHaveBeenCalled();
   });
 
   describe('single-Space knowledge operations', () => {
@@ -1636,7 +1606,6 @@ function createController(
   overrides: {
     chatService?: Partial<AiKnowledgeChatService>;
     auditService?: Partial<IAuditService>;
-    importService?: Partial<KnowledgeImportService>;
     citationImageResolver?: Partial<KnowledgeCitationImageResolverService>;
     diagnosticsService?: Partial<KnowledgeDiagnosticsService>;
     graphService?: Partial<KnowledgeGraphService>;
@@ -1649,8 +1618,10 @@ function createController(
     spaceAuthorization?: Partial<SpaceAuthorizationService>;
     pageAccessService?: Partial<PageAccessService>;
     aiModelConfigService?: Partial<AiModelConfigService>;
+    aiModelConfigTestService?: Partial<AiModelConfigTestService>;
     apiKeyService?: Partial<ApiKeyService>;
     environmentService?: Partial<EnvironmentService>;
+    cacheManager?: { get: jest.Mock; set?: jest.Mock; del?: jest.Mock };
   } = {},
 ) {
   return new LlmWikiController(
@@ -1670,10 +1641,6 @@ function createController(
       log: jest.fn(),
       ...overrides.auditService,
     } as unknown as IAuditService,
-    {
-      importCompileResult: jest.fn(),
-      ...overrides.importService,
-    } as unknown as KnowledgeImportService,
     {
       findWorkspaceSpaceIds: jest.fn().mockResolvedValue([]),
       getRunDiagnosticsSummary: jest.fn(),
@@ -1713,7 +1680,8 @@ function createController(
     {
       requestRuns: jest.fn(),
       requestImmediatePagePublish: jest.fn(),
-      resetGenerationAttemptBudget: jest.fn().mockResolvedValue(0),
+      clearImageExtractionCache: jest.fn().mockResolvedValue(0),
+      findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),
       ...overrides.spaceCompilation,
     } as unknown as KnowledgeSpaceCompilationService,
     {
@@ -1737,10 +1705,16 @@ function createController(
       ...overrides.aiModelConfigService,
     } as unknown as AiModelConfigService,
     {
+      testConfig: jest.fn().mockResolvedValue({ ok: true, latencyMs: 1 }),
+      ...overrides.aiModelConfigTestService,
+    } as unknown as AiModelConfigTestService,
+    {
       validatePublicApiKey: jest.fn(),
       ...overrides.apiKeyService,
     } as unknown as ApiKeyService,
     overrides.environmentService as EnvironmentService | undefined,
+    undefined,
+    overrides.cacheManager as never,
   );
 }
 
@@ -1768,59 +1742,4 @@ function workspace(): Workspace {
     plan: 'business',
     settings: { ai: { chat: true } },
   } as unknown as Workspace;
-}
-
-function compileResultDto() {
-  return {
-    spaceId: 'space-1',
-    compilerVersion: 'test-compiler',
-    promptVersion: 'test-prompt',
-    sources: [
-      {
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        sourcePageId: 'page-1',
-        sourceVersion: 'v1',
-        contentHash: 'sha256:page-1',
-        title: 'Kafka',
-        text: 'Kafka backs async events.',
-        references: [],
-      },
-    ],
-    artifacts: [
-      {
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        artifactId: '11111111-1111-4111-8111-111111111111',
-        title: 'Kafka usage',
-        contentMarkdown: 'Kafka backs async events.',
-        sourcePageIds: ['page-1'],
-        compilerVersion: 'test-compiler',
-        promptVersion: 'test-prompt',
-        inputSourceRefs: [
-          {
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            sourcePageId: 'page-1',
-            sourceVersion: 'v1',
-            contentHash: 'sha256:page-1',
-          },
-        ],
-        chunks: [
-          {
-            text: 'Kafka backs async events.',
-            inputSourceRefs: [
-              {
-                workspaceId: 'workspace-1',
-                spaceId: 'space-1',
-                sourcePageId: 'page-1',
-                sourceVersion: 'v1',
-                contentHash: 'sha256:page-1',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
 }

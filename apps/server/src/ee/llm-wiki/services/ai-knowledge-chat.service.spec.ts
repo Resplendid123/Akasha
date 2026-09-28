@@ -21,9 +21,11 @@ describe('AiKnowledgeChatService', () => {
             page: capsule('kp-1', 'Chaterm'),
             sourcePageIds: ['page-1'],
             rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+            origin: 'direct',
           },
         ],
         capsules: [],
+        directHitChunkIds: ['chunk-1'],
         completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
         diagnostics: {
           queryEmbeddingAvailable: true,
@@ -125,6 +127,7 @@ describe('AiKnowledgeChatService', () => {
         chatId: 'chat-1',
         query: 'Chaterm 登记批准日期',
         spaceIds: ['space-1'],
+        labelNames: ['项目计划', 'kafka'],
         chatContext: ['Previous turn'],
         onThinking,
       }),
@@ -179,6 +182,7 @@ describe('AiKnowledgeChatService', () => {
         authorizedChunkCount: 1,
         filteredChunkCount: 0,
       },
+      attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
     });
 
     expect(retrieval.retrieve).toHaveBeenCalledWith(
@@ -187,6 +191,7 @@ describe('AiKnowledgeChatService', () => {
         userId: 'user-1',
         query: 'Chaterm 登记批准日期',
         spaceIds: ['space-1'],
+        labelNames: ['项目计划', 'kafka'],
       }),
     );
     // The request-scoped cache must actually be created and threaded into
@@ -228,6 +233,7 @@ describe('AiKnowledgeChatService', () => {
           page: capsule('kp-1', 'Chaterm'),
           sourcePageIds: ['page-1'],
           rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+          origin: 'direct',
         },
       ],
     });
@@ -687,6 +693,116 @@ describe('AiKnowledgeChatService', () => {
         spaceIds: ['space-1'],
       }),
     );
+  });
+
+  it('returns raw retrieval results without invoking the answer model when rawResultsOnly is set', async () => {
+    const answer = jest.fn();
+    const stream = jest.fn();
+    const service = createService(
+      verifiedKnowledgeOverrides({ answer, stream } as never),
+    );
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: '公司推荐接口有什么作用？',
+      spaceIds: ['space-1'],
+      rawResultsOnly: true,
+    });
+
+    // The whole point: the slow answer-generation LLM is never called.
+    expect(answer).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      answer: '',
+      answerMode: 'knowledge',
+      citations: [
+        {
+          sourcePageId: 'page-company-api',
+          title: 'CCC推荐公司',
+          url: '/p/company-api',
+        },
+      ],
+      retrievedSources: [
+        {
+          sourcePageId: 'page-company-api',
+          title: 'CCC推荐公司',
+          url: '/p/company-api',
+        },
+      ],
+    });
+    expect(result.citationEvidence).toEqual([
+      {
+        sourcePageId: 'page-company-api',
+        title: 'CCC推荐公司',
+        url: '/p/company-api',
+        excerpts: [
+          {
+            text: '公司推荐接口用于根据用户信息推荐公司。',
+            sourceRange: { startOffset: 0, endOffset: 20 },
+            quoteHash: 'sha256:company-api',
+          },
+        ],
+      },
+    ]);
+    expect(result.snippets).toHaveLength(1);
+    expect(result.snippets[0]).toMatchObject({ id: 'chunk-company-api' });
+  });
+
+  it('reports no_match without any LLM fallback when rawResultsOnly finds no evidence', async () => {
+    const answer = jest.fn();
+    const service = createService({ answerProvider: { answer } });
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: '如何配置未知功能？',
+      spaceIds: ['space-1'],
+      rawResultsOnly: true,
+      // Even with general knowledge allowed, rawResultsOnly must not fall back
+      // to an LLM answer.
+      generalKnowledgeEnabled: true,
+    });
+
+    expect(answer).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      answer: '',
+      answerMode: 'no_match',
+      citations: [],
+      retrievedSources: [],
+      snippets: [],
+    });
+  });
+
+  it('skips the query rewrite model when queryRewriteEnabled is false', async () => {
+    const rewriteQuery = jest.fn();
+    const retrieval = {
+      retrieve: jest.fn().mockResolvedValue({
+        mode: 'high_completeness',
+        chunks: [],
+        capsules: [],
+        completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
+      }),
+    };
+    const service = createService({
+      retrieval,
+      answerProvider: { rewriteQuery } as never,
+    });
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: '套餐多少钱',
+      spaceIds: ['space-1'],
+      chatContext: ['user: Codex 开通目前可以看到哪些人已经开通了'],
+      queryRewriteEnabled: false,
+    });
+
+    expect(rewriteQuery).not.toHaveBeenCalled();
+    expect(retrieval.retrieve).toHaveBeenCalledWith(
+      expect.objectContaining({ query: '套餐多少钱' }),
+    );
+    expect(result.retrievalQuery).toBeUndefined();
   });
 
   it('adds verified raw source evidence when the compiled summary omitted the requested URL', async () => {
@@ -1372,7 +1488,7 @@ function capsule(id: string, title = 'Kafka') {
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    compileScope: 'space',
+    compileScope: 'page',
     title,
     slug: id,
     pageType: null,

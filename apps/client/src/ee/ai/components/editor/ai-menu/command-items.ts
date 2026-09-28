@@ -215,5 +215,23 @@ const commandItems: Record<CommandSet, CommandItem[]> = {
   result: resultItems,
 };
 
+const getVisibleCommandItems = (
+  commandSet: CommandSet,
+  prompt: string,
+  readOnly: boolean,
+) => {
+  const items = commandItems[commandSet].filter((item) =>
+    item.name.toLowerCase().includes(prompt.toLowerCase()),
+  );
+
+  if (!readOnly || commandSet !== "result") {
+    return items;
+  }
+
+  return items.filter(
+    (item) => item.id !== "result-replace" && item.id !== "result-insert-below",
+  );
+};
+
 export type { CommandItem, CommandSet };
-export { commandItems };
+export { commandItems, getVisibleCommandItems };

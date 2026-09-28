@@ -31,4 +31,8 @@ export class PaginationOptions {
   @IsOptional()
   @IsBoolean()
   adminView: boolean;
+
+  @IsOptional()
+  @IsString()
+  role?: string;
 }

@@ -604,6 +604,8 @@
   "List all subpages of the current page": "Listar todas las subpáginas de la página actual",
   "Attachments": "Archivos adjuntos",
   "All spaces": "Todos los espacios",
+  "All permissions": "Todos los permisos",
+  "Filter by permission": "Filtrar por permiso",
   "Unknown": "Desconocido",
   "Find a space": "Buscar un espacio",
   "Search in all your spaces": "Buscar en todos tus espacios",

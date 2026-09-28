@@ -158,13 +158,6 @@ export class EnvironmentVariables {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(60_000)
-  @Max(600_000)
-  KNOWLEDGE_AGGREGATE_DEADLINE_MS: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
   @Min(120_000)
   @Max(300_000)
   KNOWLEDGE_IMAGE_JOB_DEADLINE_MS: number;

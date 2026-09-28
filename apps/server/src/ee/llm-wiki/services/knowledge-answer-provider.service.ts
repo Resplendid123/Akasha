@@ -49,7 +49,7 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         system: buildQueryRewriteSystemPrompt(),
         prompt: buildQueryRewritePrompt(input),
         ...(isOpenAiReasoningModel(config) ? {} : { temperature: 0 }),
-        providerOptions: providerOptions(config),
+        providerOptions: answerProviderOptions(config),
         maxOutputTokens: 256,
         abortSignal: AbortSignal.timeout(30_000),
       });
@@ -74,7 +74,7 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         input,
         this.environmentService.getAiChatMaxInputChars() - system.length,
       ),
-      providerOptions: providerOptions(config),
+      providerOptions: answerProviderOptions(config),
     });
 
     return result.text;
@@ -93,7 +93,7 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         input,
         this.environmentService.getAiChatMaxInputChars() - system.length,
       ),
-      providerOptions: providerOptions(config),
+      providerOptions: answerProviderOptions(config),
     });
     for await (const token of result.textStream) {
       yield token;
@@ -112,7 +112,7 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
   }
 }
 
-function providerOptions(
+export function answerProviderOptions(
   config: ResolvedAiModelConfig,
 ): ProviderOptions | undefined {
   if (!isOpenAiReasoningModel(config)) return undefined;
@@ -123,7 +123,7 @@ function providerOptions(
   };
 }
 
-function isOpenAiReasoningModel(config: ResolvedAiModelConfig): boolean {
+export function isOpenAiReasoningModel(config: ResolvedAiModelConfig): boolean {
   const driver = config.driver?.toLowerCase();
   const model = config.model?.toLowerCase() ?? '';
   return (

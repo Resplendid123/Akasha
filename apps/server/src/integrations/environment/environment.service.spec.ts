@@ -35,12 +35,11 @@ describe('EnvironmentService', () => {
     expect(service.getDatabaseMaxPool()).toBe(25);
     expect(service.getDatabaseStatementTimeoutMs()).toBe(30_000);
     expect(service.getKnowledgePageDeadlineMs()).toBe(900_000);
-    expect(service.getKnowledgeAggregateDeadlineMs()).toBe(300_000);
     expect(service.getKnowledgeImageJobDeadlineMs()).toBe(180_000);
     expect(service.getKnowledgeSpaceConcurrency()).toBe(10);
     expect(service.getKnowledgeImageConcurrency()).toBe(5);
-    expect(service.getKnowledgeSpaceSliceMaxPages()).toBe(5);
-    expect(service.getKnowledgeSpaceSliceMaxMs()).toBe(300_000);
+    expect(service.getKnowledgeSpaceLeaseMaxPages()).toBe(5);
+    expect(service.getKnowledgeSpaceLeaseMaxMs()).toBe(300_000);
     expect(service.getKnowledgeSpaceHeartbeatMs()).toBe(30_000);
     expect(service.getKnowledgeSpaceLeaseTtlMs()).toBe(180_000);
   });
@@ -50,7 +49,6 @@ describe('EnvironmentService', () => {
       DATABASE_MAX_POOL: '40',
       DATABASE_STATEMENT_TIMEOUT_MS: '45000',
       KNOWLEDGE_PAGE_DEADLINE_MS: '600000',
-      KNOWLEDGE_AGGREGATE_DEADLINE_MS: '360000',
       KNOWLEDGE_IMAGE_JOB_DEADLINE_MS: '240000',
       KNOWLEDGE_SPACE_CONCURRENCY: '7',
       KNOWLEDGE_IMAGE_CONCURRENCY: '4',
@@ -71,12 +69,11 @@ describe('EnvironmentService', () => {
     expect(configured.getDatabaseMaxPool()).toBe(40);
     expect(configured.getDatabaseStatementTimeoutMs()).toBe(45_000);
     expect(configured.getKnowledgePageDeadlineMs()).toBe(600_000);
-    expect(configured.getKnowledgeAggregateDeadlineMs()).toBe(360_000);
     expect(configured.getKnowledgeImageJobDeadlineMs()).toBe(240_000);
     expect(configured.getKnowledgeSpaceConcurrency()).toBe(7);
     expect(configured.getKnowledgeImageConcurrency()).toBe(4);
-    expect(configured.getKnowledgeSpaceSliceMaxPages()).toBe(8);
-    expect(configured.getKnowledgeSpaceSliceMaxMs()).toBe(420_000);
+    expect(configured.getKnowledgeSpaceLeaseMaxPages()).toBe(8);
+    expect(configured.getKnowledgeSpaceLeaseMaxMs()).toBe(420_000);
     expect(configured.getKnowledgeSpaceHeartbeatMs()).toBe(20_000);
     expect(configured.getKnowledgeSpaceLeaseTtlMs()).toBe(150_000);
     expect(configured.getKnowledgeCompilerMaxOutputTokens()).toBe(12_000);

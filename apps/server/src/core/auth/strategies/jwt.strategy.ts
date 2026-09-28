@@ -25,7 +25,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   ) {
     super({
       jwtFromRequest: (req: FastifyRequest) => {
-        return req.cookies?.authToken || extractBearerTokenFromHeader(req);
+        return extractBearerTokenFromHeader(req) || req.cookies?.authToken;
       },
       ignoreExpiration: false,
       secretOrKey: environmentService.getAppSecret(),

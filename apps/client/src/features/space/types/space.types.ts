@@ -13,14 +13,9 @@ export interface ISpaceCommentsSettings {
   allowViewerComments?: boolean;
 }
 
-export interface ISpaceKnowledgeSettings {
-  compilationReviewEnabled?: boolean;
-}
-
 export interface ISpaceSettings {
   sharing?: ISpaceSharingSettings;
   comments?: ISpaceCommentsSettings;
-  knowledge?: ISpaceKnowledgeSettings;
 }
 
 export interface ISpace {
@@ -41,7 +36,6 @@ export interface ISpace {
   // for updates
   disablePublicSharing?: boolean;
   allowViewerComments?: boolean;
-  enableCompilationReview?: boolean;
 }
 
 interface IMembership {
@@ -97,5 +91,4 @@ export type ISpaceMember = { role: string } & (SpaceUserInfo | SpaceGroupInfo);
 export interface IExportSpaceParams {
   spaceId: string;
   format: ExportFormat;
-  includeAttachments?: boolean;
 }

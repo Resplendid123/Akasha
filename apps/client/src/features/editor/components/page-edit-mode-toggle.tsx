@@ -1,4 +1,6 @@
-import { MantineSize, SegmentedControl } from "@mantine/core";
+import { Button, MantineSize, SegmentedControl } from "@mantine/core";
+import { useHotkeys } from "@mantine/hooks";
+import { IconDeviceFloppy } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import {
   PageEditMode,
@@ -19,5 +21,41 @@ export function PageEditModeToggle({ size }: { size?: MantineSize }) {
         { label: t("Read"), value: PageEditMode.Read },
       ]}
     />
+  );
+}
+
+export function PageEditModeControls({ size }: { size?: MantineSize }) {
+  const { t } = useTranslation();
+  const { pageEditMode, savePage } = usePageEditMode();
+  const isEditMode = pageEditMode === PageEditMode.Edit;
+
+  useHotkeys(
+    [
+      [
+        "mod+S",
+        () => {
+          if (isEditMode) savePage();
+        },
+        { preventDefault: isEditMode },
+      ],
+    ],
+    undefined,
+    true,
+  );
+
+  return (
+    <>
+      <PageEditModeToggle size={size} />
+      {isEditMode && (
+        <Button
+          size={size}
+          leftSection={<IconDeviceFloppy size={16} />}
+          onClick={savePage}
+          aria-keyshortcuts="Control+S Meta+S"
+        >
+          {t("Save")}
+        </Button>
+      )}
+    </>
   );
 }

@@ -85,11 +85,6 @@ export const auditEventLabels: Record<string, string> = {
   "knowledge.compile_queued": "Queued knowledge compile",
   "knowledge.compile_cancelled": "Cancelled knowledge compile",
   "knowledge.delayed_page_removed": "Removed delayed page from queue",
-  "knowledge.review_discovered": "Discovered knowledge review items",
-  "knowledge.review_negotiated": "Negotiated knowledge review item",
-  "knowledge.review_planned": "Planned knowledge review application",
-  "knowledge.review_applied": "Applied knowledge review application",
-  "knowledge.review_reverted": "Reverted knowledge review application",
 };
 
 export function getEventLabel(event: string): string {
@@ -224,26 +219,6 @@ export const eventFilterOptions: EventGroup[] = [
       {
         value: "knowledge.delayed_page_removed",
         label: "Removed delayed page from queue",
-      },
-      {
-        value: "knowledge.review_discovered",
-        label: "Discovered knowledge review items",
-      },
-      {
-        value: "knowledge.review_negotiated",
-        label: "Negotiated knowledge review item",
-      },
-      {
-        value: "knowledge.review_planned",
-        label: "Planned knowledge review application",
-      },
-      {
-        value: "knowledge.review_applied",
-        label: "Applied knowledge review application",
-      },
-      {
-        value: "knowledge.review_reverted",
-        label: "Reverted knowledge review application",
       },
     ],
   },

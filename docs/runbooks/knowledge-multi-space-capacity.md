@@ -168,11 +168,37 @@ Owner 应能看到：
 - RunPage 分页详情与 `retryable_exhausted`/`permanent` 图片失败分类。
 - 文字、图片、Merge 主进度显示终态数/冻结总数，次行以中性色分列 succeeded/failed/skipped；少量失败不把整格染红，Merge 分母不随阶段推进增长。
 - 独立的 Health and quarantine Tab；打开后才请求按空间聚合的 quality、分页 quarantine 和 retrieval 摘要，5 秒 Run 轮询不得重复执行这些查询。
-- 初次进入默认选择“全部空间”，Run 列表只显示 `queued/compiling/aggregate_pending/aggregating`；全空间请求省略 `spaceIds` 并由服务端执行 ACL 过滤。
+- 初次进入默认选择“全部空间”，Run 列表只显示 `queued/compiling/aggregating`；全空间请求省略 `spaceIds` 并由服务端执行 ACL 过滤。
 - 全部空间范围不提供更新、force rebuild 或维护写操作；操作者必须显式选择具体空间后才能看到对应按钮。
 - Owner/Admin 在每个非终态 Run 行可执行 `Cancel run`；确认框明确说明不回滚已发布知识，要求输入精确空间名。取消后的 `cancelled` 使用灰色状态并可通过历史筛选查询，普通成员看不到操作按钮。
 
 非 Owner 只能看到 ACL 可读空间，不能看到全局 queue/capacity；敏感错误只能在授权详情中查看。
+
+## 旧 aggregate 状态迁移
+
+上线移除旧 aggregate 状态的 migration 前，必须在预发和生产执行：
+
+```sql
+SELECT status, phase, count(*)
+FROM knowledge_space_compile_runs
+WHERE status = 'aggregate_pending'
+   OR (
+     phase IN ('initial_aggregate', 'final_aggregate')
+     AND status IN ('queued', 'compiling', 'aggregating')
+   )
+GROUP BY status, phase
+ORDER BY status, phase;
+```
+
+结果必须为空。若存在记录，通过 Run 取消流程清理对应队列和子任务；不要直接把旧状态批量改成 `queued`、`compiling` 或 `aggregating`。migration 会拒绝在活跃旧 Run 尚存时执行，只会把终态历史行的 `initial_aggregate` 归一为 `text`、`final_aggregate` 归一为 `finalizing`，随后收紧 CHECK 约束和活跃 Run 唯一索引。
+
+迁移后再次确认三个旧值计数为 0，并对比 Diagnostics 的活动 Run、活动空间槽、过期 lease 和恢复中数量；`finalizing/aggregating` 仍是有效组合，必须继续被 claim、reaper 和 Diagnostics 识别。
+
+## Run plan 与 prepared-import 删列
+
+`20260923T120000-drop-dead-run-plan-and-prepared-import-columns` 是破坏性 schema 收缩，不能滚动执行。首次启动新版本前必须停止全部旧 server 实例，包括 HTTP/API、定时调度、队列 processor 和 Worker；确认旧实例数为 0 后，先由单个新实例完成 migration，再启动其余新实例。仅停止知识 Worker 不足以保证安全，旧 API 的 Run 创建和旧 processor 的 attempt 收敛仍会写入待删除列。
+
+回退时同样先停止全部新 server 实例，执行 migration down，确认 `catalog_hash` 已为历史 Run 回填兼容值且 `pending_*` 列恢复后，再启动旧版本。不得在任一方向混跑删列前后的 server。
 
 ## 发布判定与回退
 
@@ -183,6 +209,6 @@ Owner 应能看到：
 - 100 空间预发压测通过。
 - 数据库全局连接预算通过。
 - 外部部署证据表填写完整。
-- 无旧 Worker 与新 Worker 混跑。
+- 无旧 API、定时调度、队列 processor 或 Worker 与新版本混跑。
 
-回退只能整体回退应用版本并停止所有新 Worker，不能让两种架构并行消费。由于采用 clean cutover，回退后需要重新清理目标知识队列，并在重新上线新版本后对空间再次强制编译。
+回退只能整体回退应用版本并停止所有新 server，不能让两种架构并行处理请求或消费队列。由于采用 clean cutover，回退后需要重新清理目标知识队列，并在重新上线新版本后对空间再次强制编译。

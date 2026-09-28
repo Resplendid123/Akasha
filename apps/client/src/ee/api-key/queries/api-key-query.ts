@@ -10,7 +10,10 @@ import {
   createApiKey,
   createPublicApiKey,
   getPublicApiKeys,
-  getPublicApiKeySpaces,
+  deleteAgentApiKey,
+  getAgentSpaces,
+  updateAgentSpaces,
+  rotateAgentApiKey,
   getApiKeys,
   IApiKey,
   ICreateApiKeyRequest,
@@ -48,13 +51,6 @@ export function useGetPublicApiKeysQuery(
     staleTime: 0,
     gcTime: 0,
     placeholderData: keepPreviousData,
-  });
-}
-
-export function useGetPublicApiKeySpacesQuery() {
-  return useQuery({
-    queryKey: ["public-api-key-spaces"],
-    queryFn: getPublicApiKeySpaces,
   });
 }
 
@@ -117,7 +113,7 @@ export function useCreatePublicApiKeyMutation() {
     onSuccess: () => {
       notifications.show({
         message: t("{{credential}} created successfully", {
-          credential: t("Public API key"),
+          credential: t("Agent"),
         }),
       });
       queryClient.invalidateQueries({ queryKey: ["api-key-list"] });
@@ -165,5 +161,48 @@ export function useUpdatePublicApiKeyMutation() {
       const errorMessage = error["response"]?.data?.message;
       notifications.show({ message: errorMessage, color: "red" });
     },
+  });
+}
+
+export function useDeleteAgentApiKeyMutation() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  return useMutation<void, Error, { apiKeyId: string }>({
+    mutationFn: deleteAgentApiKey,
+    onSuccess: () => {
+      notifications.show({ message: t("Deleted successfully") });
+      queryClient.invalidateQueries({ queryKey: ["api-key-list"] });
+    },
+    onError: (error) => notifications.show({ message: error["response"]?.data?.message, color: "red" }),
+  });
+}
+
+export function useGetAgentSpacesQuery(enabled = true) {
+  return useQuery({ queryKey: ["agent-spaces"], queryFn: getAgentSpaces, enabled });
+}
+
+export function useUpdateAgentSpacesMutation() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  return useMutation({
+    mutationFn: updateAgentSpaces,
+    onSuccess: () => {
+      notifications.show({ message: t("Spaces updated successfully") });
+      queryClient.invalidateQueries({ queryKey: ["api-key-list", "public"] });
+    },
+    onError: (error: any) => notifications.show({ message: error?.response?.data?.message, color: "red" }),
+  });
+}
+
+export function useRotateAgentApiKeyMutation() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  return useMutation<IApiKey, Error, { apiKeyId: string }>({
+    mutationFn: rotateAgentApiKey,
+    onSuccess: () => {
+      notifications.show({ message: t("Agent key rotated successfully") });
+      queryClient.invalidateQueries({ queryKey: ["api-key-list", "public"] });
+    },
+    onError: (error: any) => notifications.show({ message: error?.response?.data?.message, color: "red" }),
   });
 }

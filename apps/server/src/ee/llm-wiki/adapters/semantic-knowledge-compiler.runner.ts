@@ -10,6 +10,7 @@ import {
 import {
   buildSemanticAnalysisMessages,
   buildSemanticGenerationMessages,
+  SemanticAttachmentHint,
 } from '../compiler/semantic-compiler.prompts';
 import {
   SemanticAnalysis,
@@ -26,10 +27,14 @@ import { KnowledgeSourceRef } from '../types/knowledge.types';
 import { KnowledgeSourceSnapshot } from '../types/source-snapshot.types';
 import { LlmWikiCompilerRunner } from './llm-wiki-file-compiler.runner';
 import { chunkKnowledgeSource } from '../chunking/knowledge-structural-chunker';
+import { buildAttachmentEvidenceContent } from './knowledge-attachment-evidence';
 import { buildEffectiveKnowledgeHash } from '../services/knowledge-effective-hash';
 import { KnowledgeOperationBudget } from '../services/knowledge-operation-budget';
 import { SEMANTIC_COMPILER_LIMITS } from '../compiler/semantic-compiler.limits';
-import { extractKnowledgeTableRows } from '../../../common/helpers/prosemirror/table-text';
+import {
+  countKnowledgeTableRows,
+  extractKnowledgeTableRows,
+} from '../../../common/helpers/prosemirror/table-text';
 import {
   CompilerCatalogSelection,
   KnowledgeArtifactCatalogService,
@@ -59,6 +64,12 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         'semantic compilation cannot compile an empty source page',
       );
     }
+    // Enforce the table budget before any LLM call or row serialization. The
+    // importer validates the generated/materialized output again, but waiting
+    // until import would still let a 10k-row page consume compiler memory/time.
+    operationBudget.assertTableRowCount(
+      countKnowledgeTableRows(source.content),
+    );
 
     const compilerRunId = `${input.workspaceId}:${input.spaceId}:${this.now().toISOString()}`;
     const compileTaskId =
@@ -100,6 +111,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       purpose: input.purpose,
       schema: input.schema,
       catalog: generationCatalog.entries,
+      attachmentHints: attachmentHints(source),
     });
     await this.recordCandidates({
       input,
@@ -113,12 +125,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           generationCatalog.candidateHash,
       },
     });
-    const generationBudget = await this.checkGenerationAttemptBudget({
-      input,
-      source,
-      compileTaskId,
-    });
-    assertGenerationAttemptAllowed(generationBudget);
     const generationFallback = input.hasLastSuccess
       ? undefined
       : {
@@ -126,33 +132,11 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           title: source.title.slice(0, 300),
           markdown: buildBoundedFallbackMarkdown(analysis),
         };
-    let generation: Awaited<
-      ReturnType<KnowledgeCompilerLlmProvider['generate']>
-    >;
-    let reservedGeneration = generationBudget;
-    try {
-      generation = operationBudget.signal
-        ? await this.provider.generate(generationMessages, generationFallback, {
-            abortSignal: operationBudget.signal,
-          })
-        : await this.provider.generate(generationMessages, generationFallback);
-    } catch (error) {
-      if (shouldCountGenerationFailure(error)) {
-        reservedGeneration = await this.reserveGenerationAttempt({
-          input,
-          source,
-          compileTaskId,
-        });
-        assertGenerationAttemptAllowed(reservedGeneration);
-      }
-      throw error;
-    }
-    reservedGeneration = await this.reserveGenerationAttempt({
-      input,
-      source,
-      compileTaskId,
-    });
-    assertGenerationAttemptAllowed(reservedGeneration);
+    const generation = operationBudget.signal
+      ? await this.provider.generate(generationMessages, generationFallback, {
+          abortSignal: operationBudget.signal,
+        })
+      : await this.provider.generate(generationMessages, generationFallback);
     operationBudget.assertArtifactCount(generation.artifacts.length);
     if (generation.compilerRecovery) {
       warnings.push({
@@ -190,7 +174,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
     for (const entry of generationCatalog.entries) {
       if (!entry.artifactId) continue;
       const normalizedKey = normalizeCanonicalKey(entry.canonicalKey);
-      // Artifacts without a canonical key (e.g. source_summary/overview) cannot
+      // Artifacts without a canonical key (for example source_summary) cannot
       // be resolved as link targets, and would otherwise collide on "kind:".
       if (!normalizedKey) continue;
       idByKey.set(
@@ -237,7 +221,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         generation.compilerRecovery === 'source_summary_fallback'
           ? 'degraded'
           : 'normal',
-      generationAttemptCount: reservedGeneration.attemptCount,
     };
   }
 
@@ -271,6 +254,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       purpose: input.purpose,
       schema: input.schema,
       catalog: catalog.entries,
+      attachmentHints: attachmentHints(source),
     });
     const candidateHash =
       messages.catalogCandidateHash ?? catalog.candidateHash;
@@ -340,63 +324,34 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       candidateHash: input.selection.candidateHash,
     });
   }
-
-  private async reserveGenerationAttempt(input: {
-    input: CompileSpaceInput;
-    source: KnowledgeSourceSnapshot;
-    compileTaskId: string;
-  }): Promise<{ allowed: boolean; attemptCount: number }> {
-    const repo = this.compilationRepo as KnowledgeCompilationRepo & {
-      reserveGenerationAttempt?: KnowledgeCompilationRepo['reserveGenerationAttempt'];
-    };
-    return (
-      (await repo.reserveGenerationAttempt?.({
-        workspaceId: input.input.workspaceId,
-        sourcePageId: input.source.sourcePageId,
-        compileTaskId: input.compileTaskId,
-        sourceContentHash: input.source.contentHash,
-        reset: input.input.bypassCache === true,
-      })) ?? { allowed: true, attemptCount: 1 }
-    );
-  }
-
-  private async checkGenerationAttemptBudget(input: {
-    input: CompileSpaceInput;
-    source: KnowledgeSourceSnapshot;
-    compileTaskId: string;
-  }): Promise<{ allowed: boolean; attemptCount: number }> {
-    const repo = this.compilationRepo as KnowledgeCompilationRepo & {
-      checkGenerationAttemptBudget?: KnowledgeCompilationRepo['checkGenerationAttemptBudget'];
-    };
-    return (
-      (await repo.checkGenerationAttemptBudget?.({
-        workspaceId: input.input.workspaceId,
-        sourcePageId: input.source.sourcePageId,
-        compileTaskId: input.compileTaskId,
-        sourceContentHash: input.source.contentHash,
-        reset: input.input.bypassCache === true,
-      })) ?? { allowed: true, attemptCount: 0 }
-    );
-  }
 }
 
-function assertGenerationAttemptAllowed(input: {
-  allowed: boolean;
-  attemptCount: number;
-}): void {
-  if (input.allowed) return;
-  throw new KnowledgeCompilerLlmError(
-    'invalid_output',
-    'Knowledge generation retry budget is exhausted for this source content.',
-    false,
-  );
-}
+function attachmentHints(
+  source: KnowledgeSourceSnapshot,
+): SemanticAttachmentHint[] {
+  const text = source.attachmentSerializedText;
+  if (!text) return [];
 
-function shouldCountGenerationFailure(error: unknown): boolean {
-  return (
-    error instanceof KnowledgeCompilerLlmError &&
-    error.code === 'invalid_output'
-  );
+  return (source.attachmentOccurrences ?? [])
+    .slice(0, 20)
+    .map((occurrence, index) => {
+      const occurrenceText = text.slice(
+        occurrence.startOffset,
+        occurrence.endOffset,
+      );
+      const fileName = occurrenceText
+        .replace(/ ?\[\[AKASHA_ATTACHMENT:v1:[^\]]*\]\]/gu, '')
+        .trim();
+      const contextStart = Math.max(0, occurrence.startOffset - 160);
+      const contextEnd = Math.min(text.length, occurrence.endOffset + 160);
+      const context = text
+        .slice(contextStart, contextEnd)
+        .replace(/ ?\[\[AKASHA_ATTACHMENT:v1:[^\]]*\]\]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim()
+        .slice(0, 320);
+      return { ordinal: index + 1, fileName, context };
+    });
 }
 
 function legacyCatalogSelection(
@@ -542,17 +497,39 @@ function toCompiledArtifact(input: {
       embeddingText: child.embeddingText,
     })),
   );
+  const isSourceSummary = input.artifact.kind === 'source_summary';
+  let tableRowChunks: ReturnType<typeof tableRowEvidenceChunks> = [];
+  if (isSourceSummary) {
+    // Reject before extractKnowledgeTableRows serializes every row. Import
+    // repeats the check after validation/materialization as defense in depth.
+    input.input.operationBudget!.assertTableRowCount(
+      countKnowledgeTableRows(input.source.content),
+    );
+    tableRowChunks = tableRowEvidenceChunks(
+      input.source,
+      input.artifact.title,
+      sourceRef,
+    );
+  }
+  // Attachment evidence attaches only to the source-page artifact (§5.3): the
+  // deterministic original-content blocks belong to the page itself, not to the
+  // derived concept/entity artifacts. Covers semantic, raw_fallback, retry and
+  // merge paths because every artifact flows through this single builder.
+  const attachmentEvidence = isSourceSummary
+    ? buildAttachmentEvidenceContent({
+        source: input.source,
+        sourceRef,
+        pageTitle: input.source.title || input.artifact.title,
+        existingChunkStableKeys: [
+          ...structuralChunks.map((chunk) => chunk.stableKey),
+          ...tableRowChunks.map((chunk) => chunk.stableKey),
+        ],
+      })
+    : { parentSections: [], chunks: [] };
   const chunks = [
     ...structuralChunks,
-    ...(input.artifact.kind === 'source_summary'
-      ? [
-          ...tableRowEvidenceChunks(
-            input.source,
-            input.artifact.title,
-            sourceRef,
-          ),
-        ]
-      : []),
+    ...tableRowChunks,
+    ...attachmentEvidence.chunks,
   ];
   const links = input.artifact.links.map((link) => {
     const lookupKey = artifactLookupKey(
@@ -590,7 +567,7 @@ function toCompiledArtifact(input: {
     compilerRunId: input.compilerRunId,
     compileTaskId: input.compileTaskId,
     inputSourceRefs: [sourceRef],
-    parentSections,
+    parentSections: [...parentSections, ...attachmentEvidence.parentSections],
     claims,
     chunks,
     links,
@@ -886,7 +863,7 @@ function toSourceRef(source: KnowledgeSourceSnapshot): KnowledgeSourceRef {
 }
 
 function normalizeCanonicalKey(value: string | null | undefined): string {
-  // Stored source_summary/overview artifacts legitimately have a null
+  // Stored source_summary artifacts legitimately have a null
   // canonicalKey, so guard against it rather than assuming a string.
   return (value ?? '').trim().toLocaleLowerCase('en-US');
 }

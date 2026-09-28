@@ -46,10 +46,10 @@ import FavoritesPage from "@/pages/favorites/favorites-page";
 import AiChat from "@/ee/ai-chat/pages/ai-chat.tsx";
 import KnowledgeAdminPage from "@/ee/llm-wiki/pages/knowledge-admin";
 import KnowledgeGraphPage from "@/ee/llm-wiki/pages/knowledge-graph";
-import ReviewPage from "@/ee/llm-wiki/pages/review";
 import VerifyEmail from "@/ee/pages/verify-email.tsx";
 import LabelPage from "@/pages/label/label-page";
 import { ThemeFavicon } from "@/components/common/brand-logo.tsx";
+import ImageViewer from "@/components/ui/image-viewer.tsx";
 
 export default function App() {
   const { t } = useTranslation();
@@ -59,6 +59,7 @@ export default function App() {
   return (
     <>
       <ThemeFavicon />
+      <ImageViewer />
       <Routes>
         <Route index element={<Navigate to="/home" />} />
         <Route path={"/login"} element={<LoginPage />} />
@@ -109,7 +110,6 @@ export default function App() {
             path={"/s/:spaceSlug/graph"}
             element={<KnowledgeGraphPage />}
           />
-          <Route path={"/s/:spaceSlug/review"} element={<ReviewPage />} />
           <Route path={"/s/:spaceSlug/trash"} element={<SpaceTrash />} />
           <Route path={"/s/:spaceSlug/p/:pageSlug"} element={<Page />} />
 
