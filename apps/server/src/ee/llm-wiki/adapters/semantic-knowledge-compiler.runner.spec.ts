@@ -185,6 +185,31 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     });
   });
 
+  it('rejects oversized tables before calling the compiler provider', async () => {
+    const provider = createProvider();
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      provider,
+      createCompilationRepo(),
+    );
+    const input = compileInput();
+    const content = tableContent();
+    const sourceTable = content.content[0];
+    const header = sourceTable.content[0];
+    const dataRow = sourceTable.content[1];
+    sourceTable.content = [
+      header,
+      ...Array.from({ length: 10_000 }, () => dataRow),
+    ];
+    input.sources[0].content = content;
+
+    await expect(runner.compileSpace(input)).rejects.toMatchObject({
+      code: 'page_complexity_limit',
+      limitKind: 'table_rows',
+    });
+    expect(provider.analyze).not.toHaveBeenCalled();
+    expect(provider.generate).not.toHaveBeenCalled();
+  });
+
   it('emits source-namespaced attachment evidence blocks only on the summary', async () => {
     const runner = new TestSemanticKnowledgeCompilerRunner(
       createProvider(),

@@ -53,3 +53,31 @@ export class UpdateAiModelConfigDto {
   @Type(() => AiModelConfigParametersDto)
   parameters?: AiModelConfigParametersDto;
 }
+
+// Payload for a connectivity test. Mirrors UpdateAiModelConfigDto: the admin
+// tests the values currently in the form. apiKey follows the same write-only
+// rule as saving — omit/blank falls back to the stored key on the server.
+export class TestAiModelConfigDto {
+  @IsIn(['openai-compatible'])
+  provider: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  model: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_tld: false })
+  @MaxLength(2000)
+  baseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  apiKey?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AiModelConfigParametersDto)
+  parameters?: AiModelConfigParametersDto;
+}

@@ -209,7 +209,7 @@ export class KnowledgeDiagnosticsService {
           >,
           runs
             .select([
-              sql<number>`count(*) filter (where run.status in ('queued', 'compiling', 'aggregate_pending', 'aggregating'))`.as(
+              sql<number>`count(*) filter (where run.status in ('queued', 'compiling', 'aggregating'))`.as(
                 'activeRunCount',
               ),
               sql<number>`count(*) filter (where run.status in ('compiling', 'aggregating') and run.phase in ('text', 'image_merge', 'finalizing'))`.as(

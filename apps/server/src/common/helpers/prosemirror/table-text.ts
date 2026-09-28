@@ -29,6 +29,30 @@ export function extractKnowledgeTableRows(value: unknown): KnowledgeTableRow[] {
   return rows;
 }
 
+/**
+ * Counts data rows without serializing them. Knowledge compilation uses this
+ * preflight before building row-level chunks, so an oversized table cannot
+ * allocate an unbounded second in-memory representation merely to be rejected
+ * later by the importer.
+ */
+export function countKnowledgeTableRows(value: unknown): number {
+  let count = 0;
+  walk(value, (node) => {
+    if (node.type !== 'table') return;
+    const tableRows = Array.isArray(node.content)
+      ? node.content.filter(
+          (child): child is Record<string, unknown> =>
+            isRecord(child) && child.type === 'tableRow',
+        )
+      : [];
+    const hasHeader =
+      tableRows.length > 0 &&
+      rowCells(tableRows[0]).some((cell) => cell.type === 'tableHeader');
+    count += Math.max(0, tableRows.length - (hasHeader ? 1 : 0));
+  });
+  return count;
+}
+
 export function serializeTableNode(value: unknown): string[] {
   if (!isRecord(value) || value.type !== 'table') return [];
   const tableRows = Array.isArray(value.content)
@@ -114,9 +138,9 @@ function normalizeTableRows(
   }
 
   const width = Math.max(0, ...grid.map((row) => row.length));
-  return grid.slice(0, tableRows.length).map((row) =>
-    Array.from({ length: width }, (_, index) => row[index]),
-  );
+  return grid
+    .slice(0, tableRows.length)
+    .map((row) => Array.from({ length: width }, (_, index) => row[index]));
 }
 
 function headerLabels(row: Array<TableCell | undefined>): string[] {

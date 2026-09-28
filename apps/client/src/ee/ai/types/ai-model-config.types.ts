@@ -30,3 +30,10 @@ export interface UpdateAiModelConfigInput {
   apiKey?: string;
   parameters?: AiModelConfigParameters;
 }
+
+export interface TestAiModelConfigResult {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  latencyMs?: number;
+}

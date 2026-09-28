@@ -290,95 +290,96 @@ export class KnowledgeSpaceRunnerService {
     heartbeat.unref?.();
 
     try {
-      let pendingPages = await this.executionRepo.claimNextMergePage(lease);
       let completedPages = 0;
-      while (pendingPages.length > 0) {
-        const page = pendingPages[0];
-        if (!(await this.executionRepo.isLeaseActive(lease))) {
-          return { outcome: 'superseded', completedPages };
-        }
-        const deadline = createBoundedAbortSignal(
-          undefined,
-          this.environmentService.getKnowledgePageDeadlineMs(),
-        );
-        try {
-          await this.pageCompilation.mergePageImages(
-            {
-              data: {
-                workspaceId: input.workspaceId,
-                spaceId: input.spaceId,
-                sourcePageId: page.sourcePageId,
-                sourceVersion: page.expectedSourceVersion,
-                sourceContentHash: page.expectedSourceContentHash,
-                effectiveKnowledgeHash:
-                  page.targetEffectiveKnowledgeHash ??
-                  page.expectedSourceContentHash,
-                spaceRunId: input.spaceRunId,
-                knowledgeGeneration: input.knowledgeGeneration,
-                images: page.images as KnowledgeImageMergePageData['images'],
-              },
-              compileTaskId: `${input.spaceJobId}__${page.sourcePageId}`,
-              execution: this.imageMergeExecutionContext(lease, page),
-            },
-            deadline.signal,
+      // Outer loop lets the merge phase re-claim pages that advanceMergeBarrier
+      // reclaimed for a retry, mirroring the text phase's reclaim loop.
+      for (;;) {
+        let pendingPages = await this.executionRepo.claimNextMergePage(lease);
+        while (pendingPages.length > 0) {
+          const page = pendingPages[0];
+          if (!(await this.executionRepo.isLeaseActive(lease))) {
+            return { outcome: 'superseded', completedPages };
+          }
+          const deadline = createBoundedAbortSignal(
+            undefined,
+            this.environmentService.getKnowledgePageDeadlineMs(),
           );
-        } finally {
-          deadline.dispose();
-        }
-        if (!(await this.executionRepo.isLeaseActive(lease))) {
-          return { outcome: 'superseded', completedPages };
-        }
-        completedPages += 1;
-        const heartbeatAccepted = await this.executionRepo.heartbeatSpaceLease(
-          lease,
-          {
-            executionLeaseExpiresAt: leaseExpiry(settings.leaseTtlMs),
-          },
-        );
-        if (!heartbeatAccepted) {
-          return { outcome: 'superseded', completedPages };
-        }
-        const decision = decideLeaseCheckpoint({
-          completedPages,
-          elapsedMs: monotonicNow() - startedAt,
-          remainingPages: (
-            await this.executionRepo.findPendingMergePages(lease)
-          ).length,
-          maxPages: settings.maxPages,
-          maxMs: settings.maxMs,
-        });
-        if (decision.yield) {
-          const yielded = await this.executionRepo.yieldSpaceLease(lease, {
-            reason: decision.reason,
-          });
-          return {
-            outcome: yielded ? 'yielded' : 'superseded',
+          try {
+            await this.pageCompilation.mergePageImages(
+              {
+                data: {
+                  workspaceId: input.workspaceId,
+                  spaceId: input.spaceId,
+                  sourcePageId: page.sourcePageId,
+                  sourceVersion: page.expectedSourceVersion,
+                  sourceContentHash: page.expectedSourceContentHash,
+                  spaceRunId: input.spaceRunId,
+                  knowledgeGeneration: input.knowledgeGeneration,
+                  images: page.images as KnowledgeImageMergePageData['images'],
+                  expectedExtractionIds: page.expectedExtractionIds,
+                },
+                compileTaskId: `${input.spaceJobId}__${page.sourcePageId}`,
+                execution: this.imageMergeExecutionContext(lease, page),
+              },
+              deadline.signal,
+            );
+          } finally {
+            deadline.dispose();
+          }
+          if (!(await this.executionRepo.isLeaseActive(lease))) {
+            return { outcome: 'superseded', completedPages };
+          }
+          completedPages += 1;
+          const heartbeatAccepted =
+            await this.executionRepo.heartbeatSpaceLease(lease, {
+              executionLeaseExpiresAt: leaseExpiry(settings.leaseTtlMs),
+            });
+          if (!heartbeatAccepted) {
+            return { outcome: 'superseded', completedPages };
+          }
+          const decision = decideLeaseCheckpoint({
             completedPages,
-          };
+            elapsedMs: monotonicNow() - startedAt,
+            remainingPages: (
+              await this.executionRepo.findPendingMergePages(lease)
+            ).length,
+            maxPages: settings.maxPages,
+            maxMs: settings.maxMs,
+          });
+          if (decision.yield) {
+            const yielded = await this.executionRepo.yieldSpaceLease(lease, {
+              reason: decision.reason,
+            });
+            return {
+              outcome: yielded ? 'yielded' : 'superseded',
+              completedPages,
+            };
+          }
+          pendingPages = await this.executionRepo.claimNextMergePage(lease);
         }
-        pendingPages = await this.executionRepo.claimNextMergePage(lease);
-      }
 
-      const barrier = await this.executionRepo.advanceMergeBarrier(lease);
-      if (!barrier?.barrierComplete) {
-        return { outcome: 'superseded', completedPages };
+        const barrier = await this.executionRepo.advanceMergeBarrier(lease);
+        if (barrier?.reclaimed) continue;
+        if (!barrier?.barrierComplete) {
+          return { outcome: 'superseded', completedPages };
+        }
+        const finalized = await this.spaceFinalizer.finalizeLeased(lease, {
+          workspaceId: input.workspaceId,
+          spaceId: input.spaceId,
+        });
+        if (finalized.outcome === 'superseded') {
+          return { outcome: 'superseded', completedPages };
+        }
+        const partial = await this.executionRepo.hasPartialOutcome(lease);
+        const finished = await this.executionRepo.finishRun(
+          lease,
+          partial ? 'partial' : 'succeeded',
+        );
+        return {
+          outcome: finished ? 'completed' : 'superseded',
+          completedPages,
+        };
       }
-      const finalized = await this.spaceFinalizer.finalizeLeased(lease, {
-        workspaceId: input.workspaceId,
-        spaceId: input.spaceId,
-      });
-      if (finalized.outcome === 'superseded') {
-        return { outcome: 'superseded', completedPages };
-      }
-      const partial = await this.executionRepo.hasPartialOutcome(lease);
-      const finished = await this.executionRepo.finishRun(
-        lease,
-        partial ? 'partial' : 'succeeded',
-      );
-      return {
-        outcome: finished ? 'completed' : 'superseded',
-        completedPages,
-      };
     } finally {
       clearInterval(heartbeat);
     }

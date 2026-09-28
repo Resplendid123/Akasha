@@ -36,8 +36,6 @@ describe('KnowledgeSpaceRunnerService', () => {
       {
         initializeLeasedRun: jest.fn().mockResolvedValue({
           initialized: true,
-          aggregateRequired: true,
-          pageCompilationRequired: true,
         }),
       } as never,
       pageCompilation as never,
@@ -103,8 +101,6 @@ describe('KnowledgeSpaceRunnerService', () => {
       {
         initializeLeasedRun: jest.fn().mockResolvedValue({
           initialized: true,
-          aggregateRequired: true,
-          pageCompilationRequired: true,
         }),
       } as never,
       pageCompilation as never,
@@ -132,8 +128,6 @@ describe('KnowledgeSpaceRunnerService', () => {
       {
         initializeLeasedRun: jest.fn().mockResolvedValue({
           initialized: true,
-          aggregateRequired: false,
-          pageCompilationRequired: false,
         }),
       } as never,
       pageCompilation as never,
@@ -171,8 +165,6 @@ describe('KnowledgeSpaceRunnerService', () => {
     const spaceCompilation = {
       initializeLeasedRun: jest.fn().mockResolvedValue({
         initialized: true,
-        aggregateRequired: true,
-        pageCompilationRequired: true,
       }),
       bindLeasedRunPage: jest.fn().mockResolvedValue({ outcome: 'reused' }),
     };
@@ -232,8 +224,6 @@ describe('KnowledgeSpaceRunnerService', () => {
     expect(executionRepo.heartbeatSpaceLease).toHaveBeenCalled();
     resolveInitialization({
       initialized: true,
-      aggregateRequired: false,
-      pageCompilationRequired: false,
     });
     await running;
     jest.useRealTimers();
@@ -266,8 +256,6 @@ describe('KnowledgeSpaceRunnerService', () => {
     await jest.advanceTimersByTimeAsync(30_000);
     resolveInitialization({
       initialized: true,
-      aggregateRequired: false,
-      pageCompilationRequired: false,
     });
 
     await expect(running).resolves.toEqual({
@@ -526,8 +514,6 @@ describe('KnowledgeSpaceRunnerService', () => {
       {
         initializeLeasedRun: jest.fn().mockResolvedValue({
           initialized: true,
-          aggregateRequired: true,
-          pageCompilationRequired: true,
         }),
       } as never,
       pageCompilation as never,
@@ -578,8 +564,6 @@ describe('KnowledgeSpaceRunnerService', () => {
       {
         initializeLeasedRun: jest.fn().mockResolvedValue({
           initialized: true,
-          aggregateRequired: true,
-          pageCompilationRequired: true,
         }),
       } as never,
       pageCompilation as never,
@@ -638,8 +622,6 @@ describe('KnowledgeSpaceRunnerService', () => {
       {
         initializeLeasedRun: jest.fn().mockResolvedValue({
           initialized: true,
-          aggregateRequired: true,
-          pageCompilationRequired: true,
         }),
       } as never,
       pageCompilation as never,
@@ -788,7 +770,6 @@ function createExecutionRepo(
     findLeasedRun: jest.fn().mockResolvedValue({
       workspaceId: 'workspace-1',
       spaceId: 'space-1',
-      catalogSnapshot: [],
       failedPageCount: 0,
     }),
     findPendingTextPages: jest.fn().mockResolvedValue(pages),

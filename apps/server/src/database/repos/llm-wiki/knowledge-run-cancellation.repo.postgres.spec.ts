@@ -145,9 +145,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       skipped_page_count integer NOT NULL DEFAULT 0,
       compiler_version varchar NOT NULL,
       prompt_version varchar NOT NULL,
-      catalog_snapshot jsonb NOT NULL,
-      catalog_hash varchar NOT NULL,
-      aggregate_required boolean NOT NULL DEFAULT true,
       aggregate_job_id varchar,
       aggregate_started_at timestamptz,
       imported_artifact_count integer NOT NULL DEFAULT 0,
@@ -222,14 +219,14 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
     INSERT INTO knowledge_space_compile_runs (
       id, workspace_id, space_id, trigger, mode, knowledge_generation, phase,
       status, expected_page_count, compiler_version, prompt_version,
-      catalog_snapshot, catalog_hash, aggregate_job_id, queued_at,
+      aggregate_job_id, queued_at,
       initialized_at, space_job_id, space_job_dispatched_at,
       space_job_sequence, execution_token, execution_lease_expires_at,
       worker_id, heartbeat_at, rerun_requested
     ) VALUES (
       'run-active', 'workspace-1', 'space-1', 'manual_compile', 'incremental',
-      3, 'images', 'compiling', 3, 'compiler-v1', 'prompt-v1', '[]',
-      'sha256:catalog', 'aggregate-job', now(), now(), 'space-job', now(), 9,
+      3, 'images', 'compiling', 3, 'compiler-v1', 'prompt-v1',
+      'aggregate-job', now(), now(), 'space-job', now(), 9,
       'old-token', now() + interval '3 minutes', 'worker-old', now(), true
     );
     INSERT INTO knowledge_space_compile_run_pages (

@@ -82,7 +82,6 @@ const ALL_SPACES_VALUE = "__all_spaces__";
 const ACTIVE_RUN_STATUSES: KnowledgeRunStatus[] = [
   "queued",
   "compiling",
-  "aggregate_pending",
   "aggregating",
 ];
 
@@ -99,7 +98,6 @@ export function knowledgeDiagnosticsRefetchInterval(): number | false {
 const RUN_STATUS_OPTIONS = [
   "queued",
   "compiling",
-  "aggregate_pending",
   "aggregating",
   "succeeded",
   "partial",
@@ -110,11 +108,9 @@ const RUN_STATUS_OPTIONS = [
 
 const RUN_PHASE_OPTIONS = [
   "text",
-  "initial_aggregate",
   "images",
   "image_merge",
   "finalizing",
-  "final_aggregate",
   "complete",
 ].map((value) => ({ value, label: humanizeState(value) }));
 

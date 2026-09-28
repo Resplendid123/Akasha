@@ -12,7 +12,6 @@ import {
 export type KnowledgeSpaceCompileRunStatus =
   | 'queued'
   | 'compiling'
-  | 'aggregate_pending'
   | 'aggregating'
   | 'succeeded'
   | 'partial'
@@ -24,10 +23,8 @@ export type KnowledgeSpaceCompileRunMode = 'incremental' | 'force_rebuild';
 
 export type KnowledgeSpaceCompileRunPhase =
   | 'text'
-  | 'initial_aggregate'
   | 'images'
   | 'image_merge'
-  | 'final_aggregate'
   | 'finalizing'
   | 'complete';
 
@@ -50,76 +47,21 @@ export interface SpaceRunRequest {
 
 export const KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER = 'manual_page_publish';
 
-/**
- * Reconciles the page scope of a coalescing target Run with an incoming
- * request. A full-Space request (no target pages) always widens the Run to
- * full scope; two page-scoped inputs union; a page-scoped request against an
- * already full-Space Run leaves it full (the page is already covered).
- * Returns the new scope, or `undefined` when the scope is unchanged.
- */
-export function reconcileRunTargetScope(input: {
-  runTargetSourcePageIds: string[] | null;
-  requestTargetSourcePageIds: string[] | undefined;
-}): { changed: boolean; targetSourcePageIds: string[] | null } {
-  const runTarget = input.runTargetSourcePageIds;
-  const requestTarget = input.requestTargetSourcePageIds;
-  const requestIsFullSpace = !requestTarget || requestTarget.length === 0;
-  // A full-Space Run already covers every page; nothing to widen or union.
-  if (runTarget === null) {
-    return { changed: false, targetSourcePageIds: null };
-  }
-  // A full-Space request widens a page-scoped Run to the whole Space.
-  if (requestIsFullSpace) {
-    return { changed: true, targetSourcePageIds: null };
-  }
-  const union = [...new Set([...runTarget, ...requestTarget!])];
-  const changed = union.length !== runTarget.length;
-  return { changed, targetSourcePageIds: union };
-}
-
-/**
- * Resolves the scope that an already initialized Run leaves to its follow-up.
- * A full-Space Run has already frozen its own plan, so the first later page
- * edit can safely narrow the follow-up to that page. Once a full follow-up has
- * explicitly been requested, later page edits must not narrow it again.
- */
-export function reconcileFollowUpTargetScope(input: {
-  runTargetSourcePageIds: string[] | null;
-  requestTargetSourcePageIds: string[] | undefined;
-  rerunAlreadyRequested: boolean;
-}): { changed: boolean; targetSourcePageIds: string[] | null } {
-  if (
-    !input.rerunAlreadyRequested &&
-    input.runTargetSourcePageIds === null &&
-    input.requestTargetSourcePageIds?.length
-  ) {
-    return {
-      changed: true,
-      targetSourcePageIds: [...new Set(input.requestTargetSourcePageIds)],
-    };
-  }
-  return reconcileRunTargetScope(input);
-}
-
-/**
- * Normalizes a request's target page list to either a de-duplicated non-empty
- * array (page-scoped) or null (full-Space). Empty input is treated as
- * full-Space so callers cannot accidentally create a Run that compiles nothing.
- */
-function normalizeTargetSourcePageIds(
-  value: string[] | undefined,
-): string[] | null {
-  if (!value) return null;
-  const unique = [...new Set(value.filter((id) => id.length > 0))];
-  return unique.length > 0 ? unique : null;
-}
-
-/** Reads the persisted JSON scope of a Run back into a string[] or null. */
-function parseTargetSourcePageIds(value: unknown): string[] | null {
-  if (!Array.isArray(value)) return null;
-  const ids = value.filter((id): id is string => typeof id === 'string');
-  return ids.length > 0 ? ids : null;
-}
+// Pure scope helpers now live in a shared, dependency-free module so the
+// execution repo can reuse the same follow-up narrowing semantics. Re-exported
+// here to keep existing import paths (and their unit tests) stable.
+export {
+  reconcileRunTargetScope,
+  reconcileFollowUpTargetScope,
+  normalizeTargetSourcePageIds,
+  parseTargetSourcePageIds,
+} from './knowledge-run-scope';
+import {
+  normalizeTargetSourcePageIds,
+  parseTargetSourcePageIds,
+  reconcileFollowUpTargetScope,
+  reconcileRunTargetScope,
+} from './knowledge-run-scope';
 
 export interface RequestRunsInput {
   requests: SpaceRunRequest[];
@@ -177,7 +119,6 @@ export type KnowledgeSpaceCompileRunPageStatus =
 const NONTERMINAL_RUN_STATUSES: KnowledgeSpaceCompileRunStatus[] = [
   'queued',
   'compiling',
-  'aggregate_pending',
   'aggregating',
 ];
 
@@ -206,19 +147,13 @@ export class KnowledgeSpaceCompilationRepo {
         'spaceJobQueuedAt',
       ])
       .where('status', '=', 'queued')
-      .where('phase', 'in', [
-        'text',
-        'initial_aggregate',
-        'image_merge',
-        'final_aggregate',
-        'finalizing',
-      ])
+      .where('phase', 'in', ['text', 'image_merge', 'finalizing'])
       .where('spaceJobId', 'is', null)
       .orderBy(
         sql<number>`CASE
           WHEN trigger = ${KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER}
-           AND phase IN ('text', 'initial_aggregate', 'finalizing') THEN 0
-          WHEN phase IN ('image_merge', 'final_aggregate', 'finalizing') THEN 1
+           AND phase IN ('text', 'finalizing') THEN 0
+          WHEN phase IN ('image_merge', 'finalizing') THEN 1
           ELSE 5
         END`,
         'asc',
@@ -244,20 +179,14 @@ export class KnowledgeSpaceCompilationRepo {
         'spaceJobQueuedAt',
       ])
       .where('status', '=', 'queued')
-      .where('phase', 'in', [
-        'text',
-        'initial_aggregate',
-        'image_merge',
-        'final_aggregate',
-        'finalizing',
-      ])
+      .where('phase', 'in', ['text', 'image_merge', 'finalizing'])
       .where('spaceJobId', 'is not', null)
       .where('spaceJobDispatchedAt', 'is', null)
       .orderBy(
         sql<number>`CASE
           WHEN trigger = ${KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER}
-           AND phase IN ('text', 'initial_aggregate', 'finalizing') THEN 0
-          WHEN phase IN ('image_merge', 'final_aggregate', 'finalizing') THEN 1
+           AND phase IN ('text', 'finalizing') THEN 0
+          WHEN phase IN ('image_merge', 'finalizing') THEN 1
           ELSE 5
         END`,
         'asc',
@@ -288,8 +217,8 @@ export class KnowledgeSpaceCompilationRepo {
   }): Promise<boolean> {
     const phases =
       input.jobPhase === 'text'
-        ? (['text', 'initial_aggregate', 'finalizing'] as const)
-        : (['image_merge', 'final_aggregate', 'finalizing'] as const);
+        ? (['text', 'finalizing'] as const)
+        : (['image_merge', 'finalizing'] as const);
     const updated = await this.db
       .updateTable('knowledgeSpaceCompileRuns')
       .set({ spaceJobDispatchedAt: new Date(), updatedAt: new Date() })
@@ -718,14 +647,6 @@ export class KnowledgeSpaceCompilationRepo {
     });
   }
 
-  async requestRunsForSourcePages(
-    input: Parameters<
-      KnowledgeSpaceCompilationRepo['requestIncrementalCompileForPages']
-    >[0],
-  ) {
-    return this.requestIncrementalCompileForPages(input);
-  }
-
   private async requestRunInTx(
     trx: KyselyTransaction,
     request: SpaceRunRequest,
@@ -836,11 +757,12 @@ export class KnowledgeSpaceCompilationRepo {
     }
     if (disposition === 'rerun_requested') {
       // The active Run has already frozen its RunPages, so newly changed
-      // pages belong to the follow-up. Persist the union on the current Run
-      // and let finishRun() carry that bounded scope forward.
+      // pages belong to the follow-up. Persist the union separately from the
+      // current Run's immutable discovery scope and let finishRun() carry it
+      // forward.
       const scope = reconcileFollowUpTargetScope({
-        runTargetSourcePageIds: parseTargetSourcePageIds(
-          activeRun!.targetSourcePageIds,
+        followUpTargetSourcePageIds: parseTargetSourcePageIds(
+          activeRun!.followUpTargetSourcePageIds,
         ),
         requestTargetSourcePageIds: requestTargetSourcePageIds ?? undefined,
         rerunAlreadyRequested: activeRun!.rerunRequested,
@@ -851,7 +773,7 @@ export class KnowledgeSpaceCompilationRepo {
           rerunRequested: true,
           ...(scope.changed
             ? {
-                targetSourcePageIds:
+                followUpTargetSourcePageIds:
                   scope.targetSourcePageIds as JsonValue | null,
               }
             : {}),
@@ -882,9 +804,6 @@ export class KnowledgeSpaceCompilationRepo {
         expectedPageCount: 0,
         compilerVersion: versions.compilerVersion,
         promptVersion: versions.promptVersion,
-        catalogSnapshot: [] as JsonValue,
-        catalogHash: 'pending-initialization',
-        aggregateRequired: false,
         targetSourcePageIds: requestTargetSourcePageIds as JsonValue | null,
         queuedAt: now,
         spaceJobQueuedAt: now,
@@ -998,20 +917,8 @@ export class KnowledgeSpaceCompilationRepo {
       .where('spaceId', '=', request.spaceId)
       .where('sourcePageId', 'in', removedSourcePageIds)
       .execute();
-    const overviews = await trx
-      .selectFrom('knowledgePages')
-      .select('id')
-      .where('workspaceId', '=', request.workspaceId)
-      .where('spaceId', '=', request.spaceId)
-      .where('compileScope', '=', 'space')
-      .where('pageType', '=', 'overview')
-      .where('staleAt', 'is', null)
-      .execute();
     const artifactIds = [
-      ...new Set([
-        ...affectedArtifacts.map((row) => row.artifactId),
-        ...overviews.map((row) => row.id),
-      ]),
+      ...new Set(affectedArtifacts.map((row) => row.artifactId)),
     ];
     if (artifactIds.length > 0) {
       await trx
@@ -1072,9 +979,6 @@ export class KnowledgeSpaceCompilationRepo {
         skippedPageCount: 0,
         importedArtifactCount: 0,
         quarantinedArtifactCount: 0,
-        catalogSnapshot: [] as JsonValue,
-        catalogHash: 'pending-initialization',
-        aggregateRequired: false,
         aggregateJobId: null,
         aggregateStartedAt: null,
         startedAt: null,
@@ -1106,8 +1010,6 @@ export class KnowledgeSpaceCompilationRepo {
     trigger: string;
     compilerVersion: string;
     promptVersion: string;
-    catalogSnapshot: JsonValue;
-    catalogHash: string;
     sources: Array<{
       sourcePageId: string;
       sourceVersion: string;
@@ -1300,11 +1202,6 @@ export class KnowledgeSpaceCompilationRepo {
           lastSuccessfulEffectiveHash: null,
           lastSuccessfulSourceVersion: null,
           lastSuccessfulSourceHash: null,
-          pendingImport: null,
-          pendingSpaceId: null,
-          pendingSourceVersion: null,
-          pendingEffectiveKnowledgeHash: null,
-          pendingCreatedAt: null,
           errorCode: 'force_rebuild_reset',
           errorMessage: 'Compiled knowledge was cleared by a force rebuild.',
           updatedAt: now,
@@ -1328,13 +1225,6 @@ export class KnowledgeSpaceCompilationRepo {
             : input.sources.length,
           compilerVersion: input.compilerVersion,
           promptVersion: input.promptVersion,
-          catalogSnapshot: input.deferInitialization
-            ? ([] as JsonValue)
-            : input.catalogSnapshot,
-          catalogHash: input.deferInitialization
-            ? 'pending-initialization'
-            : input.catalogHash,
-          aggregateRequired: false,
           initializedAt: input.deferInitialization ? null : now,
           queuedAt: now,
           spaceJobQueuedAt: now,
@@ -1403,8 +1293,6 @@ export class KnowledgeSpaceCompilationRepo {
   }) {
     return this.forceResetAndCreateRun({
       ...input,
-      catalogSnapshot: [] as JsonValue,
-      catalogHash: 'pending-initialization',
       sources: [],
       deferInitialization: true,
     });
@@ -1734,9 +1622,14 @@ export class KnowledgeSpaceCompilationRepo {
           ...(['partial', 'failed'].includes(imageStatus)
             ? { qualityStatus: 'partial_image' as const }
             : {}),
-          ...(nonterminal === 0
-            ? { mergeStatus: succeeded > 0 ? 'pending' : 'skipped' }
-            : {}),
+          // Once every image is terminal we always hand the page to the merge
+          // phase, even when all extractions failed. The merge build is the
+          // single compile point for image pages: with no ready images it
+          // falls back to text-only (so a page with text still yields
+          // knowledge) or skips an empty page without replacing prior
+          // knowledge. Gating on succeeded > 0 here would strand text-bearing
+          // pages whose images all failed.
+          ...(nonterminal === 0 ? { mergeStatus: 'pending' as const } : {}),
           updatedAt: now,
         })
         .where('id', '=', locked.page.id)

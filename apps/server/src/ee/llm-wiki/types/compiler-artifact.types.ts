@@ -9,7 +9,7 @@ export interface CompileSpaceInput extends KnowledgeScope {
   compilerVersion: string;
   promptVersion: string;
   compileTaskId?: string;
-  compileMode?: 'space' | 'pages';
+  compileMode: 'pages';
   purpose?: string;
   schema?: string;
   catalog?: KnowledgeArtifactCatalogEntry[];
@@ -44,8 +44,7 @@ export type CompiledKnowledgeArtifactKind =
   | 'source_summary'
   | 'concept'
   | 'entity'
-  | 'comparison'
-  | 'overview';
+  | 'comparison';
 
 export interface CompiledKnowledgeArtifact extends KnowledgeScope {
   artifactId: string;

@@ -54,6 +54,7 @@ describe('KnowledgeCompilerAdapter', () => {
       ],
       compilerVersion: 'dummy-compiler@1',
       promptVersion: 'dummy-prompt@1',
+      compileMode: 'pages',
     };
 
     const result = await adapter.compileSpace(input);

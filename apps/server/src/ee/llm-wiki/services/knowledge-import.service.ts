@@ -19,6 +19,7 @@ import {
 import { KnowledgeSourceRef } from '../types/knowledge.types';
 import { KnowledgeArtifactValidatorService } from './knowledge-artifact-validator.service';
 import {
+  BAILIAN_TEXT_EMBEDDING_V4_MAX_INPUTS_PER_REQUEST,
   buildKnowledgeEmbeddingProfile,
   ConfiguredKnowledgeEmbeddingProvider,
   KnowledgeEmbedding,
@@ -27,11 +28,16 @@ import {
 import { KnowledgeVectorIndexService } from './knowledge-vector-index.service';
 import { KnowledgeArtifactMaterializerService } from './knowledge-artifact-materializer.service';
 import { chunkKnowledgeSource } from '../chunking/knowledge-structural-chunker';
-import { hasTableNode } from '../../../common/helpers/prosemirror/table-text';
 import {
   KnowledgeOperationBudget,
   mapKnowledgeOperations,
 } from './knowledge-operation-budget';
+
+// This slices every content type, not only table rows. Batching does not alter
+// individual embedding inputs, so prose/attachment vector quality is unchanged.
+// The constant is the Bailian text-embedding-v4 per-request item limit.
+const KNOWLEDGE_EMBEDDING_BATCH_SIZE =
+  BAILIAN_TEXT_EMBEDDING_V4_MAX_INPUTS_PER_REQUEST;
 
 export interface KnowledgeImportResult {
   importedArtifactCount: number;
@@ -46,17 +52,10 @@ export type KnowledgeImportStage =
   | 'embedding'
   | 'import';
 
-export interface PreparedKnowledgeImport {
-  acceptedArtifacts: CompiledKnowledgeArtifact[];
-  quarantineInputs: Array<{
-    artifactId: string;
-    artifactKind: string | null;
-    compilerRunId: string | null;
-    compileTaskId: string | null;
-    reasonCodes: string[];
-  }>;
-  quarantinedArtifactCount: number;
-}
+type ArtifactChunk = NonNullable<CompiledKnowledgeArtifact['chunks']>[number];
+type EmbeddedArtifactChunk = Omit<ArtifactChunk, 'embedding'> & {
+  embedding: KnowledgeEmbedding;
+};
 
 export class KnowledgeCompilationValidationError extends Error {
   readonly code = 'validation_failed';
@@ -88,47 +87,26 @@ export class KnowledgeImportService {
     onStage?: (stage: KnowledgeImportStage) => void | Promise<void>;
     upsertSources?: boolean;
     retireSources?: boolean;
-    retireCompileScope?: boolean;
     publicationGuard?: (trx: KyselyTransaction) => Promise<boolean>;
     publicationComplete?: (trx: KyselyTransaction) => Promise<void>;
-    preparedImport?: PreparedKnowledgeImport;
-    onPrepared?: (prepared: PreparedKnowledgeImport) => void | Promise<void>;
   }): Promise<KnowledgeImportResult> {
     const operationBudget =
       input.input.operationBudget ?? new KnowledgeOperationBudget();
     input.input.operationBudget = operationBudget;
-    const hasTableSource = input.input.sources.some((source) =>
-      hasTableNode(source.content),
-    );
     operationBudget.throwIfAborted();
-    if (!input.preparedImport) await input.onStage?.('validation');
-    const validation = input.preparedImport
-      ? {
-          accepted: input.preparedImport.acceptedArtifacts,
-          quarantined: [],
-        }
-      : this.validator.validateCompileResult(input);
+    await input.onStage?.('validation');
+    const validation = this.validator.validateCompileResult(input);
     operationBudget.assertArtifactCount(validation.accepted.length);
-    if (!hasTableSource) {
-      operationBudget.assertChunkCount(
-        validation.accepted.reduce(
-          (count, artifact) => count + (artifact.chunks?.length ?? 0),
-          0,
-        ),
-      );
-    }
+    assertPublicationChunkBudgets(operationBudget, validation.accepted);
 
-    const quarantineInputs =
-      input.preparedImport?.quarantineInputs ??
-      validation.quarantined.map((quarantined) => ({
-        artifactId: quarantined.artifact.artifactId,
-        artifactKind: quarantined.artifact.artifactKind ?? null,
-        compilerRunId: quarantined.artifact.compilerRunId ?? null,
-        compileTaskId: quarantined.artifact.compileTaskId ?? null,
-        reasonCodes: toQuarantineReasonCodes(quarantined.reasons),
-      }));
-    const isSemanticPagePublication =
-      input.input.compileMode === 'pages' && input.input.sources.length === 1;
+    const quarantineInputs = validation.quarantined.map((quarantined) => ({
+      artifactId: quarantined.artifact.artifactId,
+      artifactKind: quarantined.artifact.artifactKind ?? null,
+      compilerRunId: quarantined.artifact.compilerRunId ?? null,
+      compileTaskId: quarantined.artifact.compileTaskId ?? null,
+      reasonCodes: toQuarantineReasonCodes(quarantined.reasons),
+    }));
+    const isSemanticPagePublication = input.input.sources.length === 1;
     if (isSemanticPagePublication && quarantineInputs.length > 0) {
       let quarantinePublicationRejected = false;
       await executeTx(this.db, async (trx) => {
@@ -194,14 +172,9 @@ export class KnowledgeImportService {
         operationBudget,
       });
       artifactsToPublish = materialized.artifacts;
-      if (!hasTableSource) {
-        operationBudget.assertChunkCount(
-          artifactsToPublish.reduce(
-            (count, artifact) => count + (artifact.chunks?.length ?? 0),
-            0,
-          ),
-        );
-      }
+      // Materialization can union chunks from several source contributions, so
+      // enforce the same budgets again on the representation actually written.
+      assertPublicationChunkBudgets(operationBudget, artifactsToPublish);
       contributionPublication = {
         sourcePageId: source.sourcePageId,
         removedArtifactIds: materialized.removedArtifactIds,
@@ -233,39 +206,17 @@ export class KnowledgeImportService {
       };
     }
 
-    if (!input.preparedImport) {
-      await input.onPrepared?.({
-        acceptedArtifacts: validation.accepted,
-        quarantineInputs,
-        quarantinedArtifactCount: validation.quarantined.length,
-      });
-    }
-
     await input.onStage?.('embedding');
 
     const artifactInputs: UpsertCompiledArtifactInput[] = [];
+    const embeddedChunksByArtifactId = await this.embedArtifactChunks(
+      artifactsToPublish,
+      operationBudget,
+    );
 
     for (const artifact of artifactsToPublish) {
-      const artifactChunks = await mapKnowledgeOperations(
-        artifact.chunks ?? [],
-        async (chunk) => {
-          const suppliedEmbedding = compilerEmbedding(
-            chunk.embedding,
-            artifact.compilerVersion,
-          );
-
-          const embedding = suppliedEmbedding
-            ? suppliedEmbedding
-            : await this.embedRequired(
-                chunk.embeddingText ?? chunk.text,
-                operationBudget.signal,
-              );
-          return {
-            ...chunk,
-            embedding,
-          };
-        },
-      );
+      const artifactChunks =
+        embeddedChunksByArtifactId.get(artifact.artifactId) ?? [];
       const claims = (artifact.claims ?? []).map((claim, index) => ({
         id: stableUuid(`${artifact.artifactId}:claim:${index}`),
         workspaceId: artifact.workspaceId,
@@ -469,7 +420,7 @@ export class KnowledgeImportService {
           id: artifact.artifactId,
           workspaceId: artifact.workspaceId,
           spaceId: artifact.spaceId,
-          compileScope: input.input.compileMode === 'pages' ? 'page' : 'space',
+          compileScope: 'page',
           title: artifact.title,
           slug: artifact.artifactId,
           body: artifact.contentMarkdown,
@@ -549,8 +500,7 @@ export class KnowledgeImportService {
       artifactInputs.length > 0 ||
       quarantineInputs.length > 0 ||
       Boolean(contributionPublication) ||
-      input.retireSources === true ||
-      input.retireCompileScope === true
+      input.retireSources === true
     ) {
       operationBudget.throwIfAborted();
       await executeTx(this.db, async (trx) => {
@@ -565,16 +515,6 @@ export class KnowledgeImportService {
               workspaceId: input.input.workspaceId,
               spaceId: input.input.spaceId,
               sourcePageIds: uniqueSourcePageIds(input.input),
-            },
-            trx,
-          );
-        }
-
-        if (input.retireCompileScope) {
-          await this.capsuleRepo.markCompileScopeStale(
-            {
-              workspaceId: input.input.workspaceId,
-              spaceId: input.input.spaceId,
             },
             trx,
           );
@@ -662,28 +602,15 @@ export class KnowledgeImportService {
             },
             trx,
           );
-        } else if (
-          artifactInputs.length > 0 &&
-          input.retireCompileScope !== true
-        ) {
-          if (input.input.compileMode === 'pages') {
-            await this.capsuleRepo.markSourceArtifactsStaleBySourcePageIds(
-              {
-                workspaceId: input.input.workspaceId,
-                spaceId: input.input.spaceId,
-                sourcePageIds: uniqueSourcePageIds(input.input),
-              },
-              trx,
-            );
-          } else {
-            await this.capsuleRepo.markCompileScopeStale(
-              {
-                workspaceId: input.input.workspaceId,
-                spaceId: input.input.spaceId,
-              },
-              trx,
-            );
-          }
+        } else if (artifactInputs.length > 0) {
+          await this.capsuleRepo.markSourceArtifactsStaleBySourcePageIds(
+            {
+              workspaceId: input.input.workspaceId,
+              spaceId: input.input.spaceId,
+              sourcePageIds: uniqueSourcePageIds(input.input),
+            },
+            trx,
+          );
         }
 
         if (quarantineInputs.length > 0) {
@@ -716,9 +643,7 @@ export class KnowledgeImportService {
 
     return {
       importedArtifactCount: validation.accepted.length,
-      quarantinedArtifactCount:
-        input.preparedImport?.quarantinedArtifactCount ??
-        validation.quarantined.length,
+      quarantinedArtifactCount: validation.quarantined.length,
       ...(degradedRetrievalProfiles.length > 0
         ? {
             degradedRetrievalProfiles: [
@@ -727,6 +652,109 @@ export class KnowledgeImportService {
           }
         : {}),
     };
+  }
+
+  private async embedArtifactChunks(
+    artifacts: CompiledKnowledgeArtifact[],
+    operationBudget: KnowledgeOperationBudget,
+  ): Promise<Map<string, EmbeddedArtifactChunk[]>> {
+    const entries = artifacts.flatMap((artifact) =>
+      (artifact.chunks ?? []).map((chunk, index) => ({
+        artifactId: artifact.artifactId,
+        compilerVersion: artifact.compilerVersion,
+        chunk,
+        index,
+      })),
+    );
+    const resolved = new Map<number, KnowledgeEmbedding>();
+    const unresolvedIndexes: number[] = [];
+
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      const supplied = compilerEmbedding(
+        entry.chunk.embedding,
+        entry.compilerVersion,
+      );
+      if (supplied) {
+        resolved.set(index, supplied);
+        continue;
+      }
+      unresolvedIndexes.push(index);
+    }
+
+    if (unresolvedIndexes.length > 0) {
+      const batches = Array.from(
+        {
+          length: Math.ceil(
+            unresolvedIndexes.length / KNOWLEDGE_EMBEDDING_BATCH_SIZE,
+          ),
+        },
+        (_, index) =>
+          unresolvedIndexes.slice(
+            index * KNOWLEDGE_EMBEDDING_BATCH_SIZE,
+            (index + 1) * KNOWLEDGE_EMBEDDING_BATCH_SIZE,
+          ),
+      );
+      const embeddedBatches = await mapKnowledgeOperations(
+        batches,
+        (batch) =>
+          this.embedManyRequired(
+            batch.map(
+              (index) =>
+                entries[index].chunk.embeddingText ?? entries[index].chunk.text,
+            ),
+            operationBudget.signal,
+          ),
+        { batchSize: 20, concurrency: 2 },
+      );
+      const generated = embeddedBatches.flat();
+      if (generated.length !== unresolvedIndexes.length) {
+        throw new KnowledgeEmbeddingError(
+          'embedding_invalid_vector',
+          'Knowledge embedding provider returned an unexpected batch size.',
+          true,
+        );
+      }
+      unresolvedIndexes.forEach((entryIndex, index) => {
+        resolved.set(entryIndex, generated[index]);
+      });
+    }
+
+    const result = new Map<string, EmbeddedArtifactChunk[]>();
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      const embedding = resolved.get(index);
+      if (!embedding) {
+        throw new KnowledgeEmbeddingError(
+          'embedding_invalid_vector',
+          'Knowledge embedding provider did not return every required vector.',
+          true,
+        );
+      }
+      const chunks = result.get(entry.artifactId) ?? [];
+      chunks[entry.index] = { ...entry.chunk, embedding };
+      result.set(entry.artifactId, chunks);
+    }
+    return result;
+  }
+
+  private async embedManyRequired(
+    texts: string[],
+    abortSignal?: AbortSignal,
+  ): Promise<KnowledgeEmbedding[]> {
+    if (typeof this.embeddingProvider.embedManyRequired === 'function') {
+      return abortSignal
+        ? this.embeddingProvider.embedManyRequired(texts, { abortSignal })
+        : this.embeddingProvider.embedManyRequired(texts);
+    }
+
+    // Compatibility for tests/custom providers during rollout. Production has
+    // embedManyRequired and therefore sends a real multi-value provider call.
+    return mapKnowledgeOperations(
+      texts,
+      (text) => this.embedRequired(text, abortSignal),
+      { batchSize: 100, concurrency: 2 },
+    );
   }
 
   private async embedRequired(
@@ -755,27 +783,29 @@ export class KnowledgeImportService {
   }
 }
 
-export function parsePreparedKnowledgeImport(
-  value: JsonValue,
-): PreparedKnowledgeImport {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Pending knowledge import is invalid.');
+function assertPublicationChunkBudgets(
+  budget: KnowledgeOperationBudget,
+  artifacts: CompiledKnowledgeArtifact[],
+): void {
+  let regularChunkCount = 0;
+  let tableRowCount = 0;
+
+  for (const artifact of artifacts) {
+    for (const chunk of artifact.chunks ?? []) {
+      if (isTableRowChunk(chunk)) tableRowCount += 1;
+      else regularChunkCount += 1;
+    }
   }
-  const record = value as Record<string, unknown>;
-  if (
-    !Array.isArray(record.acceptedArtifacts) ||
-    !Array.isArray(record.quarantineInputs) ||
-    typeof record.quarantinedArtifactCount !== 'number'
-  ) {
-    throw new Error('Pending knowledge import is invalid.');
-  }
-  return value as unknown as PreparedKnowledgeImport;
+
+  // Row-level table chunks are intentional: whole-table embeddings had poor
+  // recall. They receive a larger but still hard budget instead of allowing a
+  // table node to disable the ordinary 200-chunk guard for the entire page.
+  budget.assertChunkCount(regularChunkCount);
+  budget.assertTableRowCount(tableRowCount);
 }
 
-export function serializePreparedKnowledgeImport(
-  value: PreparedKnowledgeImport,
-): JsonValue {
-  return toJsonValue(value);
+function isTableRowChunk(chunk: ArtifactChunk): boolean {
+  return chunk.stableKey?.startsWith('table-row:') === true;
 }
 
 function uniqueSourcePageIds(input: CompileSpaceInput): string[] {

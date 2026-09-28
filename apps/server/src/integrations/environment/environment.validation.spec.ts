@@ -8,20 +8,17 @@ const baseEnvironment = {
 };
 
 describe('environment validation', () => {
-  it.each([
-    ['10000', '300000'],
-    ['120000', '300000'],
-    ['300000', '300000'],
-    ['270000', '600000'],
-  ])('accepts knowledge compiler timeout %s', (timeout, aggregateDeadline) => {
-    expect(
-      validate({
-        ...baseEnvironment,
-        KNOWLEDGE_COMPILER_TIMEOUT_MS: timeout,
-        KNOWLEDGE_AGGREGATE_DEADLINE_MS: aggregateDeadline,
-      }).KNOWLEDGE_COMPILER_TIMEOUT_MS,
-    ).toBe(Number(timeout));
-  });
+  it.each(['10000', '120000', '300000', '270000'])(
+    'accepts knowledge compiler timeout %s',
+    (timeout) => {
+      expect(
+        validate({
+          ...baseEnvironment,
+          KNOWLEDGE_COMPILER_TIMEOUT_MS: timeout,
+        }).KNOWLEDGE_COMPILER_TIMEOUT_MS,
+      ).toBe(Number(timeout));
+    },
+  );
 
   it.each(['9999', '600001', 'not-a-number'])(
     'rejects invalid knowledge compiler timeout %s',
@@ -97,7 +94,6 @@ describe('environment validation', () => {
       DATABASE_STATEMENT_TIMEOUT_MS: '30000',
       KNOWLEDGE_COMPILER_TIMEOUT_MS: '120000',
       KNOWLEDGE_PAGE_DEADLINE_MS: '900000',
-      KNOWLEDGE_AGGREGATE_DEADLINE_MS: '300000',
       KNOWLEDGE_IMAGE_JOB_DEADLINE_MS: '180000',
       KNOWLEDGE_SPACE_CONCURRENCY: '10',
       KNOWLEDGE_IMAGE_CONCURRENCY: '5',
@@ -110,7 +106,6 @@ describe('environment validation', () => {
     expect(config.DATABASE_MAX_POOL).toBe(25);
     expect(config.DATABASE_STATEMENT_TIMEOUT_MS).toBe(30_000);
     expect(config.KNOWLEDGE_PAGE_DEADLINE_MS).toBe(900_000);
-    expect(config.KNOWLEDGE_AGGREGATE_DEADLINE_MS).toBe(300_000);
     expect(config.KNOWLEDGE_IMAGE_JOB_DEADLINE_MS).toBe(180_000);
     expect(config.KNOWLEDGE_SPACE_CONCURRENCY).toBe(10);
     expect(config.KNOWLEDGE_IMAGE_CONCURRENCY).toBe(5);
@@ -127,8 +122,6 @@ describe('environment validation', () => {
     ['DATABASE_STATEMENT_TIMEOUT_MS', '120001'],
     ['KNOWLEDGE_PAGE_DEADLINE_MS', '299999'],
     ['KNOWLEDGE_PAGE_DEADLINE_MS', '900001'],
-    ['KNOWLEDGE_AGGREGATE_DEADLINE_MS', '59999'],
-    ['KNOWLEDGE_AGGREGATE_DEADLINE_MS', '600001'],
     ['KNOWLEDGE_IMAGE_JOB_DEADLINE_MS', '119999'],
     ['KNOWLEDGE_IMAGE_JOB_DEADLINE_MS', '300001'],
     ['KNOWLEDGE_SPACE_CONCURRENCY', '0'],

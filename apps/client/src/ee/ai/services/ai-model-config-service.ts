@@ -2,6 +2,7 @@ import api from "@/lib/api-client";
 import type {
   AiModelConfigFeature,
   AiModelConfigView,
+  TestAiModelConfigResult,
   UpdateAiModelConfigInput,
 } from "@/ee/ai/types/ai-model-config.types";
 
@@ -18,6 +19,17 @@ export async function updateAiModelConfig(
 ): Promise<AiModelConfigView> {
   const req = await api.put<AiModelConfigView>(
     `/llm-wiki/admin/model-configs/${feature}`,
+    input,
+  );
+  return req.data;
+}
+
+export async function testAiModelConfig(
+  feature: AiModelConfigFeature,
+  input: UpdateAiModelConfigInput,
+): Promise<TestAiModelConfigResult> {
+  const req = await api.post<TestAiModelConfigResult>(
+    `/llm-wiki/admin/model-configs/${feature}/test`,
     input,
   );
   return req.data;

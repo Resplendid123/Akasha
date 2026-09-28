@@ -13,6 +13,7 @@ describe('KnowledgeArtifactValidatorService', () => {
     spaceId: 'space-1',
     compilerVersion: 'compiler@1',
     promptVersion: 'prompt@1',
+    compileMode: 'pages',
     sources: [
       {
         workspaceId: 'workspace-1',
@@ -41,10 +42,7 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines artifacts outside the compile scope', () => {
     const artifact = { ...validArtifact(), spaceId: 'space-2' };
 
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
-    });
+    const result = service.validateCompileResult({ input, artifacts: [artifact] });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined).toMatchObject([
@@ -58,10 +56,7 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines artifacts whose artifact id cannot be stored as a UUID', () => {
     const artifact = { ...validArtifact(), artifactId: 'not-a-uuid' };
 
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
-    });
+    const result = service.validateCompileResult({ input, artifacts: [artifact] });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -77,10 +72,7 @@ describe('KnowledgeArtifactValidatorService', () => {
       inputSourceRefs: [],
     };
 
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
-    });
+    const result = service.validateCompileResult({ input, artifacts: [artifact] });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -122,10 +114,7 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
     };
 
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
-    });
+    const result = service.validateCompileResult({ input, artifacts: [artifact] });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -377,7 +366,10 @@ describe('KnowledgeArtifactValidatorService', () => {
     const { input, chunk } = legitAttachmentFixture();
     const artifact = { ...validArtifact(), chunks: [chunk] };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([artifact]);
     expect(result.quarantined).toEqual([]);
@@ -400,7 +392,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -425,7 +420,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -452,7 +450,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -547,6 +548,7 @@ function legitAttachmentFixture(): {
       spaceId: 'space-1',
       compilerVersion: 'compiler@1',
       promptVersion: 'prompt@1',
+      compileMode: 'pages',
       sources: [source],
     },
     chunk,

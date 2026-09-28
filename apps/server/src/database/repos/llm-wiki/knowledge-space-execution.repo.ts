@@ -12,6 +12,10 @@ import type {
   KnowledgeSpaceCompileRunPhase,
   KnowledgeSpaceCompileRunStatus,
 } from './knowledge-space-compilation.repo';
+import {
+  parseTargetSourcePageIds,
+  reconcileFollowUpTargetScope,
+} from './knowledge-run-scope';
 
 export type SpaceJobPhase = 'text' | 'image_merge';
 
@@ -42,6 +46,11 @@ export interface RunPageBindingPlan {
   mergeStatus: KnowledgeSpaceCompileRunPageMergeStatus;
   errorCode?: string | null;
   errorMessage?: string | null;
+  /**
+   * Binding-time cache/reuse hint. It may omit images that were still pending
+   * at binding, so merge publication must derive its identity from frozen
+   * RunImage extraction ids instead.
+   */
   targetEffectiveKnowledgeHash?: string | null;
   reused?: boolean;
   qualityStatus?: 'normal' | 'degraded' | 'partial_image';
@@ -62,20 +71,19 @@ export interface RunImageInitializationPlan {
 
 export const PAGE_ATTEMPT_BUDGET = 2;
 
+// Image merge gets the same budget as text: one initial attempt plus one
+// retry. A transient provider/embedding/DB failure during merge should not end
+// the page the way a permanent (non-retryable) failure does.
+export const MERGE_ATTEMPT_BUDGET = 2;
+
 const NONTERMINAL_RUN_STATUSES: KnowledgeSpaceCompileRunStatus[] = [
   'queued',
   'compiling',
-  'aggregate_pending',
   'aggregating',
 ];
-const TEXT_PHASES: KnowledgeSpaceCompileRunPhase[] = [
-  'text',
-  'initial_aggregate',
-  'finalizing',
-];
+const TEXT_PHASES: KnowledgeSpaceCompileRunPhase[] = ['text', 'finalizing'];
 const IMAGE_MERGE_PHASES: KnowledgeSpaceCompileRunPhase[] = [
   'image_merge',
-  'final_aggregate',
   'finalizing',
 ];
 
@@ -173,6 +181,8 @@ export class KnowledgeSpaceExecutionRepo {
       const claimed = await trx
         .updateTable('knowledgeSpaceCompileRunPages')
         .set({
+          status: 'running',
+          startedAt: new Date(),
           attemptCount: page.attemptCount + 1,
           ...(unbound ? { bindingStatus: 'binding' as const } : {}),
           updatedAt: new Date(),
@@ -221,7 +231,6 @@ export class KnowledgeSpaceExecutionRepo {
           'mergeAttemptCount',
           'expectedSourceVersion',
           'expectedSourceContentHash',
-          'targetEffectiveKnowledgeHash',
           'createdAt',
         ])
         .where('runId', '=', lease.runId)
@@ -235,6 +244,7 @@ export class KnowledgeSpaceExecutionRepo {
       const claimed = await trx
         .updateTable('knowledgeSpaceCompileRunPages')
         .set({
+          mergeStatus: 'running',
           mergeAttemptCount: page.mergeAttemptCount + 1,
           updatedAt: new Date(),
         })
@@ -256,6 +266,8 @@ export class KnowledgeSpaceExecutionRepo {
         'fileSize',
         'altText',
         'expectedAttachmentVersion',
+        'status',
+        'extractionId',
       ])
       .where(
         'runPageId',
@@ -271,17 +283,28 @@ export class KnowledgeSpaceExecutionRepo {
       pageImages.push(image);
       imagesByPage.set(image.runPageId, pageImages);
     }
-    return pages.map((page) => ({
-      ...page,
-      images: (imagesByPage.get(page.id) ?? []).map((image) => ({
-        attachmentId: image.attachmentId,
-        fileName: image.fileName,
-        mimeType: image.mimeType,
-        fileSize: image.fileSize === null ? null : Number(image.fileSize),
-        attachmentVersion: image.expectedAttachmentVersion.toISOString(),
-        ...(image.altText ? { altText: image.altText } : {}),
-      })),
-    }));
+    return pages.map((page) => {
+      const pageImages = imagesByPage.get(page.id) ?? [];
+      return {
+        ...page,
+        // The exact extraction ids this Run froze for its successful images.
+        // The merge build reads these ids directly; an id that can no longer
+        // satisfy the source/attachment identity gate causes a re-plan.
+        expectedExtractionIds: pageImages
+          .filter(
+            (image) => image.status === 'succeeded' && image.extractionId,
+          )
+          .map((image) => image.extractionId as string),
+        images: pageImages.map((image) => ({
+          attachmentId: image.attachmentId,
+          fileName: image.fileName,
+          mimeType: image.mimeType,
+          fileSize: image.fileSize === null ? null : Number(image.fileSize),
+          attachmentVersion: image.expectedAttachmentVersion.toISOString(),
+          ...(image.altText ? { altText: image.altText } : {}),
+        })),
+      };
+    });
   }
 
   async findSpaceRecoveryCandidates(input: {
@@ -373,13 +396,6 @@ export class KnowledgeSpaceExecutionRepo {
     return Boolean(page);
   }
 
-  async isLeaseActiveForSpacePublication(
-    lease: SpaceExecutionLease,
-    trx: KyselyTransaction,
-  ): Promise<boolean> {
-    return Boolean(await this.lockLeasedRun(trx, lease));
-  }
-
   async isLeaseActiveForMergePublication(
     lease: SpaceExecutionLease,
     input: {
@@ -438,18 +454,7 @@ export class KnowledgeSpaceExecutionRepo {
       .where('id', '=', page.id)
       .where('mergeStatus', 'in', ['pending', 'queued', 'running'])
       .execute();
-    const remaining = await trx
-      .selectFrom('knowledgeSpaceCompileRunPages')
-      .select('id')
-      .where('runId', '=', lease.runId)
-      .where('mergeStatus', 'in', [
-        'waiting_images',
-        'pending',
-        'queued',
-        'running',
-      ])
-      .limit(1)
-      .executeTakeFirst();
+    const remaining = await this.hasOutstandingMergeWork(trx, lease.runId);
     if (!remaining) {
       await trx
         .updateTable('knowledgeSpaceCompileRuns')
@@ -469,23 +474,11 @@ export class KnowledgeSpaceExecutionRepo {
     return executeTx(this.db, async (trx) => {
       const run = await this.lockLeasedRun(trx, lease);
       if (!run) return undefined;
-      if (run.phase === 'finalizing' || run.phase === 'final_aggregate') {
-        if (run.phase === 'final_aggregate') {
-          await trx
-            .updateTable('knowledgeSpaceCompileRuns')
-            .set({
-              phase: 'finalizing',
-              status: 'aggregating',
-              updatedAt: new Date(),
-            })
-            .$call((query) => this.whereLease(query, lease))
-            .where('phase', '=', 'final_aggregate')
-            .execute();
-        }
+      if (run.phase === 'finalizing') {
         return { barrierComplete: true };
       }
       if (run.phase !== 'image_merge') return undefined;
-      const remaining = await trx
+      const active = await trx
         .selectFrom('knowledgeSpaceCompileRunPages')
         .select('id')
         .where('runId', '=', lease.runId)
@@ -497,19 +490,53 @@ export class KnowledgeSpaceExecutionRepo {
         ])
         .limit(1)
         .executeTakeFirst();
-      if (remaining) return { barrierComplete: false };
+      if (active) return { barrierComplete: false, reclaimed: false };
+      // No page is actively merging. Before closing the barrier, give retryable
+      // failures another attempt (mirrors advanceTextBarrier's reclaim). A
+      // non-retryable failure already had its attempt count forced to the budget
+      // by finishMergePage, so it is excluded here and stays terminal.
+      const now = new Date();
+      const reclaimed = await trx
+        .updateTable('knowledgeSpaceCompileRunPages')
+        .set({
+          mergeStatus: 'pending',
+          errorCode: null,
+          errorMessage: null,
+          updatedAt: now,
+        })
+        .where('runId', '=', lease.runId)
+        .where('mergeStatus', '=', 'failed')
+        .where('mergeAttemptCount', '<', MERGE_ATTEMPT_BUDGET)
+        .returning('id')
+        .execute();
+      if (reclaimed.length > 0) {
+        // Keep the run in image_merge and hand control back to the runner so it
+        // re-claims the reclaimed pages for another attempt.
+        const held = await trx
+          .updateTable('knowledgeSpaceCompileRuns')
+          .set({ updatedAt: now })
+          .$call((query) => this.whereLease(query, lease))
+          .where('phase', '=', 'image_merge')
+          .returning('id')
+          .executeTakeFirst();
+        return held
+          ? { barrierComplete: false, reclaimed: true }
+          : undefined;
+      }
       const updated = await trx
         .updateTable('knowledgeSpaceCompileRuns')
         .set({
           phase: 'finalizing',
           status: 'aggregating',
-          updatedAt: new Date(),
+          updatedAt: now,
         })
         .$call((query) => this.whereLease(query, lease))
         .where('phase', '=', 'image_merge')
         .returning('id')
         .executeTakeFirst();
-      return updated ? { barrierComplete: true } : undefined;
+      return updated
+        ? { barrierComplete: true, reclaimed: false }
+        : undefined;
     });
   }
 
@@ -551,12 +578,7 @@ export class KnowledgeSpaceExecutionRepo {
       const claimed = await trx
         .updateTable('knowledgeSpaceCompileRuns')
         .set({
-          status:
-            locked.phase === 'initial_aggregate' ||
-            locked.phase === 'final_aggregate' ||
-            locked.phase === 'finalizing'
-              ? 'aggregating'
-              : 'compiling',
+          status: locked.phase === 'finalizing' ? 'aggregating' : 'compiling',
           executionToken,
           executionLeaseExpiresAt: input.executionLeaseExpiresAt,
           workerId: input.workerId,
@@ -653,7 +675,6 @@ export class KnowledgeSpaceExecutionRepo {
     lease: SpaceExecutionLease,
     input: {
       targetSourcePageIds: string[] | null;
-      aggregateRequired?: boolean;
     },
   ) {
     return executeTx(this.db, async (trx) => {
@@ -719,7 +740,6 @@ export class KnowledgeSpaceExecutionRepo {
         .updateTable('knowledgeSpaceCompileRuns')
         .set({
           initializedAt: now,
-          aggregateRequired: input.aggregateRequired ?? false,
           expectedPageCount,
           succeededPageCount: 0,
           failedPageCount: 0,
@@ -954,7 +974,10 @@ export class KnowledgeSpaceExecutionRepo {
           failedPageCount: counts.failed,
           skippedPageCount: counts.skipped,
           ...(input.errorCode === 'source_changed'
-            ? { rerunRequested: true }
+            ? {
+                rerunRequested: true,
+                ...this.followUpScopeUpdate(run, input.sourcePageId),
+              }
             : {}),
           updatedAt: new Date(),
         })
@@ -990,7 +1013,7 @@ export class KnowledgeSpaceExecutionRepo {
           ...counts,
         };
       }
-      if (!['text', 'initial_aggregate'].includes(run.phase)) return undefined;
+      if (run.phase !== 'text') return undefined;
       const barrierComplete =
         counts.succeeded + counts.failed + counts.skipped >=
         run.expectedPageCount;
@@ -1277,7 +1300,6 @@ export class KnowledgeSpaceExecutionRepo {
       errorMessage?: string | null;
       importedArtifactCount?: number;
       quarantinedArtifactCount?: number;
-      catalogHash?: string;
     } = {},
   ) {
     return executeTx(this.db, async (trx) => {
@@ -1297,9 +1319,6 @@ export class KnowledgeSpaceExecutionRepo {
             : {}),
           ...(input.quarantinedArtifactCount !== undefined
             ? { quarantinedArtifactCount: input.quarantinedArtifactCount }
-            : {}),
-          ...(input.catalogHash !== undefined
-            ? { catalogHash: input.catalogHash }
             : {}),
           executionToken: null,
           executionLeaseExpiresAt: null,
@@ -1336,13 +1355,9 @@ export class KnowledgeSpaceExecutionRepo {
             expectedPageCount: 0,
             compilerVersion: run.compilerVersion,
             promptVersion: run.promptVersion,
-            catalogSnapshot: [] as JsonValue,
-            catalogHash: 'pending-initialization',
-            aggregateRequired: false,
-            // Page updates that arrive after initialization are coalesced into
-            // the active Run's requested scope. Carry that bounded scope to
-            // the follow-up instead of silently widening it to the whole Space.
-            targetSourcePageIds: run.targetSourcePageIds,
+            // Page updates and snapshot changes that arrive after initialization
+            // accumulate in a scope separate from the current Run's frozen plan.
+            targetSourcePageIds: run.followUpTargetSourcePageIds,
             queuedAt: now,
             spaceJobQueuedAt: now,
             updatedAt: now,
@@ -1352,6 +1367,60 @@ export class KnowledgeSpaceExecutionRepo {
       }
       return { run: finished, followUp };
     });
+  }
+
+  // When a page changes mid-run, accumulate it in the follow-up scope without
+  // mutating the current Run's frozen discovery scope. An explicitly requested
+  // full-Space follow-up stays full; otherwise only pages that changed after
+  // initialization are unioned into the bounded follow-up.
+  private followUpScopeUpdate(
+    run: { followUpTargetSourcePageIds: unknown; rerunRequested: boolean },
+    changedSourcePageId: string,
+  ): { followUpTargetSourcePageIds?: JsonValue | null } {
+    const scope = reconcileFollowUpTargetScope({
+      followUpTargetSourcePageIds: parseTargetSourcePageIds(
+        run.followUpTargetSourcePageIds,
+      ),
+      requestTargetSourcePageIds: [changedSourcePageId],
+      rerunAlreadyRequested: run.rerunRequested,
+    });
+    return scope.changed
+      ? {
+          followUpTargetSourcePageIds:
+            scope.targetSourcePageIds as JsonValue | null,
+        }
+      : {};
+  }
+
+  // Merge work that still blocks the barrier: pages actively being merged, plus
+  // failed pages that are still eligible for a retry. Treating the latter as
+  // outstanding stops finishMergePage/completeMergePagePublication from flipping
+  // the run to `finalizing` before advanceMergeBarrier can reclaim them.
+  private async hasOutstandingMergeWork(
+    trx: KyselyTransaction,
+    runId: string,
+  ): Promise<boolean> {
+    const row = await trx
+      .selectFrom('knowledgeSpaceCompileRunPages')
+      .select('id')
+      .where('runId', '=', runId)
+      .where((expression) =>
+        expression.or([
+          expression('mergeStatus', 'in', [
+            'pending',
+            'queued',
+            'running',
+            'waiting_images',
+          ]),
+          expression.and([
+            expression('mergeStatus', '=', 'failed'),
+            expression('mergeAttemptCount', '<', MERGE_ATTEMPT_BUDGET),
+          ]),
+        ]),
+      )
+      .limit(1)
+      .executeTakeFirst();
+    return Boolean(row);
   }
 
   private async finishMergePage(
@@ -1382,14 +1451,28 @@ export class KnowledgeSpaceExecutionRepo {
         .executeTakeFirst();
       if (!page) return undefined;
       if (!['succeeded', 'skipped', 'failed'].includes(page.mergeStatus)) {
+        // A retryable failure that still has attempts left is not terminal: it
+        // will be reclaimed by advanceMergeBarrier once the barrier settles, so
+        // we must not brand the page partial_image or exhaust its budget yet. A
+        // non-retryable failure ends the page now, so force its attempt count to
+        // the budget the same way completeTextPage does — this keeps the reclaim
+        // predicate a single "failed AND under budget" check.
+        const terminalFailure =
+          input.status === 'failed' &&
+          (input.retryable === false ||
+            page.mergeAttemptCount >= MERGE_ATTEMPT_BUDGET);
+        const terminal = input.status !== 'failed' || terminalFailure;
         await trx
           .updateTable('knowledgeSpaceCompileRunPages')
           .set({
             mergeStatus: input.status,
             mergedEffectiveKnowledgeHash: input.effectiveKnowledgeHash ?? null,
-            ...(input.status === 'succeeded'
+            ...(input.status === 'succeeded' || !terminal
               ? {}
               : { qualityStatus: 'partial_image' as const }),
+            ...(input.status === 'failed' && input.retryable === false
+              ? { mergeAttemptCount: MERGE_ATTEMPT_BUDGET }
+              : {}),
             errorCode: diagnostic(input.errorCode, 80),
             errorMessage: diagnostic(input.errorMessage, 500),
             updatedAt: new Date(),
@@ -1397,19 +1480,10 @@ export class KnowledgeSpaceExecutionRepo {
           .where('id', '=', page.id)
           .execute();
       }
-      const remaining = await trx
-        .selectFrom('knowledgeSpaceCompileRunPages')
-        .select('id')
-        .where('runId', '=', lease.runId)
-        .where('mergeStatus', 'in', [
-          'pending',
-          'queued',
-          'running',
-          'waiting_images',
-        ])
-        .limit(1)
-        .executeTakeFirst();
-      const barrierComplete = !remaining;
+      const barrierComplete = !(await this.hasOutstandingMergeWork(
+        trx,
+        lease.runId,
+      ));
       const updated = await trx
         .updateTable('knowledgeSpaceCompileRuns')
         .set({
@@ -1419,7 +1493,10 @@ export class KnowledgeSpaceExecutionRepo {
           ...(['source_changed', 'image_snapshot_changed'].includes(
             input.errorCode ?? '',
           )
-            ? { rerunRequested: true }
+            ? {
+                rerunRequested: true,
+                ...this.followUpScopeUpdate(run, input.sourcePageId),
+              }
             : {}),
           updatedAt: new Date(),
         })

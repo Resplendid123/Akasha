@@ -243,6 +243,122 @@ export class KnowledgeImageEnrichmentService {
     };
   }
 
+  /**
+   * Reconstructs the merge input from the exact extraction ids a run froze into
+   * its plan, instead of re-querying "whatever is currently ready" by
+   * attachment identity. Reading by frozen id is immune to spurious provider or
+   * prompt identity drift (it returns the planned extraction's content
+   * regardless of the current identity), while a genuinely changed image
+   * (attachment re-upload) or a cleared/deleted extraction surfaces as a
+   * missing id. Callers must treat any `missingExtractionIds` as drift and
+   * re-plan rather than publish an input the run never froze.
+   */
+  async readFrozenSource(
+    source: KnowledgeSourceSnapshot,
+    expectedExtractionIds: string[],
+  ): Promise<{
+    source: KnowledgeSourceSnapshot;
+    readyImages: ReadyKnowledgeImage[];
+    readyExtractionIds: string[];
+    missingExtractionIds: string[];
+    truncatedCount: number;
+  }> {
+    const expected = [...new Set(expectedExtractionIds)];
+    if (expected.length === 0) {
+      return {
+        source,
+        readyImages: [],
+        readyExtractionIds: [],
+        missingExtractionIds: [],
+        truncatedCount: 0,
+      };
+    }
+    const images = source.images ?? [];
+    const rows = await this.extractionRepo.findReadyByIds({
+      workspaceId: source.workspaceId,
+      spaceId: source.spaceId,
+      extractionIds: expected,
+    });
+    const rowById = new Map(rows.map((row) => [row.id, row] as const));
+    // Only accept a frozen extraction whose attachment identity still matches
+    // the plan's image (same attachment, same frozen version). Anything else is
+    // treated as unresolved so it counts as drift below.
+    const rowByAttachmentId = new Map(
+      rows
+        .filter((row) =>
+          images.some(
+            (image) =>
+              image.attachmentId === row.attachmentId &&
+              row.attachmentVersion?.toISOString() === image.attachmentVersion,
+          ),
+        )
+        .map((row) => [row.attachmentId, row] as const),
+    );
+    const extracted = images.flatMap((image): ExtractedImageText[] => {
+      const row = rowByAttachmentId.get(image.attachmentId);
+      if (!row || !expected.includes(row.id)) return [];
+      if (!(row.ocrText?.trim() || row.caption?.trim())) return [];
+      return [
+        {
+          attachmentId: image.attachmentId,
+          attachmentVersion: image.attachmentVersion,
+          cacheFingerprint: row.cacheFingerprint,
+          contentHash: row.contentHash,
+          fileName: image.fileName,
+          altText: image.altText,
+          ocrText: row.ocrText ?? '',
+          caption: row.caption ?? '',
+        },
+      ];
+    });
+    const resolvedExtractionIds = new Set(
+      extracted.flatMap((image) => {
+        const id = rowByAttachmentId.get(image.attachmentId)?.id;
+        return id ? [id] : [];
+      }),
+    );
+    const missingExtractionIds = expected.filter(
+      (id) => !resolvedExtractionIds.has(id),
+    );
+    if (missingExtractionIds.length > 0) {
+      this.logger.warn({
+        event: 'knowledge_image_frozen_extraction_drift',
+        workspaceId: source.workspaceId,
+        spaceId: source.spaceId,
+        sourcePageId: source.sourcePageId,
+        expectedExtractionIds: expected,
+        resolvedExtractionIds: [...resolvedExtractionIds],
+        missingExtractionIds,
+        foundButUnusable: expected.filter(
+          (id) => rowById.has(id) && !resolvedExtractionIds.has(id),
+        ),
+      });
+    }
+    const formatted = formatImageKnowledge(extracted);
+    const readyImages = extracted.map((image) => ({
+      attachmentId: image.attachmentId,
+      attachmentVersion: image.attachmentVersion,
+      cacheFingerprint: image.cacheFingerprint,
+      contentHash: image.contentHash,
+      ocrText: image.ocrText,
+      caption: image.caption,
+    }));
+    return {
+      source: formatted.text
+        ? {
+            ...source,
+            text: source.text.trim()
+              ? `${source.text.trimEnd()}\n\n${formatted.text}`
+              : formatted.text,
+          }
+        : source,
+      readyImages,
+      readyExtractionIds: [...resolvedExtractionIds],
+      missingExtractionIds,
+      truncatedCount: formatted.truncatedCount,
+    };
+  }
+
   async enrichSource(
     source: KnowledgeSourceSnapshot,
     options?: {

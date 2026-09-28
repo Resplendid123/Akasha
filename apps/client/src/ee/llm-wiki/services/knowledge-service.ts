@@ -1014,7 +1014,6 @@ function normalizeRunStatus(value: unknown): KnowledgeRunStatus {
   return [
     "queued",
     "compiling",
-    "aggregate_pending",
     "aggregating",
     "succeeded",
     "partial",
@@ -1027,15 +1026,9 @@ function normalizeRunStatus(value: unknown): KnowledgeRunStatus {
 }
 
 function normalizeRunPhase(value: unknown): KnowledgeRunPhase {
-  return [
-    "text",
-    "initial_aggregate",
-    "images",
-    "image_merge",
-    "finalizing",
-    "final_aggregate",
-    "complete",
-  ].includes(value as string)
+  return ["text", "images", "image_merge", "finalizing", "complete"].includes(
+    value as string,
+  )
     ? (value as KnowledgeRunPhase)
     : "text";
 }
