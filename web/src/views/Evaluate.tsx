@@ -224,7 +224,7 @@ function NewEval({
   const [concurrency, setConcurrency] = useState(1)
   const start = useAction<unknown>()
 
-  // 默认勾选每一组都算得出来的那些。judge 逐条调模型，不默认勾。
+
   useEffect(() => {
     if (metrics.data && selected.length === 0) {
       const judge = new Set(
@@ -232,7 +232,7 @@ function NewEval({
       )
       setSelected(metrics.data.computable_for_all.filter((n) => !judge.has(n)))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [metrics.data])
 
   useEffect(() => {

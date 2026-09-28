@@ -1,7 +1,7 @@
-"""answer_correctness：答案与参考答案在事实上是否一致。
 
-需要参考答案。
-"""
+
+
+
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ REFERENCE:
 ANSWER:
 {answer}"""
 
-# no_answer 不给分数：拒答既不对也不错，与「答错了」的处置完全不同。
+
 SCORES: dict[str, float | None] = {
     "correct": 1.0,
     "partial": 0.5,
@@ -56,7 +56,7 @@ def parse_verdict(payload: dict[str, Any]) -> tuple[float | None, dict[str, Any]
 def build_prompt(
     question: str, answer: str, reference: str
 ) -> tuple[str, str] | None:
-    """拼出 ``(system, user)``。缺参考答案或答案为空时返回 ``None``。"""
+
     if not question.strip() or not answer.strip() or not reference.strip():
         return None
     return SYSTEM, USER_TEMPLATE.format(

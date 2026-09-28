@@ -1,7 +1,7 @@
-"""任务与审计日志。
 
-审计日志只追加：清理任务删 ``task`` 行，``audit_log`` 保留。
-"""
+
+
+
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def create_task(connection: sqlite3.Connection, *, stage: str, params: dict[str,
 def transition(
     connection: sqlite3.Connection, task_id: int, status: str, *, error: str | None = None
 ) -> None:
-    """在同一事务内更新任务及其绑定产物的状态。调用方负责提交。"""
+
     from .run_store import RUN_TABLES, set_run_status
 
     connection.execute(
@@ -71,7 +71,7 @@ def update_progress(
 def set_task_chain(
     connection: sqlite3.Connection, task_id: int, *, chain: list[dict[str, Any]], chain_id: int
 ) -> None:
-    """把链上剩余阶段挂到任务上。"""
+
     connection.execute(
         "UPDATE task SET chain_id = ?, chain_json = ? WHERE id = ?",
         (chain_id, dumps(chain), task_id),
@@ -79,7 +79,7 @@ def set_task_chain(
 
 
 def task_chain(connection: sqlite3.Connection, task_id: int) -> tuple[int | None, list[dict]]:
-    """任务的链号与剩余阶段。"""
+
     row = connection.execute(
         "SELECT chain_id, chain_json FROM task WHERE id = ?", (task_id,)
     ).fetchone()
@@ -88,7 +88,7 @@ def task_chain(connection: sqlite3.Connection, task_id: int) -> tuple[int | None
     return row["chain_id"], loads(row["chain_json"], []) or []
 
 
-# chain_json 是运行器的内部账本，不进接口响应。
+
 _HIDDEN = ("params_json", "chain_json")
 
 
@@ -124,11 +124,11 @@ def count_inactive_tasks(connection: sqlite3.Connection) -> int:
 
 
 def task_tree(connection: sqlite3.Connection) -> dict[str, Any]:
-    """按运行外键构建编译 → 查询 → 评测 → 归因任务树。
 
-    已绑定产物的任务挂到对应运行节点；尚未创建产物的下游任务根据输入参数
-    挂到父运行节点。下载、归一化和无法关联到现存运行的任务单独返回。
-    """
+
+
+
+
     from .run_store import STAGE_INPUTS
 
     specs = (
@@ -208,7 +208,7 @@ def active_tasks(connection: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def delete_task(connection: sqlite3.Connection, task_id: int) -> int:
-    """删任务记录。在跑的不许删，否则会留下一个没人认领的线程还在写库。"""
+
     row = connection.execute("SELECT status FROM task WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         return 0

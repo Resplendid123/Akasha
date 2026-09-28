@@ -114,7 +114,7 @@ export interface AkashaModelsView {
   models: AkashaModelProvider[]
 }
 
-/** 探测结果。ok 为假时 failure 是失败类别，detail 是 provider 回的原文。 */
+
 export interface ProviderProbe {
   ok: boolean
   failure: string | null
@@ -298,7 +298,7 @@ export interface CompileRun {
     gates: Record<string, number | null>
     progress?: { expected?: number; succeeded?: number; failed?: number; skipped?: number }
   } | null
-  /** 每篇编译耗时的估算，不是实测。 */
+
   pace: { runs: number; pages: number; total_ms: number; per_page_ms: number } | null
   readiness: Readiness
   queries: QueryRun[]
@@ -349,7 +349,7 @@ export interface JudgeSummary {
   scored: number
   failed: number
   mean: number | null
-  /** 每条调用的平均延迟。跳过的条目不进均值。 */
+
   latency_mean: number | null
   failure_rate: number
   failures_by_kind: Record<string, number>
@@ -503,7 +503,9 @@ export type RootCause =
   | 'answer_correct'
   | 'generation_ignored_retrieval'
   | 'generation_fallback'
+  | 'generation_empty'
   | 'retrieval_evidence_incomplete'
+  | 'compiled_answer_missing'
   | 'compiled_away'
   | 'citation_dropped'
   | 'retrieval_miss'
@@ -515,6 +517,18 @@ export interface AttributionResult {
   dataset: string
   root_cause: RootCause
   evidence: Record<string, unknown>
+}
+
+export interface QueryAuditSnapshot {
+  answerMode?: string
+  decisionReason?: string
+  generalAnswerReason?: string
+  authorizedChunkCount?: number
+  finalAuthorizedSourceCount?: number
+  packContextLength?: number
+  answerContextLength?: number
+  graph?: { candidateCount?: number; selectedCount?: number; gatedOutCount?: number }
+  retrieval?: { topK?: number; threshold?: number; dropped?: Array<{ reason?: string; pageId?: string; chunkId?: string }> }
 }
 
 export interface EvidenceChainStep {
@@ -545,6 +559,29 @@ export interface EvidenceChain {
   missing_step_count?: number
   model_false_negative_candidate?: boolean
   steps?: EvidenceChainStep[]
+}
+
+export interface CompiledAnswerStep {
+  position: number
+  question?: string
+  answer?: string
+  support_doc_id?: string
+  support_title?: string
+  source_answer_present?: boolean
+  compiled_answer_present?: boolean
+  source_answer_token_recall?: number
+  compiled_answer_token_recall?: number
+  status: 'preserved' | 'compiled_missing' | 'compiled_only' | 'source_missing' | string
+}
+
+export interface CompiledAnswers {
+  status: 'preserved' | 'compiled_missing' | 'unavailable' | string
+  step_count?: number
+  compiled_missing_count?: number
+  source_missing_count?: number
+  answer_token_recall_threshold?: number
+  reason?: string
+  steps?: CompiledAnswerStep[]
 }
 
 export interface AttributionDetail extends AttributionRun {

@@ -1,4 +1,4 @@
-"""后台任务调度、暂停/继续、远端编译取消与链路推进。"""
+
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ from akasha_benchmark.task import Paused, TaskContext, execute
 
 from .settings import Settings
 
-# 这些阶段与任何在跑的任务互斥：它们改的是下游所有层的输入。
+
 EXCLUSIVE = frozenset({"download", "normalize"})
-# Akasha 模型配置是远端全局状态；相同配置的任务可并行，单任务内部仍可并发上传。
+
 STAGE_CONCURRENCY: dict[str, int] = {"compile": 16, "query": 16}
 UNLIMITED_CONCURRENCY = frozenset({"attribute"})
 TASK_MODEL_FEATURES: dict[str, tuple[str, ...]] = {
@@ -31,11 +31,11 @@ TASK_MODEL_FEATURES: dict[str, tuple[str, ...]] = {
 
 
 class TaskRejected(RuntimeError):
-    """请求的任务不合法（未知阶段、参数不对，或同类任务已在跑）。"""
+    pass
 
 
 class TaskRunner:
-    """在跑的任务。一个 stage 一条线程，暂停信号逐任务持有。"""
+
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -43,10 +43,10 @@ class TaskRunner:
         self._lock = threading.Lock()
 
     def recover(self) -> int:
-        """把上次进程留下的「运行中」标成暂停，返回处理了几条。
 
-        那些线程已经没了，留着 running 会让记录卡住（清理不许删在跑的任务）。
-        """
+
+
+
         connection = connect(self.settings.db_path)
         try:
             active = task_store.active_tasks(connection)
@@ -81,7 +81,7 @@ class TaskRunner:
             connection.close()
 
     def start(self, stage: str, args: dict[str, Any]) -> dict[str, Any]:
-        """建一条任务并起线程，立刻返回那条记录。"""
+
         if stage not in STAGES:
             raise TaskRejected(f"未知阶段 {stage!r}；可用：{sorted(STAGES)}")
         try:
@@ -103,10 +103,10 @@ class TaskRunner:
         return record
 
     def start_chain(self, args: dict[str, Any]) -> dict[str, Any]:
-        """起一条链路测试：建链首那条编译任务，余下几步挂在它上面。
 
-        返回链首任务；后面三条在前一条成功时自动出现。
-        """
+
+
+
         connection = connect(self.settings.db_path)
         try:
             try:
@@ -118,7 +118,7 @@ class TaskRunner:
             connection.execute("BEGIN IMMEDIATE")
             self._require_free(connection, head["stage"], params)
             task_id = task_store.create_task(connection, stage=head["stage"], params=params)
-            # 链首的 id 就是链号，四条任务凭它归到一起。
+
             task_store.set_task_chain(connection, task_id, chain=rest, chain_id=task_id)
             connection.commit()
             record = task_store.get_task(connection, task_id) or {}
@@ -129,7 +129,7 @@ class TaskRunner:
         return record
 
     def retry_failed_query(self, query_id: int) -> dict[str, Any]:
-        """从查询产物重建任务，只重试已有失败响应。"""
+
         connection = connect(self.settings.db_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -170,7 +170,7 @@ class TaskRunner:
         return record
 
     def resume(self, task_id: int) -> dict[str, Any]:
-        """继续一个暂停的任务：同一条记录、同一组参数，重新起线程。"""
+
         connection = connect(self.settings.db_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -193,7 +193,7 @@ class TaskRunner:
             connection.close()
 
     def pause(self, task_id: int) -> dict[str, Any]:
-        """请求暂停。阶段跑到下一个 checkpoint 时停下并落库。"""
+
         connection = connect(self.settings.db_path)
         try:
             task = task_store.get_task(connection, task_id)
@@ -224,7 +224,7 @@ class TaskRunner:
             with self._lock:
                 event = self._pauses.get(task_id)
             if event is None:
-                # 没有对应线程时同步暂停任务及产物。
+
                 task_store.transition(connection, task_id, task_store.PAUSED)
                 connection.commit()
             else:
@@ -242,7 +242,7 @@ class TaskRunner:
             connection.close()
 
     def cleanup(self, task_id: int | None) -> dict[str, int]:
-        """删任务记录，``None`` 时清掉所有非运行中的。审计日志不删。"""
+
         connection = connect(self.settings.db_path)
         try:
             try:
@@ -328,7 +328,7 @@ class TaskRunner:
         features = TASK_MODEL_FEATURES.get(stage, ())
         incoming_configs = (params or {}).get("model_configs")
         if features and not incoming_configs:
-            # 入队时锁定远端配置快照。
+
             try:
                 config = load_config(connection)
                 config.require_credentials()
@@ -342,7 +342,7 @@ class TaskRunner:
 
         for task in same_stage:
             running_configs = (task.get("params") or {}).get("model_configs")
-            # 远端全局配置不同时禁止并行。
+
             if incoming_configs and running_configs and any(
                 not model_configs.matches(incoming_configs, running_configs, feature)
                 for feature in features
@@ -362,10 +362,10 @@ class TaskRunner:
             )
 
     def _verify(self, connection, task_id: int, stage: str) -> None:
-        """校验链上任务的产物契约，抛出的异常按失败处理。
 
-        只对链上的任务生效，手动起的单阶段任务不受约束。
-        """
+
+
+
         chain_id, _ = task_store.task_chain(connection, task_id)
         check = chain.VERIFY.get(stage)
         if chain_id is None or check is None:
@@ -385,7 +385,7 @@ class TaskRunner:
         connection.commit()
 
     def _advance_chain(self, connection, task_id: int, stage: str) -> None:
-        """接上链的下一步，把这一步的产物 id 填进它的 ``link`` 参数。"""
+
         chain_id, remaining = task_store.task_chain(connection, task_id)
         if chain_id is None or not remaining:
             return
@@ -444,7 +444,7 @@ class TaskRunner:
     def _run(
         self, task_id: int, stage: str, params: dict[str, Any], event: threading.Event
     ) -> None:
-        # 每个任务线程一条独立连接，sqlite 连接不跨线程共用。
+
         connection = connect(self.settings.db_path)
         try:
             task = task_store.get_task(connection, task_id)
@@ -470,7 +470,7 @@ class TaskRunner:
                 )
                 connection.commit()
                 return
-            except Exception as exc:  # noqa: BLE001 - 失败要落库，不能只留在线程里
+            except Exception as exc:
                 task_store.log(
                     connection,
                     task_id=task_id,

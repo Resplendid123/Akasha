@@ -1,4 +1,4 @@
-"""编译层存取。"""
+
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def replace_compile_subset(
     sample_ids: list[str],
     docs: list[dict[str, Any]],
 ) -> None:
-    """写入一个数据集的子集。重抽样先删旧行，免得残留被一起导入。"""
+
     connection.execute(
         "DELETE FROM compile_sample WHERE compile_id = ? "
         "AND sample_id IN (SELECT sample_id FROM sample WHERE dataset = ?)",
@@ -145,7 +145,7 @@ def compile_doc_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, int, list[dict[str, Any]]]:
-    """在 SQLite 中过滤并分页编译文档，避免把整次编译读进 Python。"""
+
     where = ["cd.compile_id = ?"]
     params: list[Any] = [compile_id]
     if dataset:
@@ -203,7 +203,7 @@ def record_page(
 
 
 def page_to_doc(connection: sqlite3.Connection, compile_id: int, dataset: str) -> dict[str, str]:
-    """``page_id -> doc_id``，供评测把响应里的 sourcePageId 反查回语料文档。"""
+
     return {
         row["page_id"]: row["doc_id"]
         for row in connection.execute(
@@ -239,11 +239,11 @@ def compile_stats(connection: sqlite3.Connection, compile_id: int) -> dict[str, 
 def workspace_mismatch(
     connection: sqlite3.Connection, compile_id: int, resolved_workspace_id: str | None
 ) -> str | None:
-    """这次编译的空间是否还在当前连接解析出的 workspace 里。不一致时返回原因。
 
-    ``resolved_workspace_id`` 取 ``users/me`` 的响应，不是配置项。
-    不一致时查询不报错，只会每条都召回不到。
-    """
+
+
+
+
     run = get_compile_run(connection, compile_id)
     if run is None:
         return f"编译 #{compile_id} 不存在"
@@ -264,11 +264,11 @@ def workspace_mismatch(
 
 
 def compile_ready(connection: sqlite3.Connection, compile_id: int) -> dict[str, Any]:
-    """能不能拿这次编译去查询，返回阻断原因与降级警告。
 
-    编译任务失败不等于空间完全不可查。远端逐页进度明确证明至少一篇成功时，
-    保留失败状态用于告警，但允许查询层使用其余已经编译好的页面。
-    """
+
+
+
+
     run = get_compile_run(connection, compile_id)
     if run is None:
         return {"ready": False, "reasons": ["编译记录不存在"], "warnings": []}
@@ -286,7 +286,7 @@ def compile_ready(connection: sqlite3.Connection, compile_id: int) -> dict[str, 
 
 
 def compile_readiness(run: dict[str, Any], *, total: int, missing: int) -> dict[str, Any]:
-    """用已聚合的文档数判断编译能否查询。"""
+
     reasons: list[str] = []
     warnings: list[str] = []
     quality = loads(run["quality_json"]) or {}

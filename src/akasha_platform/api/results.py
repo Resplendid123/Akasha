@@ -1,4 +1,4 @@
-"""评测结果与归因结论。"""
+
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def eval_samples(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """评测样本列表；逐条原始 LLM 响应在样本详情里按需读取。"""
+
     with db(request) as connection:
         if eval_store.get_eval_run(connection, eval_id) is None:
             raise HTTPException(404, f"评测 #{eval_id} 不存在")
@@ -78,7 +78,7 @@ def eval_samples(
 
 @router.get("/evals/{eval_id}")
 def eval_detail(request: Request, eval_id: int) -> dict[str, Any]:
-    """一次评测的全部汇总，按数据集与 scope 组织。"""
+
     with db(request) as connection:
         row = eval_store.get_eval_run(connection, eval_id)
         if row is None:
@@ -94,7 +94,7 @@ def eval_detail(request: Request, eval_id: int) -> dict[str, Any]:
         return {
             **public_run(row),
             "ks": loads(row["ks_json"], []),
-            # 这一轮勾了哪些指标，报告页的列以它为准。
+
             "metrics": loads(row["metrics_json"], []),
             "query": public_run(query_run or {}),
             "datasets": [
@@ -107,7 +107,7 @@ def eval_detail(request: Request, eval_id: int) -> dict[str, Any]:
 
 @router.get("/evals/{eval_id}/samples/{sample_id}")
 def sample_detail(request: Request, eval_id: int, sample_id: str) -> dict[str, Any]:
-    """单条样本：指标、明细、原始响应、judge 判决。"""
+
     with db(request) as connection:
         eval_run = eval_store.get_eval_run(connection, eval_id)
         if eval_run is None:
@@ -127,7 +127,7 @@ def sample_detail(request: Request, eval_id: int, sample_id: str) -> dict[str, A
             for doc in data_store.corpus_of(connection, row["dataset"])
         }
         metrics = eval_store.sample_metrics_of(connection, eval_id, sample_id)
-        # 一个样本可以有多条 judge 结论。
+
         verdicts = [
             v for v in eval_store.judge_verdicts(connection, eval_id) if v["sample_id"] == sample_id
         ]
@@ -163,7 +163,7 @@ def sample_detail(request: Request, eval_id: int, sample_id: str) -> dict[str, A
             "query_id": query_id,
             "compile_id": compile_id,
             "response": response_body,
-            # doc_id -> page_id，链路视图的入口。
+
             "gold_pages": {
                 doc: doc_to_page.get(doc) for doc in row["detail"].get("gold_doc_ids") or []
             },
@@ -171,7 +171,7 @@ def sample_detail(request: Request, eval_id: int, sample_id: str) -> dict[str, A
         }
 @router.delete("/evals/{eval_id}")
 def delete_eval(request: Request, eval_id: int) -> dict[str, Any]:
-    """清理一次评测及其下游的归因。"""
+
     with writable(request) as connection:
         if eval_store.get_eval_run(connection, eval_id) is None:
             raise HTTPException(404, f"评测 #{eval_id} 不存在")
@@ -183,7 +183,7 @@ def delete_eval(request: Request, eval_id: int) -> dict[str, Any]:
 
 @router.get("/attributions/{attribution_id}")
 def attribution_detail(request: Request, attribution_id: int) -> dict[str, Any]:
-    """一次归因的全部结论，按根因分组计数。"""
+
     with db(request) as connection:
         row = attribution_store.get_attribution_run(connection, attribution_id)
         if row is None:
@@ -211,11 +211,11 @@ def delete_attribution(request: Request, attribution_id: int) -> dict[str, Any]:
 
 @router.get("/lineage/{page_id}")
 def lineage(request: Request, page_id: str, question: str = "") -> dict[str, Any]:
-    """一篇文档的原文 vs 编译产物并排。
 
-    编译产物才是被检索的文本（``knowledge_chunks``），原文
-    （``knowledge_source_chunks``）不参与召回。
-    """
+
+
+
+
     with db(request) as connection:
         config = load_config(connection)
     try:
@@ -226,7 +226,7 @@ def lineage(request: Request, page_id: str, question: str = "") -> dict[str, Any
         raise HTTPException(400, str(exc)) from exc
     return {
         **textdiff.build(chain, question),
-        # 逐块原始数据，供前端分页并标注 artifact / chunk。
+
         "artifacts": chain["artifacts"],
         "chunks": chain["chunks"],
         "source_chunks": chain["source_chunks"],

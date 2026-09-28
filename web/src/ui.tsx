@@ -87,15 +87,15 @@ export function useAsync<T>(
   const inFlight = useRef(false)
   const queued = useRef(false)
 
-  // 依赖变化后重新进入加载态。
+
   useEffect(() => {
     hasData.current = false
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, deps)
 
   useEffect(() => {
     let alive = true
-    // 后台刷新时保留现有页面。
+
     if (!hasData.current) {
       setLoading(true)
       setError(null)
@@ -124,10 +124,10 @@ export function useAsync<T>(
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [...deps, nonce])
 
-  // 请求期间只排队一次刷新。
+
   const reload = useCallback(() => {
     if (inFlight.current) {
       queued.current = true
@@ -311,6 +311,8 @@ const ROOT_CAUSE_LABELS: Record<RootCause, { text: string; kind: string }> = {
   answer_correct: { text: '答案正确', kind: 'ok' },
   generation_ignored_retrieval: { text: '生成未采用检索', kind: 'warn' },
   generation_fallback: { text: '生成端兜底', kind: 'warn' },
+  generation_empty: { text: '生成空响应', kind: 'bad' },
+  compiled_answer_missing: { text: '编译产物缺答案', kind: 'bad' },
   compiled_away: { text: '编译丢词', kind: 'bad' },
   citation_dropped: { text: '检索到但未被引用', kind: 'warn' },
   retrieval_miss: { text: '检索未命中', kind: 'bad' },
@@ -541,7 +543,7 @@ export function ConfigPanel({
     try {
       localStorage.setItem(key, next ? 'open' : 'closed')
     } catch {
-      // 浏览器禁用本地存储时仍允许当前页面正常收起。
+
     }
   }
   return (

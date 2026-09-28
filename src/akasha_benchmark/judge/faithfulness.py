@@ -1,11 +1,11 @@
-"""faithfulness：答案里的每条陈述能否由检索到的上下文支撑。
 
-口径：把答案拆成原子陈述，逐条判上下文是否支撑，得分 = 被支撑数 / 总条数。
-拆句与判定在同一次调用里做完。
 
-上下文取 ``snippets`` 而不取 ``citations``：后者已被裁剪，
-拿它当上下文会把「引用漏了但检索到了」误判成不忠实。
-"""
+
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -41,16 +41,16 @@ CONTEXT:
 ANSWER:
 {answer}"""
 
-# 单条上下文的截断长度：编译产物是扩写过的，全塞进去会撑爆上下文窗口。
+
 MAX_SNIPPET_CHARS = 1200
 MAX_SNIPPETS = 20
 
 
 def build_context(response: dict[str, Any]) -> str:
-    """从响应体拼出判定用的上下文。
 
-    没有 snippet 时返回空串，此时这个指标无定义，调用方应跳过而不是记 0。
-    """
+
+
+
     parts: list[str] = []
     for snippet in (response.get("snippets") or [])[:MAX_SNIPPETS]:
         title = snippet.get("title") or ""
@@ -61,7 +61,7 @@ def build_context(response: dict[str, Any]) -> str:
 
 
 def score_claims(claims: list[dict[str, Any]]) -> float | None:
-    """被支撑的条数占比。没有任何陈述时返回 ``None``（拒答上这个指标无定义）。"""
+
     if not claims:
         return None
     supported = sum(1 for c in claims if c.get("verdict") == "supported")
@@ -69,10 +69,10 @@ def score_claims(claims: list[dict[str, Any]]) -> float | None:
 
 
 def parse_verdict(payload: dict[str, Any]) -> tuple[float | None, dict[str, Any]]:
-    """把模型输出解析成 ``(分数, 结构化理由)``。
 
-    ``verdict`` 取值不在预期集合里就抛 ValueError，不静默当成 unsupported。
-    """
+
+
+
     claims = payload.get("claims")
     if not isinstance(claims, list):
         raise ValueError(f"expected a list under 'claims', got {type(claims).__name__}")
@@ -104,7 +104,7 @@ def parse_verdict(payload: dict[str, Any]) -> tuple[float | None, dict[str, Any]
 
 
 def build_prompt(question: str, answer: str, response: dict[str, Any]) -> tuple[str, str] | None:
-    """拼出 ``(system, user)``。上下文为空时返回 ``None``，该条跳过。"""
+
     context = build_context(response)
     if not context:
         return None

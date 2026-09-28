@@ -1,7 +1,7 @@
-"""context_relevancy：检索回来的上下文里有多少是这个问题用得上的。
 
-判的是检索的信噪比，与 recall 互补：recall 说够不够，这个说干不干净。
-"""
+
+
+
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ VERDICTS = ("useful", "useless")
 
 
 def build_context(response: dict[str, Any]) -> tuple[str, int]:
-    """拼出编号的上下文，并回它的条数（解析时用来校验模型有没有漏判）。"""
+
     parts: list[str] = []
     for snippet in (response.get("snippets") or [])[:MAX_SNIPPETS]:
         title = snippet.get("title") or ""
@@ -48,7 +48,7 @@ def build_context(response: dict[str, Any]) -> tuple[str, int]:
 def parse_verdict(
     payload: dict[str, Any], expected: int
 ) -> tuple[float | None, dict[str, Any]]:
-    """有用条数占比。模型漏判或多判时抛 ValueError，不把缺失当 useless。"""
+
     passages = payload.get("passages")
     if not isinstance(passages, list):
         raise ValueError(f"expected a list under 'passages', got {type(passages).__name__}")
@@ -74,7 +74,7 @@ def parse_verdict(
 
 
 def build_prompt(question: str, response: dict[str, Any]) -> tuple[str, str, int] | None:
-    """拼出 ``(system, user, 上下文条数)``。没有上下文时返回 ``None``。"""
+
     if not question.strip():
         return None
     context, count = build_context(response)

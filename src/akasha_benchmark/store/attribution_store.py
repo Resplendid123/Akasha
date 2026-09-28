@@ -1,4 +1,4 @@
-"""归因层存取。"""
+
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def record_report(
     error: str | None,
     latency_ms: int | None,
 ) -> None:
-    """保存整轮评测的模型分析；它属于运行，不属于任何单条样本。"""
+
     connection.execute(
         "UPDATE attribution_run SET report = ?, report_error = ?, report_latency_ms = ? "
         "WHERE id = ?",

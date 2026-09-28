@@ -1,4 +1,4 @@
-"""配置层存取：Akasha 连接与模型 provider。"""
+
 
 from __future__ import annotations
 
@@ -26,13 +26,13 @@ MODEL_ROLES = ("judge", "attribution")
 AKASHA_FEATURES = ("compiler", "embedding", "answer", "image")
 MODEL_PURPOSES = (*MODEL_ROLES, *AKASHA_FEATURES)
 
-# 这两个字段的主机名要过 _prefer_ipv4。
+
 _HOST_URLS = {"base_url", "database_url"}
 
 
 def _prefer_ipv4(url: str) -> str:
-    """把主机名恰好是 ``localhost`` 的换成 ``127.0.0.1``。
-    """
+
+
     parts = urlsplit(url)
     if parts.hostname != "localhost":
         return url
@@ -48,7 +48,7 @@ def get_connection_row(connection: sqlite3.Connection) -> dict[str, Any]:
 
 
 def sanitize_connection(payload: dict[str, Any]) -> dict[str, Any]:
-    """只认已知字段并转好类型。没提交的字段不出现在结果里，因此保持原值。"""
+
     cleaned: dict[str, Any] = {}
     for key, value in payload.items():
         if key not in CONNECTION_FIELDS:
@@ -90,7 +90,7 @@ def upsert_model_provider(
     parameters: dict[str, Any] | None = None,
     model_id: int | None = None,
 ) -> int:
-    """按 purpose 保存一个模型端点。"""
+
     if purpose not in MODEL_PURPOSES:
         raise ValueError(f"purpose must be one of {MODEL_PURPOSES}")
     values = (

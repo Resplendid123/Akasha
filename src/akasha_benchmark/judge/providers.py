@@ -1,4 +1,4 @@
-"""从保存的配置解析模型端点。"""
+
 
 import sqlite3
 
@@ -9,8 +9,8 @@ from .client import JudgeConfigError, JudgeProvider
 def resolve_provider(
     connection: sqlite3.Connection, provider_id: int | None, purpose: str
 ) -> JudgeProvider:
-    """从库里取 provider 配置。没给 id 时取该用途最近更新的一条，凑不齐抛
-    :class:`JudgeConfigError`。"""
+
+
     record = config_store.get_model_provider(connection, provider_id) if provider_id else None
     if provider_id is not None and record is None:
         raise JudgeConfigError(f"模型端点 #{provider_id} 已不存在")

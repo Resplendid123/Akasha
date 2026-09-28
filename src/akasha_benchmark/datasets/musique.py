@@ -1,16 +1,16 @@
-"""musique 适配器。1000 行，2-4 跳，带显式子问题分解。
 
-本集有两处是特有的：
 
-* gold 按 ``(title, paragraph_text)`` 定位，**不能只按 title**。
-  2648 条 gold 段落里有 769 条的 title 对应多行 corpus；而 (title, text)
-  在全部 11656 行上唯一。这是实测结论，不是推测。
-* ``answer_aliases`` 并入 ``answers``，这样答案 F1 对多参考取 max 时
-  自动覆盖别名，不用在打分侧再写一遍别名逻辑。
 
-跳数编码在 id 前缀里（``2hop__…``、``3hop1__…``），抽子集靠它分层，
-评测靠它出随跳数的衰减曲线。
-"""
+
+
+
+
+
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ HOP_PREFIXES = ("2hop", "3hop1", "3hop2", "4hop1", "4hop2", "4hop3")
 
 
 def hop_prefix(dataset_sample_id: str) -> str:
-    """``"3hop1__9285_5188_23307"`` 取 ``"3hop1"``。前缀不认识就报错。
 
-    注意分隔符是双下划线 ``__``，不是冒号。
-    """
+
+
+
     prefix = dataset_sample_id.split("__", 1)[0]
     if prefix not in HOP_PREFIXES:
         raise ValueError(f"musique: unrecognized hop prefix {prefix!r} in id {dataset_sample_id!r}")
@@ -35,7 +35,7 @@ def hop_prefix(dataset_sample_id: str) -> str:
 
 
 def hop_count(prefix: str) -> int:
-    """``"4hop2"`` 取 4。"""
+
     return int(prefix[0])
 
 
@@ -77,7 +77,7 @@ class MusiqueAdapter(DatasetAdapter):
                 doc_id = corpus.id_for_pair(title, text)
             except KeyError as exc:
                 raise ValueError(f"{self.name}: row {row_index} gold unresolvable: {exc}") from None
-            # 记下有多少 gold 的 title 本身是歧义的，作为「必须用 pair 消歧」的证据。
+
             if len(corpus.title_to_ids.get(title, ())) > 1:
                 ambiguous_titles += 1
             gold_ids.setdefault(doc_id, None)
@@ -86,7 +86,7 @@ class MusiqueAdapter(DatasetAdapter):
         if not gold_ids:
             raise ValueError(f"{self.name}: row {row_index} has no is_supporting paragraph")
 
-        # 别名并入参考答案集；保序去重，主答案排在最前，便于逐样本结果好读。
+
         answers: dict[str, None] = {answer: None}
         for alias in row.get("answer_aliases") or []:
             if isinstance(alias, str) and alias:

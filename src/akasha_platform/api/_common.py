@@ -1,4 +1,4 @@
-"""路由共用的数据库上下文与依赖。"""
+
 
 from __future__ import annotations
 
@@ -26,14 +26,14 @@ def runner_of(request: Request) -> TaskRunner:
 
 @contextmanager
 def db(request: Request) -> Iterator[sqlite3.Connection]:
-    """只读连接，请求结束时关闭。"""
+
     with closing(connect(settings_of(request).db_path, read_only=True)) as connection:
         yield connection
 
 
 @contextmanager
 def writable(request: Request) -> Iterator[sqlite3.Connection]:
-    """成功提交、异常回滚，始终关闭。"""
+
     with closing(connect(settings_of(request).db_path)) as connection, connection:
         yield connection
 
@@ -44,12 +44,12 @@ def config_of(request: Request) -> AkashaConfig:
 
 
 def public_run(row: dict[str, Any]) -> dict[str, Any]:
-    """去掉 ``*_json`` 原始列。需要的那些由调用方解开后单独加回。"""
+
     return {k: v for k, v in row.items() if not k.endswith("_json")}
 
 
 def reject_if_busy(connection: sqlite3.Connection, kind: str, target_id: int) -> None:
-    """锁住写事务，检查级联影响范围及尚未绑定产物的任务。"""
+
     if not connection.in_transaction:
         connection.execute("BEGIN IMMEDIATE")
     affected = run_store.descendants(connection, kind, target_id)

@@ -1,8 +1,8 @@
-"""corpus 加载、doc_id 赋予，以及适配器解析 gold 要用的反查表。
 
-各组 corpus 的身份字段不统一，规则收在 :data:`CORPUS_ID_RULES`。
-语料一律不去重：musique 的重复 title 是同名文档的不同段落，去重会丢 gold。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .models import CORPUS_ID_RULES, CorpusDoc
 
 
 class CorpusIndex:
-    """corpus 全部行，加上解析 gold 需要的两张反查表。"""
+
 
     def __init__(self, dataset: str, docs: list[CorpusDoc]) -> None:
         self.dataset = dataset
@@ -30,7 +30,7 @@ class CorpusIndex:
                 )
             self.by_id[doc.doc_id] = doc
 
-        # title -> [doc_id]（可能一对多）；(title, text) -> doc_id（唯一）。
+
         self.title_to_ids: dict[str, list[str]] = defaultdict(list)
         self.pair_to_id: dict[tuple[str, str], str] = {}
         collisions: list[tuple[str, str]] = []
@@ -42,7 +42,7 @@ class CorpusIndex:
             else:
                 self.pair_to_id[key] = doc.doc_id
 
-        # (title, text) 仍重复时没有任何键能定位到行，报错而不是挑一个。
+
         if collisions:
             title, text = collisions[0]
             raise ValueError(
@@ -55,7 +55,7 @@ class CorpusIndex:
         return len(self.docs)
 
     def id_for_title(self, title: str) -> str:
-        """按 title 定位唯一 doc_id。有歧义或找不到都抛异常。"""
+
         ids = self.title_to_ids.get(title)
         if not ids:
             raise KeyError(f"{self.dataset}: title not in corpus: {title!r}")
@@ -67,7 +67,7 @@ class CorpusIndex:
         return ids[0]
 
     def id_for_pair(self, title: str, text: str) -> str:
-        """按 (title, text) 定位 doc_id。musique 必须走这条路。"""
+
         try:
             return self.pair_to_id[(title, text)]
         except KeyError:
@@ -78,10 +78,10 @@ class CorpusIndex:
 
 
 def assign_doc_id(dataset: str, row: dict[str, Any], row_index: int) -> str:
-    """按该数据集声明的身份字段赋 doc_id；``row_idx`` 表示用行号。"""
+
     field = CORPUS_ID_RULES[dataset]
     if field == "row_idx":
-        # 用行号当身份的前提是这份 corpus 没有身份字段；有了说明数据换版。
+
         present = sorted({"idx", "id"} & row.keys())
         if present:
             raise ValueError(

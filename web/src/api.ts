@@ -25,12 +25,6 @@ import type {
   TaskTree,
 } from './types'
 
-// 后端配置了令牌时，请求须携带它。sessionStorage 在标签页关闭后清除。
-const TOKEN_KEY = 'akasha-platform-token'
-
-export const setToken = (token: string) => sessionStorage.setItem(TOKEN_KEY, token)
-export const getToken = () => sessionStorage.getItem(TOKEN_KEY) ?? ''
-
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -41,12 +35,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getToken()
   const response = await fetch(path, {
     ...init,
     headers: {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { 'X-Auth-Token': token } : {}),
       ...init?.headers,
     },
   })
@@ -56,7 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const body = (await response.json()) as { detail?: string }
       if (body.detail) detail = body.detail
     } catch {
-      // 响应不是 JSON，保留状态码即可。
+
     }
     throw new ApiError(response.status, detail)
   }

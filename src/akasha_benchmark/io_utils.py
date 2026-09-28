@@ -1,4 +1,4 @@
-"""文件哈希与 JSON 读取。原始文件的 sha256 进库，作为产物的上游凭据。"""
+
 
 from __future__ import annotations
 

@@ -1,11 +1,11 @@
-"""评测层：从库里的响应算指标，需要时执行 Judge。确定性指标在本地计算，Judge 调用模型端点。
 
-每个检索指标出两份：全样本，以及只算 ``answerMode == knowledge`` 的切片，
-两份均值须结合回答模式分布与 HTTP 失败数解读。
 
-指标能不能算由数据依赖决定：指标声明 requires、数据集声明 provides，
-闸门做集合比对。算不了的记进 ``dataset_eval``，不伪造 0 分。
-"""
+
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from ..store import compile_store, config_store, eval_store, loads, query_store,
 from ..task import TaskContext
 
 DEFAULT_KS = retrieval.DEFAULT_KS
-# judge 失败率超过这个值就判整轮失败：排除得太多时均值不代表整体。
+
 MAX_JUDGE_FAILURE_RATE = 0.1
 MAX_JUDGE_CONCURRENCY = 16
 
@@ -45,7 +45,7 @@ def _mean(values: list[float]) -> float:
 
 
 def _scalars(source: dict[str, Any]) -> dict[str, float]:
-    """只取标量项，嵌套结构留在 detail 里。"""
+
     return {k: float(v) for k, v in source.items() if isinstance(v, (int, float, bool))}
 
 
@@ -57,7 +57,7 @@ def _aggregate(rows: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def resolve_metrics(selected: list[str] | None) -> list[str]:
-    """校验勾选的指标名，空表示全量。"""
+
     if not selected:
         return sorted(registry.METRIC_REGISTRY)
     unknown = sorted(set(selected) - set(registry.METRIC_REGISTRY))
@@ -67,13 +67,13 @@ def resolve_metrics(selected: list[str] | None) -> list[str]:
 
 
 def _keep(selected: frozenset[str]):
-    """判某个实际指标名是否被勾选。实际名带 k（``recall@5``），比对前剥掉。"""
+
 
     def keep(name: str) -> bool:
         try:
             return registry.get_metric(name).name in selected
         except KeyError:
-            # registry 里没声明的项保留，不让它悄悄消失。
+
             return True
 
     return keep
@@ -92,7 +92,7 @@ def evaluate_dataset(
     progress_total: int | None = None,
     report_progress: bool = False,
 ) -> dict[str, Any]:
-    """算一个数据集的指标并写库，返回汇总。"""
+
     adapter = get_adapter(dataset)
     provides = adapter.provides
     has_gold = DataDependency.GOLD_DOCS in provides
@@ -155,7 +155,7 @@ def evaluate_dataset(
             metrics.update(_scalars(detail["attribution"]))
             metrics.update(_scalars(detail["multihop"]))
 
-        # 勾选过滤只作用于指标；detail 保留全部明细，供归因读。
+
         metrics = {name: value for name, value in metrics.items() if keep(name)}
         entry = {
             "sample_id": row["sample_id"],
@@ -190,7 +190,7 @@ def evaluate_dataset(
     eval_store.record_metric_summary(
         connection, eval_id, dataset, "overall", overall, len(per_sample)
     )
-    # 保存全样本与 knowledge 子集的汇总，便于对照样本范围。
+
     eval_store.record_metric_summary(
         connection, eval_id, dataset, "knowledge_only", _aggregate(knowledge), len(knowledge)
     )
@@ -218,11 +218,11 @@ def evaluate_dataset(
 def _judge_task(
     metric: str, question: str, answer: str, reference: str, body: dict[str, Any]
 ) -> tuple[tuple[str, str], Any] | None:
-    """把一条 judge 指标摊成 ``((system, user), 解析函数)``。
 
-    三个文本判据的差异收在这里。返回 ``None`` 表示这一条
-    在这个样本上无定义，应当跳过而不是记 0。
-    """
+
+
+
+
     if metric == "faithfulness":
         prompt = faithfulness.build_prompt(question, answer, body)
         return (prompt, faithfulness.parse_verdict) if prompt else None
@@ -289,7 +289,7 @@ def _answer_relevancy_task(
 def _record_reply(
     ctx: TaskContext, eval_id: int, metric: str, row: dict[str, Any], parse: Any, reply: Any
 ) -> None:
-    """把一条 judge 回复写库。失败该条记 None，不记 0。"""
+
     if reply.failure_kind:
         eval_store.record_judge_verdict(
             ctx.db,
@@ -308,7 +308,7 @@ def _record_reply(
     try:
         score, reasoning = parse(parse_json_object(reply.content or ""))
     except ValueError as exc:
-        # 模型没按 schema 输出，记 parse_error 而不是猜一个分数。
+
         eval_store.record_judge_verdict(
             ctx.db,
             eval_id,
@@ -360,7 +360,7 @@ def _judge(
     metrics: list[str],
     concurrency: int,
 ) -> None:
-    """按样本顺序执行 Judge；同一样本的全部指标优先并发完成。"""
+
     for metric in metrics:
         eval_store.restore_judge_metrics(ctx.db, eval_id, metric)
     ctx.db.commit()
@@ -395,7 +395,7 @@ def _judge(
                     body,
                 )
             if task is None:
-                # 这一条在这个样本上无定义，记 None 并跳过。
+
                 eval_store.record_judge_verdict(
                     ctx.db,
                     eval_id,

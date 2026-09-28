@@ -3,10 +3,12 @@ import { api } from '../api'
 import type {
   AttributionResult,
   AttributionRun,
+  CompiledAnswers,
   CompileRun,
   EvidenceChain,
   EvalRun,
   Provider,
+  QueryAuditSnapshot,
 } from '../types'
 import {
   CauseTag,
@@ -323,7 +325,6 @@ function Conclusions({ attributionId, evalId }: { attributionId: number; evalId:
     ([left], [right]) => ROOT_CAUSE_ORDER.indexOf(left) - ROOT_CAUSE_ORDER.indexOf(right),
   )
 
-  // 根因筛选只影响样本列表和前后导航，计数始终来自归因全集。
   if (openSample) {
     return (
       <div className="panel" style={{ marginTop: 14 }}>
@@ -540,6 +541,133 @@ function EvidenceChainPanel({ evidence }: { evidence: unknown }) {
   )
 }
 
+function CompiledAnswersPanel({ evidence }: { evidence: unknown }) {
+  if (!evidence || typeof evidence !== 'object') return null
+  const compiled = evidence as CompiledAnswers
+  if (!compiled.steps?.length) return null
+  const statusKind = compiled.status === 'preserved' ? 'ok' : 'bad'
+  return (
+    <section className="compiled-answer-panel">
+      <div className="spread">
+        <h4 style={{ margin: 0 }}>编译答案保留</h4>
+        <span className={`tag ${statusKind}`}>
+          {compiled.status === 'preserved' ? '答案已保留' : '编译时丢失答案'}
+        </span>
+      </div>
+      <div className="small muted" style={{ marginTop: 5 }}>
+        {compiled.steps.length} 个 hop · {compiled.compiled_missing_count ?? 0} 个编译缺失 · {compiled.source_missing_count ?? 0} 个原文缺失
+      </div>
+      <div className="compiled-answer-steps">
+        {compiled.steps.map((step) => {
+          const kind = step.status === 'preserved' || step.status === 'compiled_only' ? 'ok' : 'bad'
+          const label = step.status === 'preserved'
+            ? '已保留'
+            : step.status === 'compiled_missing'
+              ? '编译丢失'
+              : step.status === 'source_missing'
+                ? '原文无答案'
+                : '仅编译产物存在'
+          return (
+            <div className="compiled-answer-step" key={step.position}>
+              <div className="compiled-answer-step-main">
+                <span className="mono small muted">Step {step.position}</span>
+                <strong>{step.answer || '—'}</strong>
+                <span className={`tag ${kind}`}>{label}</span>
+              </div>
+              <div className="compiled-answer-presence">
+                <span className={`tag ${step.source_answer_present ? 'ok' : 'bad'}`}>
+                  原文 {step.source_answer_present ? '有' : '无'}
+                  {typeof step.source_answer_token_recall === 'number' && ` ${Math.round(step.source_answer_token_recall * 100)}%`}
+                </span>
+                <span className={`tag ${step.compiled_answer_present ? 'ok' : 'bad'}`}>
+                  编译 {step.compiled_answer_present ? '有' : '无'}
+                  {typeof step.compiled_answer_token_recall === 'number' && ` ${Math.round(step.compiled_answer_token_recall * 100)}%`}
+                </span>
+                <span className="small muted">{step.support_title || step.support_doc_id || '未知支持文档'}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function QueryAuditPanel({ evidence }: { evidence: unknown }) {
+  if (!evidence || typeof evidence !== 'object') {
+    return (
+      <div className="query-audit-missing">
+        本条归因没有保存 PG Query Audit 快照。旧归因记录需要重新运行后，才能看到模型 General 理由。
+      </div>
+    )
+  }
+  const audit = evidence as QueryAuditSnapshot
+  if (!audit.decisionReason && !audit.generalAnswerReason && !audit.answerMode) return null
+  const drops = audit.retrieval?.dropped ?? []
+  const dropCounts = drops.reduce<Record<string, number>>((counts, drop) => {
+    const reason = drop.reason || 'unknown'
+    counts[reason] = (counts[reason] ?? 0) + 1
+    return counts
+  }, {})
+  const contextRatio = audit.packContextLength && audit.answerContextLength
+    ? audit.answerContextLength / audit.packContextLength
+    : null
+  return (
+    <section className="query-audit-panel">
+      <header className="query-audit-header">
+        <div>
+          <div className="query-audit-eyebrow">PostgreSQL query trace</div>
+          <h4>PG Query Audit</h4>
+        </div>
+        <div className="query-audit-status">
+          <ModeTag mode={audit.answerMode ?? null} />
+          {audit.decisionReason && <span className="tag accent">{audit.decisionReason}</span>}
+        </div>
+      </header>
+
+      <div className="query-audit-stats">
+        <div className="query-audit-stat">
+          <span>授权 chunks</span>
+          <strong>{audit.authorizedChunkCount ?? '—'}</strong>
+        </div>
+        <div className="query-audit-stat">
+          <span>最终 sources</span>
+          <strong>{audit.finalAuthorizedSourceCount ?? '—'}</strong>
+        </div>
+        <div className="query-audit-stat">
+          <span>Graph selected</span>
+          <strong>{audit.graph?.selectedCount ?? '—'}</strong>
+        </div>
+        <div className="query-audit-stat context-size">
+          <span>上下文字符</span>
+          <strong>
+            {audit.packContextLength?.toLocaleString() ?? '—'}
+            <span className="query-audit-arrow">→</span>
+            {audit.answerContextLength?.toLocaleString() ?? '—'}
+          </strong>
+          {contextRatio !== null && <small>{contextRatio.toFixed(1)}× expansion</small>}
+        </div>
+      </div>
+
+      <div className="query-audit-drops">
+        <span className="query-audit-label">Retrieval drops</span>
+        <div className="metric-tags">
+          {Object.keys(dropCounts).length ? Object.entries(dropCounts).map(([reason, count]) => (
+            <span className="tag warn" key={reason}>{reason}{count > 1 ? ` ×${count}` : ''}</span>
+          )) : <span className="muted small">无</span>}
+        </div>
+      </div>
+
+      {audit.generalAnswerReason && (
+        <div className="query-audit-reason">
+          <div className="query-audit-reason-title">模型选择 General 的理由</div>
+          <p>{audit.generalAnswerReason}</p>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function SampleChain({
   evalId,
   sampleId,
@@ -591,7 +719,9 @@ function SampleChain({
         </dd>
       </dl>
 
+      <CompiledAnswersPanel evidence={attributionResult?.evidence?.compiled_answers} />
       <EvidenceChainPanel evidence={attributionResult?.evidence?.evidence_chain} />
+      <QueryAuditPanel evidence={attributionResult?.evidence?.query_audit} />
 
       <MetricInterpretations
         items={data.metric_interpretations}

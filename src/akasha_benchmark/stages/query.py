@@ -1,8 +1,8 @@
-"""查询层：选一次编译的空间，逐条跑 query，把完整响应写库。
 
-这一层不算指标，只产出证据。存完整响应体，免得以后想看某个新字段时被迫重跑。
-失败也照样写一行：失败率本身是结果，静默跳过会把后面所有均值算高。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _query_one(
     sample: dict[str, Any],
     space_id: str,
 ) -> dict[str, Any]:
-    """跑一条 query。失败也返回可落库的行。"""
+
     try:
         response = client.query(sample["question"], [space_id])
         status, body, latency = response.status, response.body, response.latency_ms
@@ -68,7 +68,7 @@ def run(ctx: TaskContext) -> None:
     if compile_run is None:
         raise ValueError(f"编译 #{compile_id} 不存在")
 
-    # 不可跳过的前置闸门：半成品索引会产出一份看着合理的坏报告。
+
     readiness = compile_store.compile_ready(ctx.db, compile_id)
     if not readiness["ready"]:
         raise ValueError("这次编译还不能用于查询：" + "；".join(readiness["reasons"]))
@@ -90,7 +90,7 @@ def run(ctx: TaskContext) -> None:
     with AkashaClient(config) as client:
         client.login()
 
-        # workspace 不匹配拒绝执行：换个地方跑会打到一个空 space，且不报错。
+
         me = client.current_user()
         mismatch = compile_store.workspace_mismatch(
             ctx.db, compile_id, ((me or {}).get("workspace") or {}).get("id")
@@ -145,7 +145,7 @@ def run(ctx: TaskContext) -> None:
             )
             ctx.bind("query", query_id)
 
-        # 固化这一轮问哪些样本，续跑以它为准。
+
         if not query_store.query_samples(ctx.db, query_id):
             selected = _select_samples(ctx.db, compile_id, datasets, limit)
             if not selected:
@@ -187,7 +187,7 @@ def _issue(
     space_id: str,
     concurrency: int,
 ) -> None:
-    """发请求并逐条落库。已有响应的样本跳过，所以暂停后继续即续跑。"""
+
     todo = query_store.pending_query_samples(ctx.db, query_id)
     total = len(query_store.query_samples(ctx.db, query_id))
     done = total - len(todo)
@@ -209,7 +209,7 @@ def _issue(
             error=row["error"],
             response=row["response"],
         )
-        # 逐条提交，前端因此看得到进度。
+
         ctx.db.commit()
         done += 1
         if done % 5 == 0 or done == total:
@@ -221,7 +221,7 @@ def _issue(
             emit(_query_one(client, sample, space_id))
         return
 
-    # 每个 worker 使用独立客户端，落库仍在主线程完成。
+
     extra = [AkashaClient(client.config) for _ in range(concurrency - 1)]
     try:
         for spare in extra:
@@ -238,7 +238,7 @@ def _issue(
                 pool.put(borrowed)
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            # 请求完成即补位，暂停时仅等待当前并发窗口。
+
             pending: set[Future[dict[str, Any]]] = set()
             cursor = 0
 

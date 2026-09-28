@@ -1,9 +1,9 @@
-"""narrativeqa 适配器。293 个问题、10 篇长文档，无 evidence 标注。
 
-不声明 ``GOLD_DOCS``：检索指标在这组上无定义，请求它们会抛异常而不是记 0.0。
-``dataset_sample_id`` 用全量文件里的行号字符串，口径见 :data:`SAMPLE_ID_RULES`。
-解析时丢掉每行内联的 ``document.text``（同样内容 corpus 已切块）。
-"""
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ class NarrativeQAAdapter(DatasetAdapter):
             raise ValueError(f"{self.name}: row {row_index} has no document.id")
         document_id = document["id"]
 
-        # document.id 是文档级的（只有 10 个不同值），不能当行身份。
+
         native_id = str(row_index)
         return CanonicalSample(
             dataset=self.name,
@@ -53,7 +53,7 @@ class NarrativeQAAdapter(DatasetAdapter):
             answers=tuple(answers),
             gold_doc_ids=(),
             metadata={
-                # 抽子集靠这个字段整篇整篇地抽文档。
+
                 "document_id": document_id,
                 "kind": document.get("kind"),
                 "reference_count": len(answers),

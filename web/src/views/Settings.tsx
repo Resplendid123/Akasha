@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, getToken, setToken } from '../api'
+import { api } from '../api'
 import type {
   AkashaFeature,
   AkashaModelProvider,
@@ -21,7 +21,6 @@ export function Settings() {
           <ExportButton />
         </div>
       </div>
-      <AccessToken />
       <ConnectionForm />
       <ModelConfigs />
       <Providers role="judge" title="评估模型" />
@@ -80,50 +79,6 @@ function ImportButton() {
     <button className="action" disabled={load.busy} onClick={pick}>
       {load.busy ? '导入中…' : '导入配置'}
     </button>
-  )
-}
-
-function AccessToken() {
-  const [saved, setSaved] = useState(getToken())
-  const [value, setValue] = useState(saved)
-  const health = useAsync(() => api.health(), [saved])
-  const required = Boolean(health.data?.settings.auth_required)
-
-  const apply = (next: string) => {
-    setToken(next)
-    setValue(next)
-    setSaved(next)
-  }
-
-  if (!required && !saved && !health.error) return null
-  return (
-    <div className="panel">
-      <div className="panel-head">
-        <h3>访问令牌</h3>
-        {saved && !health.error && <Pass ok yes="已生效" />}
-      </div>
-      {health.error && <Failed error={health.error} />}
-
-      <div className="form-grid">
-        <SecretField
-          label="X-Auth-Token"
-          value={value}
-          onChange={setValue}
-          placeholder="启动时设的那个令牌"
-          wide
-        />
-      </div>
-
-      <div className="panel-actions">
-        <button className="action primary" disabled={value === saved} onClick={() => apply(value)}>
-          保存
-        </button>
-        <button className="action" disabled={!saved} onClick={() => apply('')}>
-          清除
-        </button>
-        {value !== saved && <span className="small muted">未保存</span>}
-      </div>
-    </div>
   )
 }
 

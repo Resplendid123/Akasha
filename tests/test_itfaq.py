@@ -1,4 +1,4 @@
-"""itfaq：身份规则、无 gold 的指标省略、full_corpus 抽样与本地数据集的下载跳过。"""
+
 
 from __future__ import annotations
 

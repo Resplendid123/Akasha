@@ -1,8 +1,8 @@
-"""检索指标：Recall@k、nDCG@k、MRR、Hit@k，输入是排序后的 page id 列表。
 
-用 ``retrievedSources`` 算，不用 ``citations``（后者已被裁剪过）。
-相关性是二元的，所以 nDCG 的理想排序是把全部 gold 排在最前。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ DEFAULT_KS: tuple[int, ...] = (2, 5, 10, 20)
 
 
 def ranked_doc_ids(retrieved: Sequence[dict[str, Any]], page_to_doc: dict[str, str]) -> list[str]:
-    """按排序返回去重后的 doc_id。反查不到的 page 用占位键占住排名位。"""
+
     seen: set[str] = set()
     ordered: list[str] = []
     for source in retrieved:
@@ -33,7 +33,7 @@ def ranked_doc_ids(retrieved: Sequence[dict[str, Any]], page_to_doc: dict[str, s
 def unmapped_page_ids(
     retrieved: Sequence[dict[str, Any]], page_to_doc: dict[str, str]
 ) -> list[str]:
-    """召回结果里不在 page_map 中的 page id。"""
+
     return sorted(
         {
             s["sourcePageId"]
@@ -44,7 +44,7 @@ def unmapped_page_ids(
 
 
 def recall_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
-    """前 k 个里命中的 gold 占全部 gold 的比例。"""
+
     gold_set = set(gold)
     if not gold_set:
         raise ValueError("recall_at_k requires at least one gold document")
@@ -52,7 +52,7 @@ def recall_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
 
 
 def precision_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
-    """Precision@k using the number of actually returned documents as denominator."""
+
     if not set(gold):
         raise ValueError("precision_at_k requires at least one gold document")
     top = list(ranked[:k])
@@ -62,19 +62,19 @@ def precision_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
 
 
 def retrieval_f1_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
-    """Retrieval F1@k, the harmonic mean of Precision@k and Recall@k."""
+
     precision = precision_at_k(ranked, gold, k)
     recall = recall_at_k(ranked, gold, k)
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
 
 def hit_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
-    """前 k 个里至少命中一个 gold 就算 1。"""
+
     return 1.0 if set(gold) & set(ranked[:k]) else 0.0
 
 
 def mrr(ranked: Sequence[str], gold: Sequence[str]) -> float:
-    """首个 gold 的倒数排名。"""
+
     gold_set = set(gold)
     for position, doc_id in enumerate(ranked, 1):
         if doc_id in gold_set:
@@ -83,7 +83,7 @@ def mrr(ranked: Sequence[str], gold: Sequence[str]) -> float:
 
 
 def ndcg_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
-    """二元相关性下的 nDCG。理想排序是全部 gold 占据最前的 min(len(gold), k) 位。"""
+
     gold_set = set(gold)
     if not gold_set:
         raise ValueError("ndcg_at_k requires at least one gold document")
@@ -93,7 +93,7 @@ def ndcg_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
 
 
 def full_coverage(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
-    """前 k 个里凑齐全部 gold 才算 1。"""
+
     gold_set = set(gold)
     return 1.0 if gold_set and gold_set <= set(ranked[:k]) else 0.0
 
@@ -101,7 +101,7 @@ def full_coverage(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
 def evaluate_sample(
     ranked: Sequence[str], gold: Sequence[str], ks: Sequence[int] = DEFAULT_KS
 ) -> dict[str, float]:
-    """单条样本的全部检索指标。"""
+
     metrics: dict[str, float] = {"mrr": mrr(ranked, gold)}
     for k in ks:
         metrics[f"precision@{k}"] = precision_at_k(ranked, gold, k)

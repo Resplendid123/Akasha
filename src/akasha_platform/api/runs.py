@@ -1,9 +1,9 @@
-"""编译层与查询层的读取与清理。
 
-清理就是删主表那一行：产物表全部 ``ON DELETE CASCADE``，所以一条 DELETE
-清掉这一层及其下游的全部数据库内容。编译层清理前会取消空间中的活动 Run，
-远端 space 与审计日志保留。
-"""
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ MAX_PAGE = 200
 
 @router.get("/compiles")
 def list_compiles(request: Request) -> dict[str, Any]:
-    """编译记录树：每次编译连同它的查询、评测、归因。各层的选择器都读它。"""
+
     with db(request) as connection:
         return {"compiles": build_compile_tree(connection)}
 
@@ -50,10 +50,10 @@ def compile_docs(
     limit: int = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """本次编译的语料，带 ``page_id``（走链路视图的钥匙）。
 
-    没导入成功的 ``page_id`` 为空，它们照样列出 —— 缺篇本身是要看的信息。
-    """
+
+
+
     with db(request) as connection:
         if compile_store.get_compile_run(connection, compile_id) is None:
             raise HTTPException(404, f"编译 #{compile_id} 不存在")
@@ -78,7 +78,7 @@ def compile_docs(
 
 @router.delete("/compiles/{compile_id}")
 def delete_compile(request: Request, compile_id: int) -> dict[str, Any]:
-    """取消活动的远端 Run，再清理编译及其下游；远端 space 保留。"""
+
     with writable(request) as connection:
         row = compile_store.get_compile_run(connection, compile_id)
         if row is None:
@@ -122,11 +122,11 @@ def query_responses(
     limit: int = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """查询结果列表，按 answerMode 另给一份计数。
 
-    计数是必要的：``no_match`` / ``general`` 的检索得分按定义为 0，
-    混在一起读会把生成端拒答误当成检索失败。
-    """
+
+
+
+
     with db(request) as connection:
         if query_store.get_query_run(connection, query_id) is None:
             raise HTTPException(404, f"查询 #{query_id} 不存在")
@@ -152,7 +152,7 @@ def query_responses(
 
 @router.get("/queries/{query_id}/responses/{sample_id}")
 def query_response(request: Request, query_id: int, sample_id: str) -> dict[str, Any]:
-    """单条完整响应体。"""
+
     with db(request) as connection:
         row = query_store.response_of(connection, query_id, sample_id)
         if row is None:
@@ -172,7 +172,7 @@ def retry_failed_query(request: Request, query_id: int) -> dict[str, Any]:
 
 @router.delete("/queries/{query_id}")
 def delete_query(request: Request, query_id: int) -> dict[str, Any]:
-    """清理一次查询及其下游的评测、归因。"""
+
     with writable(request) as connection:
         if query_store.get_query_run(connection, query_id) is None:
             raise HTTPException(404, f"查询 #{query_id} 不存在")

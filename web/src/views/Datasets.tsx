@@ -16,7 +16,7 @@ export function Datasets({ onOpenTasks }: { onOpenTasks: () => void }) {
 
   const names = data.datasets.filter((d) => d.downloadable).map((d) => d.name)
   const targets = selected.length ? selected : names
-  // 全部就绪时收起下载栏，由「重新下载」显式打开。
+
   const allReady = data.datasets.every((d) => d.files_ready)
 
   return (

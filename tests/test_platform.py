@@ -1,4 +1,4 @@
-"""平台层：任务生命周期（暂停/继续/清理）、审计日志留存、路由与鉴权。"""
+
 
 from __future__ import annotations
 
@@ -455,11 +455,11 @@ def test_provider_api_key_never_leaves_the_backend(client):
 
 
 def test_provider_probe_reports_failure_as_data(client, monkeypatch):
-    """探测调不通时回 200 + ok=false，不是 500。
 
-    调不通是这个接口要报告的结果，不是它自己的故障 —— 报 500 会让前端把
-    「模型端点有问题」显示成「平台出错了」。
-    """
+
+
+
+
     from akasha_benchmark.judge.client import JudgeReply
 
     client.put(
@@ -1256,30 +1256,21 @@ def test_cleanup_refused_while_a_task_writes_the_record(client, db_path):
     assert client.delete(f"/api/compiles/{compile_id}").status_code == 409
 
 
-def test_auth_token_is_required_when_set(db_path):
-    app = create_app(Settings(db_path=db_path, auth_token="secret"))
-    client = TestClient(app)
-    assert client.get("/api/health").status_code == 401
-    assert client.get("/api/health", headers={"X-Auth-Token": "wrong"}).status_code == 401
-    assert client.get("/api/health", headers={"X-Auth-Token": "secret"}).status_code == 200
-
-
-def test_auth_token_allows_cors_preflight_without_credentials(db_path):
-    app = create_app(Settings(db_path=db_path, auth_token="secret"))
+def test_cors_preflight_is_allowed(db_path):
+    app = create_app(Settings(db_path=db_path))
     client = TestClient(app)
     response = client.options(
         "/api/health",
         headers={
             "Origin": "http://127.0.0.1:5173",
             "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "x-auth-token",
         },
     )
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
 
 
-def test_non_loopback_without_token_refuses_to_start(db_path):
+def test_non_loopback_refuses_to_start(db_path):
     with pytest.raises(RuntimeError, match="拒绝绑定"):
         create_app(Settings(db_path=db_path, host="0.0.0.0"))
 

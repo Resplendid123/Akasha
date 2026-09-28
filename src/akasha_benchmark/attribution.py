@@ -1,8 +1,9 @@
-"""按指标和链路信号归因。"""
+
 
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from collections import Counter
 from typing import Any
@@ -13,7 +14,9 @@ CAUSE_ANSWER_CORRECT = "answer_correct"
 CAUSE_ANSWER_INCORRECT = "answer_incorrect"
 CAUSE_GENERATION_IGNORED_RETRIEVAL = "generation_ignored_retrieval"
 CAUSE_GENERATION_FALLBACK = "generation_fallback"
+CAUSE_GENERATION_EMPTY = "generation_empty"
 CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE = "retrieval_evidence_incomplete"
+CAUSE_COMPILED_ANSWER_MISSING = "compiled_answer_missing"
 CAUSE_COMPILED_AWAY = "compiled_away"
 CAUSE_CITATION_DROPPED = "citation_dropped"
 CAUSE_RETRIEVAL_MISS = "retrieval_miss"
@@ -22,11 +25,16 @@ CAUSE_UNKNOWN = "unknown"
 
 EVIDENCE_CHAIN_SUPPORTED_OVERLAP = 0.8
 EVIDENCE_CHAIN_PARTIAL_OVERLAP = 0.35
+COMPILED_ANSWER_TOKEN_RECALL = 0.8
 REFERENCE_STOPWORDS = {"a", "an", "and", "in", "of", "on", "the", "to"}
 
 
 def _normalized_tokens(text: str) -> list[str]:
-    return qa.tokenize(unicodedata.normalize("NFKC", text or ""))
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = re.sub(r"[\'’]s\b", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?<=s)[\'’](?=\W|$)", "", normalized, flags=re.IGNORECASE)
+    normalized = normalized.replace("’", "'")
+    return qa.tokenize(normalized)
 
 
 def _contains_tokens(haystack: list[str], needle: list[str]) -> bool:
@@ -102,13 +110,13 @@ def _matching_evidence(
         best_by_text.values(),
         key=lambda row: (row["support_overlap"], row["answer_match"]),
         reverse=True,
-    )[:3]
+    )
 
 
 def analyze_evidence_chain(
     sample: dict[str, Any], response: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """检查 MuSiQue 各推理步骤的证据是否进入回答上下文。"""
+
     detail = sample.get("detail") or {}
     metadata = detail.get("metadata") or {}
     decomposition = metadata.get("question_decomposition") or []
@@ -187,11 +195,73 @@ def analyze_evidence_chain(
     }
 
 
+def analyze_compiled_answers(
+    sample: dict[str, Any], lineage: list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    decomposition = ((sample.get("detail") or {}).get("metadata") or {}).get(
+        "question_decomposition"
+    ) or []
+    if sample.get("dataset") != "musique" or not decomposition:
+        return {"status": "unavailable", "reason": "no_decomposition", "steps": []}
+    if lineage is None:
+        return {"status": "unavailable", "reason": "no_lineage", "steps": []}
+
+    lineage_by_doc = {str(row.get("doc_id")): row for row in lineage}
+    steps: list[dict[str, Any]] = []
+    for position, step in enumerate(decomposition, 1):
+        answer = str(step.get("answer") or "")
+        doc_id = str(step.get("support_doc_id") or "")
+        entry = lineage_by_doc.get(doc_id) or {}
+        source_recall = _token_recall(
+            answer,
+            _normalized_tokens(str(entry.get("source_text") or "")),
+        )
+        compiled_recall = _token_recall(
+            answer,
+            _normalized_tokens(str(entry.get("compiled_text") or "")),
+        )
+        source_present = source_recall >= COMPILED_ANSWER_TOKEN_RECALL
+        compiled_present = compiled_recall >= COMPILED_ANSWER_TOKEN_RECALL
+        if source_present and compiled_present:
+            status = "preserved"
+        elif source_present:
+            status = "compiled_missing"
+        elif compiled_present:
+            status = "compiled_only"
+        else:
+            status = "source_missing"
+        steps.append(
+            {
+                "position": position,
+                "question": step.get("question"),
+                "answer": answer,
+                "support_doc_id": doc_id,
+                "support_title": step.get("support_title"),
+                "source_answer_present": source_present,
+                "compiled_answer_present": compiled_present,
+                "source_answer_token_recall": round(source_recall, 6),
+                "compiled_answer_token_recall": round(compiled_recall, 6),
+                "status": status,
+            }
+        )
+
+    missing_count = sum(step["status"] == "compiled_missing" for step in steps)
+    source_missing_count = sum(step["status"] == "source_missing" for step in steps)
+    return {
+        "status": "compiled_missing" if missing_count else "preserved",
+        "step_count": len(steps),
+        "compiled_missing_count": missing_count,
+        "source_missing_count": source_missing_count,
+        "answer_token_recall_threshold": COMPILED_ANSWER_TOKEN_RECALL,
+        "steps": steps,
+    }
+
+
 def _contains_reference(answer: str, references: list[str]) -> bool:
-    """答案是否覆盖某个参考答案至少 80% 的有效 token。"""
-    answer_tokens = qa.tokenize(answer)
+
+    answer_tokens = _normalized_tokens(answer)
     for reference in references:
-        reference_tokens = qa.tokenize(reference)
+        reference_tokens = _normalized_tokens(reference)
         if not reference_tokens or (
             len(reference_tokens) == 1 and reference_tokens[0] in REFERENCE_STOPWORDS
         ):
@@ -203,7 +273,7 @@ def _contains_reference(answer: str, references: list[str]) -> bool:
 
 
 def _at_max_k(metrics: dict[str, float], prefix: str) -> float | None:
-    """取最大 k 的那一项，没有则返回 None 而不是 0。"""
+
     keys = sorted(
         (k for k in metrics if k.startswith(prefix)),
         key=lambda k: int(k.split("@", 1)[1]),
@@ -216,12 +286,14 @@ def classify(
     sample: dict[str, Any],
     lineage: list[dict[str, Any]] | None,
     evidence_chain: dict[str, Any] | None = None,
+    query_audit: dict[str, Any] | None = None,
+    compiled_answers: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """规则归因，返回 ``{root_cause, evidence}``。
 
-    ``lineage`` 是每篇 gold 的 diff 结果。为 None 时 ``compiled_away`` 判不了，
-    退到 ``retrieval_miss`` 并在 evidence 里注明。
-    """
+
+
+
+
     detail = sample.get("detail") or {}
     metrics: dict[str, float] = {}
     for section in ("qa", "retrieval", "attribution", "multihop"):
@@ -267,11 +339,34 @@ def classify(
     }
     if evidence_chain is not None:
         evidence["evidence_chain"] = evidence_chain
+    if query_audit is not None:
+        evidence["query_audit"] = {
+            key: query_audit.get(key)
+            for key in (
+                "answerMode",
+                "decisionReason",
+                "generalAnswerReason",
+                "authorizedChunkCount",
+                "finalAuthorizedSourceCount",
+                "packContextLength",
+                "answerContextLength",
+                "graph",
+                "retrieval",
+            )
+            if key in query_audit
+        }
+    if compiled_answers is not None:
+        evidence["compiled_answers"] = compiled_answers
 
     chain = evidence.get("evidence_chain") or {}
+    compilation_lost_answer = bool(
+        (compiled_answers or {}).get("compiled_missing_count", 0)
+    )
     if answer_mode == "general":
         if answer_correct:
             cause = CAUSE_GENERATION_FALLBACK
+        elif compilation_lost_answer:
+            cause = CAUSE_COMPILED_ANSWER_MISSING
         elif not has_retrieval:
             cause = CAUSE_GENERATION_FALLBACK
         elif chain.get("status") in {"incomplete", "partial"}:
@@ -284,6 +379,18 @@ def classify(
             cause = CAUSE_UNKNOWN
     elif answer_mode == "knowledge" and answer_correct:
         cause = CAUSE_ANSWER_CORRECT
+    elif compilation_lost_answer:
+        cause = CAUSE_COMPILED_ANSWER_MISSING
+    elif evidence_chain is not None and answer_mode == "knowledge":
+        answer_text = str(sample.get("answer") or "").strip().lower()
+        if not answer_text or "did not produce a response" in answer_text:
+            cause = CAUSE_GENERATION_EMPTY
+        elif evidence_chain.get("status") in {"incomplete", "partial"}:
+            cause = CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
+        elif uncited_gold > 0:
+            cause = CAUSE_ANSWER_INCORRECT
+        else:
+            cause = CAUSE_ANSWER_INCORRECT
     elif uncited_gold > 0:
         cause = CAUSE_CITATION_DROPPED
     elif hit is not None and hit == 0 and lost_terms:
@@ -327,7 +434,7 @@ def build_report_prompt(
     dataset_summaries: list[dict[str, Any]],
     general_samples: list[dict[str, Any]],
 ) -> tuple[str, str]:
-    """拼整轮报告提示词：评测汇总加 general 案例，不提供规则归因数据。"""
+
     definitions: dict[str, dict[str, Any]] = {}
     for row in metric_summaries:
         name = str(row["metric"])

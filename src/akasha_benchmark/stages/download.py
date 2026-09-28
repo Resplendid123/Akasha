@@ -1,8 +1,8 @@
-"""数据集层：从 Hugging Face 下载 HippoRAG_2 的各组数据，下载后校验。
 
-来源：https://huggingface.co/datasets/osunlp/HippoRAG_2
-已存在且字节数符合预期的文件跳过，所以中断后继续即可。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from ..task import TaskContext
 
 REPO_ID = "osunlp/HippoRAG_2"
 REPO_TYPE = "dataset"
-# 按顺序尝试，第一个连得上的就用。
+
 ENDPOINTS = ("https://hf-mirror.com", "https://huggingface.co")
 
-# 仓库里的文件名 -> 存到本地的文件名。
+
 REMOTE_NAMES = {
     "narrativeqa.json": "narrativeqa_dev_10_doc.json",
     "narrativeqa_corpus.json": "narrativeqa_dev_10_doc_corpus.json",
@@ -32,13 +32,13 @@ REMOTE_NAMES = {
 
 MAX_ATTEMPTS = 3
 
-# 行数缓存：键是 (路径, mtime_ns, 大小)，文件一改键就变，不用手动失效。
-# 免得每次 file_status() 都重新解析上百 MB 的 JSON。
+
+
 _ROW_CACHE: dict[tuple[str, int, int], tuple[int | None, str | None]] = {}
 
 
 def _count_rows(path: Path, stat: os.stat_result) -> tuple[int | None, str | None]:
-    """解析成 JSON 数组并数行，返回 ``(rows, error)``。同一份文件只解析一次。"""
+
     key = (str(path), stat.st_mtime_ns, stat.st_size)
     if key not in _ROW_CACHE:
         try:
@@ -52,7 +52,7 @@ def _count_rows(path: Path, stat: os.stat_result) -> tuple[int | None, str | Non
 
 
 def file_status(dataset_dir: Path | None = None) -> list[dict[str, object]]:
-    """各原始文件在不在、多大、能不能解析成 JSON 数组。"""
+
     root = dataset_dir or DEFAULT_DATASET_DIR
     entries: list[dict[str, object]] = []
     for adapter in all_adapters():
@@ -81,7 +81,7 @@ def _resolve_endpoint(ctx: TaskContext) -> tuple[str, dict[str, int]]:
             info = HfApi(endpoint=endpoint).repo_info(
                 REPO_ID, repo_type=REPO_TYPE, files_metadata=True
             )
-        except Exception as exc:  # noqa: BLE001 - 换下一个站点
+        except Exception as exc:
             errors.append(f"{endpoint}: {type(exc).__name__}: {str(exc)[:120]}")
             ctx.log(f"下载源不可用：{endpoint}", "warn")
             continue
@@ -111,18 +111,18 @@ def _fetch(local: str, endpoint: str, expected: int | None, dest: Path) -> str:
                 raise
             time.sleep(2**attempt)
             continue
-        # 从缓存拷出来，dataset/ 下放真实文件而不是链接。
+
         shutil.copyfile(cached, target)
         return "downloaded"
     raise RuntimeError(f"unreachable: {remote}")
 
 
 def run(ctx: TaskContext) -> None:
-    """下载 + 校验。``datasets`` 为空时覆盖全部已注册数据集。
 
-    ``downloadable`` 为假的是本地数据集，不在 HippoRAG_2 仓库里：只校验存在性。
-    选中项全是本地数据集时不解析站点，也就不发任何 HTTP。
-    """
+
+
+
+
     selected = list(ctx.params.get("datasets") or DATASET_NAMES)
     unknown = sorted(set(selected) - set(DATASET_NAMES))
     if unknown:

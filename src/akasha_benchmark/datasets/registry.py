@@ -1,4 +1,4 @@
-"""数据集适配器注册表。"""
+
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ DATASET_NAMES: tuple[str, ...] = tuple(_LOOKUP)
 
 
 def get_adapter(name: str) -> DatasetAdapter:
-    """按规范数据集名取一个新的适配器实例。"""
+
     try:
         return _LOOKUP[name]()
     except KeyError:

@@ -1,4 +1,4 @@
-"""运行记录的状态与上下游依赖。分层读写见各 *_store 模块。"""
+
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def set_run_status(connection: sqlite3.Connection, kind: str, target_id: int, st
 
 
 def descendants(connection: sqlite3.Connection, kind: str, target_id: int) -> set[tuple[str, int]]:
-    """包括当前记录及所有会被级联删除的下游运行。"""
+
     found = {(kind, target_id)}
     pending = [(kind, target_id)]
     while pending:

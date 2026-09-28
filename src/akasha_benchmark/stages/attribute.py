@@ -1,11 +1,12 @@
-"""归因层：逐样本规则分类，并可选生成一次整轮评测分析报告。
 
-规则判据在 :mod:`..attribution`。链路证据（原文 vs 编译产物的 diff）走只读
-PostgreSQL，没配 database_url 时跳过那一段判据。
-"""
+
+
+
+
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -26,7 +27,7 @@ def _lineage_of(
     page_by_doc: dict[str, str],
     question: str,
 ) -> list[dict[str, Any]] | None:
-    """每篇 gold 的原文 vs 编译产物 diff。取不到链路时返回 None。"""
+
     if reader is None:
         return None
     entries: list[dict[str, Any]] = []
@@ -36,9 +37,9 @@ def _lineage_of(
             entries.append({"doc_id": doc_id, "page_id": None, "error": "未导入"})
             continue
         try:
-            chain = reader.lineage(page_id)
+            chain = reader.lineage(page_id, chunk_chars=None)
         except LineageUnavailable:
-            # 连不上只读库，判据退回不含 compiled_away 的那套。
+
             return None
         except BadPageId as exc:
             entries.append({"doc_id": doc_id, "page_id": page_id, "error": str(exc)})
@@ -50,8 +51,8 @@ def _lineage_of(
                 "page_id": page_id,
                 "diff": built["diff"],
                 "question_terms_lost": built["question_terms_lost"],
-                "source_text": built["source"]["text"][:2000],
-                "compiled_text": built["compiled"]["text"][:2000],
+                "source_text": built["source"]["text"],
+                "compiled_text": built["compiled"]["text"],
                 "verdict": built["verdict"],
             }
         )
@@ -82,7 +83,7 @@ def run(ctx: TaskContext) -> None:
             provider = resolve_provider(ctx.db, provider_id, "attribution")
             provider_id = provider.provider_id
         except JudgeConfigError as exc:
-            # 模型没配好不算失败，规则结论仍是一条有效归因。
+
             ctx.log(f"未使用模型：{exc}", "warn")
 
     reader: LineageReader | None = None
@@ -152,7 +153,7 @@ def _analyze(
     corpus_maps: dict[str, dict[str, dict[str, Any]]] = {}
     source_metadata: dict[str, dict[str, Any]] = {}
     if any(row["dataset"] == "musique" for row in samples):
-        # 从原始数据补齐旧记录缺少的分解字段。
+
         try:
             resolved = resolve("musique")
             corpus = load_corpus("musique", resolved.corpus_path)
@@ -166,6 +167,14 @@ def _analyze(
         row["sample_id"]: row.get("metadata") or {}
         for row in compile_store.compile_samples(ctx.db, compile_id)
     }
+    query_audits: dict[str, dict[str, Any]] = {}
+    if reader is not None:
+        try:
+            query_audits = reader.query_audits(
+                [str(row["detail"].get("question") or "") for row in todo]
+            )
+        except LineageUnavailable as exc:
+            ctx.log(f"PG query audit 不可用：{exc}", "warn")
 
     def prepare(row: dict[str, Any]) -> dict[str, Any]:
         dataset = row["dataset"]
@@ -205,7 +214,18 @@ def _analyze(
         evidence_chain = attribution.analyze_evidence_chain(
             sample, (response_row or {}).get("response")
         )
-        ruling = attribution.classify(sample, lineage, evidence_chain)
+        compiled_answers = attribution.analyze_compiled_answers(sample, lineage)
+        question = str(sample["detail"].get("question") or "")
+        query_hash = "sha256:" + hashlib.sha256(
+            question.encode("utf-8")
+        ).hexdigest()
+        ruling = attribution.classify(
+            sample,
+            lineage,
+            evidence_chain,
+            query_audits.get(query_hash),
+            compiled_answers,
+        )
         return {"row": row, "ruling": ruling}
 
     done = 0
@@ -232,7 +252,7 @@ def _write_report(
     eval_run: dict[str, Any],
     provider: Any,
 ) -> None:
-    """用一次模型调用分析整轮指标并保存报告；失败不影响规则归因。"""
+
     current = attribution_store.get_attribution_run(ctx.db, attribution_id) or {}
     if current.get("report"):
         ctx.log("续跑：整体评测分析报告已存在，跳过模型调用")

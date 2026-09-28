@@ -1,8 +1,8 @@
-"""数据集名 -> (适配器, 文件路径)。
 
-目录布局收在这里一处，文件缺失时给的是一句清楚的提示，
-而不是循环深处冒出来的 FileNotFoundError。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from .base import DatasetAdapter
 from .registry import get_adapter
 
-# 本文件位于 src/akasha_benchmark/datasets/，往上三层是仓库根。
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DATASET_DIR = REPO_ROOT / "dataset"
 

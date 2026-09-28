@@ -1,4 +1,4 @@
-"""把单样本指标翻译成可读结论。"""
+
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ COUNT_METRICS = {
 
 
 def requested_metric_names(metrics: list[str], ks: list[int]) -> list[str]:
-    """把评测配置里的模板指标展开为实际逐样本指标名。"""
+
     names: list[str] = []
     for name in metrics:
         try:
@@ -44,7 +44,7 @@ def interpret_sample_metrics(
     omitted_metrics: list[str],
     evidence_by_metric: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """返回评测所选每项指标在当前样本上的定义、状态和具体解读。"""
+
     names = requested_metric_names(configured_metrics, ks)
     names.extend(
         name
@@ -76,7 +76,7 @@ def build_metric_evidence(
     documents: dict[str, dict[str, Any]],
     verdicts: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """为每个指标组装与实际计分口径一致的输入、公式与逐项证据。"""
+
     names = requested_metric_names(configured_metrics, ks)
     names.extend(
         name for name in values if name not in names and name in registry.METRIC_REGISTRY

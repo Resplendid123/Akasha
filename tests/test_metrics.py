@@ -1,4 +1,4 @@
-"""指标口径：排名、依赖闸门、归因判据优先级。"""
+
 
 from __future__ import annotations
 
@@ -467,6 +467,100 @@ def test_musique_evidence_chain_marks_missing_step():
     assert chain["steps"][1]["claim_retrieved"] is False
 
 
+def test_knowledge_empty_generation_is_not_misattributed_as_citation_drop():
+    sample = _sample(
+        {"hit@5": 1.0, "recall@5": 1.0, "full_coverage@5": 1.0, "uncited_gold_count": 2.0},
+        mode="knowledge",
+    )
+    sample["answer"] = "Relevant knowledge was retrieved, but the answer model did not produce a response."
+    sample["dataset"] = "musique"
+    ruling = attribution.classify(
+        sample,
+        [],
+        {"status": "complete", "steps": []},
+    )
+    assert ruling["root_cause"] == attribution.CAUSE_GENERATION_EMPTY
+
+
+def test_compiled_answer_analysis_distinguishes_source_and_compilation_loss():
+    sample = _sample({}, mode="knowledge")
+    sample["dataset"] = "musique"
+    sample["detail"]["metadata"] = {
+        "question_decomposition": [
+            {"question": "Who?", "answer": "Acme", "support_doc_id": "d1"},
+            {"question": "When?", "answer": "2020", "support_doc_id": "d2"},
+            {"question": "Where?", "answer": "Paris", "support_doc_id": "d3"},
+        ]
+    }
+    analysis = attribution.analyze_compiled_answers(
+        sample,
+        [
+            {"doc_id": "d1", "source_text": "Acme made it.", "compiled_text": "Acme made it."},
+            {"doc_id": "d2", "source_text": "It happened in 2020.", "compiled_text": "The event happened."},
+            {"doc_id": "d3", "source_text": "No location is stated.", "compiled_text": "No location is stated."},
+        ],
+    )
+    assert analysis["status"] == "compiled_missing"
+    assert analysis["compiled_missing_count"] == 1
+    assert analysis["source_missing_count"] == 1
+    assert [step["status"] for step in analysis["steps"]] == [
+        "preserved",
+        "compiled_missing",
+        "source_missing",
+    ]
+
+
+def test_compiled_answer_analysis_uses_eighty_percent_token_recall():
+    sample = _sample({}, mode="knowledge")
+    sample["dataset"] = "musique"
+    sample["detail"]["metadata"] = {
+        "question_decomposition": [
+            {
+                "question": "Where?",
+                "answer": "Cairo Illinois river city county",
+                "support_doc_id": "d1",
+            }
+        ]
+    }
+    analysis = attribution.analyze_compiled_answers(
+        sample,
+        [
+            {
+                "doc_id": "d1",
+                "source_text": "The river meets at Cairo, Illinois city.",
+                "compiled_text": "The river meets at Cairo, Illinois city.",
+            }
+        ],
+    )
+    step = analysis["steps"][0]
+    assert step["source_answer_token_recall"] == 0.8
+    assert step["compiled_answer_token_recall"] == 0.8
+    assert step["status"] == "preserved"
+
+
+def test_attribution_token_normalization_removes_possessives():
+    assert attribution._normalized_tokens("Avicenna's Canon") == ["avicenna", "canon"]
+    assert attribution._normalized_tokens("Avicenna’s Canon") == ["avicenna", "canon"]
+    assert attribution._normalized_tokens("the scholars' libraries") == [
+        "scholars",
+        "libraries",
+    ]
+
+
+def test_compiled_answer_missing_outranks_retrieval_and_citation_symptoms():
+    sample = _sample(
+        {"hit@5": 1.0, "recall@5": 0.5, "uncited_gold_count": 1.0},
+        mode="knowledge",
+    )
+    ruling = attribution.classify(
+        sample,
+        [],
+        {"status": "partial", "steps": []},
+        compiled_answers={"compiled_missing_count": 1, "steps": []},
+    )
+    assert ruling["root_cause"] == attribution.CAUSE_COMPILED_ANSWER_MISSING
+
+
 def test_evidence_chain_does_not_treat_retrieved_source_title_as_claim():
     sample = _sample({}, mode="general")
     sample["dataset"] = "musique"
@@ -480,6 +574,38 @@ def test_evidence_chain_does_not_treat_retrieved_source_title_as_claim():
         {"retrievedSources": [{"title": "X was made by Acme."}]},
     )
     assert chain["steps"][0]["claim_retrieved"] is False
+
+
+def test_evidence_chain_keeps_all_matching_retrieved_evidence():
+    sample = _sample({}, mode="general")
+    sample["dataset"] = "musique"
+    sample["detail"]["metadata"] = {
+        "question_decomposition": [
+            {
+                "answer": "Acme",
+                "support_title": "X",
+                "support_text": "Acme was founded in 2020 by Jane.",
+            }
+        ]
+    }
+    response = {
+        "snippets": [
+            {"title": f"candidate-{index}", "text": text}
+            for index, text in enumerate(
+                [
+                    "Acme was founded in 2020.",
+                    "Acme was founded by Jane.",
+                    "The company was founded in 2020 by Jane.",
+                    "Acme and Jane founded the company.",
+                ],
+                1,
+            )
+        ]
+    }
+
+    chain = attribution.analyze_evidence_chain(sample, response)
+
+    assert len(chain["steps"][0]["retrieved_evidence"]) == 4
 
 
 def test_general_routing_uses_evidence_chain_before_answer_correctness():

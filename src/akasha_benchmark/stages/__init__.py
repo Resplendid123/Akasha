@@ -1,10 +1,10 @@
-"""六个流水线阶段。
 
-``STAGES`` 是任务运行器唯一认的阶段来源：请求体里的阶段名必须在这里，
-参数按 ``params`` 声明过滤，未声明的键不传给阶段代码。
 
-链路测试不在这里，它是 :mod:`.chain` 摊平出来的四条普通任务。
-"""
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from . import attribute, chain, compile, download, evaluate, normalize, query
 class StageSpec:
     label: str
     run: Stage
-    # 参数名 -> 类型。未声明的键丢掉。
+
     params: dict[str, type] = field(default_factory=dict)
 
 
@@ -87,7 +87,7 @@ STAGES: dict[str, StageSpec] = {
 
 
 def clean_params(stage: str, args: dict[str, Any]) -> dict[str, Any]:
-    """按声明过滤并转换类型。未声明的键直接丢掉。"""
+
     spec = STAGES.get(stage)
     if spec is None:
         raise ValueError(f"未知阶段 {stage!r}；可用：{sorted(STAGES)}")

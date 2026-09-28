@@ -1,4 +1,4 @@
-"""归一化产物存取：dataset / sample / corpus_doc。"""
+
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def list_datasets(connection: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def delete_dataset(connection: sqlite3.Connection, name: str) -> int:
-    """删归一化产物。已被编译层引用时拒绝，否则会连带删掉编译与其下游。"""
+
     used = connection.execute(
         "SELECT COUNT(*) AS n FROM compile_sample cs "
         "JOIN sample s ON s.sample_id = cs.sample_id WHERE s.dataset = ?",
@@ -127,9 +127,9 @@ def sample_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """过滤归一化样本；搜索覆盖问题、答案以及 gold 文档标题和正文。"""
+
     if search:
-        # 先匹配语料，避免为每条样本重复扫描 corpus。
+
         needle = search.lower()
         matched_doc_rows = connection.execute(
             """
@@ -229,7 +229,7 @@ def corpus_page(
     limit: int = 10,
     offset: int = 0,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """在 SQLite 内过滤并分页语料，只读取当前页的正文。"""
+
     where = ["dataset = ?"]
     params: list[Any] = [dataset]
     if search:

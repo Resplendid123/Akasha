@@ -1,4 +1,4 @@
-"""answer_relevancy：生成答案对应的问题，再与原问题比较 embedding。"""
+
 
 from __future__ import annotations
 

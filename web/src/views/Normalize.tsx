@@ -28,7 +28,7 @@ export function Normalize({ onOpenTasks }: { onOpenTasks: () => void }) {
 
   const ready = data.datasets.filter((d) => d.files_ready)
   const targets = selected.length ? selected : ready.map((d) => d.name)
-  // 都已入库时收起这一栏，由「重新归一化」显式打开。
+
   const allDone = ready.length > 0 && ready.every((d) => d.normalized)
 
   return (

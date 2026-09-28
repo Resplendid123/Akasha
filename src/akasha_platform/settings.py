@@ -1,4 +1,4 @@
-"""平台启动设置。绑非回环地址时必须配置访问令牌。"""
+
 
 from __future__ import annotations
 
@@ -17,23 +17,22 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8848
     db_path: Path = DEFAULT_DB_PATH
-    # 非空则要求所有请求带 X-Auth-Token。绑非回环地址时必须非空。
-    auth_token: str = ""
-    # 开发时 Vite dev server 的地址，用于 CORS。
+
     dev_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
 
     def is_loopback(self) -> bool:
         return self.host in LOOPBACK
 
     def validate_binding(self) -> None:
-        """绑非回环地址且没有令牌时拒绝启动。
 
-        这个服务持有 Akasha 管理员凭据并能启动长任务，不能不设认证就暴露出去。
-        """
-        if not self.is_loopback() and not self.auth_token:
+
+
+
+
+        if not self.is_loopback():
             raise RuntimeError(
                 f"拒绝绑定 {self.host}：该服务持有 Akasha 管理员凭据并能启动长任务。"
-                f"请设置 {ENV_PREFIX}AUTH_TOKEN，或绑定 127.0.0.1。"
+                "请绑定 127.0.0.1，并通过受保护的隧道远程访问。"
             )
 
     def redacted(self) -> dict[str, object]:
@@ -41,13 +40,12 @@ class Settings:
             "host": self.host,
             "port": self.port,
             "db_path": str(self.db_path),
-            "auth_required": bool(self.auth_token),
             "loopback_only": self.is_loopback(),
         }
 
 
 def load_settings() -> Settings:
-    """读取 AKASHA_PLATFORM_* 环境变量。"""
+
 
     def env(name: str, default: str = "") -> str:
         return os.environ.get(f"{ENV_PREFIX}{name}", default)
@@ -56,6 +54,4 @@ def load_settings() -> Settings:
         host=env("HOST", "127.0.0.1"),
         port=int(env("PORT", "8848")),
         db_path=Path(env("DB", str(DEFAULT_DB_PATH))),
-        # 缺令牌时不代生成一个，交给 validate_binding 报错。
-        auth_token=env("AUTH_TOKEN"),
     )

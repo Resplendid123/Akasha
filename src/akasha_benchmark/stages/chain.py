@@ -1,10 +1,10 @@
-"""链路测试：用极小样本把编译到归因四层各跑成一条真实任务。
 
-是 compile/query/evaluate/attribute 四条普通任务，
-由运行器按顺序推进，进度、日志、产物归属都和手动起的任务一样。
 
-每一步收尾时校验一次契约（``VERIFY``），不成立就让那条任务失败并断链。
-"""
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ from ..store import (
 )
 from . import compile
 
-# 只用有 gold 标注的三组，否则检索族指标全省略，测不到指标计算那一段。
+
 DATASETS = ("hotpotqa", "2wikimultihopqa", "musique")
 def _check_query(connection, query_id: int) -> None:
-    """查询响应要覆盖全部样本、都成功，且 knowledge 响应带着 retrievedSources。"""
+
     run = query_store.get_query_run(connection, query_id)
     if run is None:
         raise RuntimeError("查询记录丢失")
@@ -77,7 +77,7 @@ def _check_attribute(connection, attribution_id: int) -> None:
         raise RuntimeError("归因没有覆盖评测的全部样本")
 
 
-# 阶段名 -> 校验函数，签名是 (连接, 产物 id)。
+
 VERIFY = {
     "query": _check_query,
     "evaluate": _check_evaluate,
@@ -86,7 +86,7 @@ VERIFY = {
 
 
 def build(params: dict[str, Any], connection) -> list[dict[str, Any]]:
-    """把一次链路测试摊平成四步。``link`` 是上一步产物 id 要填进的参数名。"""
+
     dataset = str(params.get("dataset") or DATASETS[0])
     if dataset not in DATASETS:
         raise ValueError(f"链路测试仅支持 {DATASETS}")

@@ -1,4 +1,4 @@
-"""配置层：Akasha 连接、它那边的模型配置、本地 judge / 归因端点。"""
+
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def _reject_model_change_while_running(
 
 @router.get("/connection")
 def get_connection(request: Request) -> dict[str, Any]:
-    """那一份 Akasha 连接配置，连同各次编译的空间。密码原样回显。"""
+
     with db(request) as connection:
         row = config_store.get_connection_row(connection)
         compiles = [
@@ -71,7 +71,7 @@ def get_connection(request: Request) -> dict[str, Any]:
 
 @router.put("/connection")
 def put_connection(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """改连接配置。只写提交了的字段，没出现的保持原值，传空串即清空。"""
+
     try:
         fields = config_store.sanitize_connection(payload)
     except ValueError as exc:
@@ -83,11 +83,11 @@ def put_connection(request: Request, payload: dict[str, Any] = Body(...)) -> dic
 
 @router.post("/connection/test")
 def test_connection(request: Request) -> dict[str, Any]:
-    """登录 + 取当前用户 + 拉模型配置，并预检 owner 角色与各次编译的 workspace。
 
-    owner 那一项不是可选检查：非 owner 会在授权闸门静默丢弃 chunk，
-    症状看起来像召回质量差。
-    """
+
+
+
+
     config = config_of(request)
     try:
         config.require_credentials()
@@ -108,7 +108,7 @@ def test_connection(request: Request) -> dict[str, Any]:
     workspace = (me or {}).get("workspace") or {}
     role = user.get("role")
 
-    # 同一道判据 compile / query 在登录后也会走，这里先说出来。
+
     with db(request) as connection:
         blocked = []
         for row in compile_store.list_compile_runs(connection):
@@ -121,10 +121,10 @@ def test_connection(request: Request) -> dict[str, Any]:
     return {
         "ok": True,
         "user": {"id": user.get("id"), "email": user.get("email"), "role": role},
-        # workspace 由服务端解析，只读。
+
         "workspace": {"id": workspace.get("id"), "name": workspace.get("name")},
         "is_owner": role == "owner",
-        # 这些编译在当前连接下用不了。
+
         "blocked_compiles": blocked,
         "owner_warning": (
             None
@@ -138,7 +138,7 @@ def test_connection(request: Request) -> dict[str, Any]:
 
 @router.get("/model-configs")
 def get_model_configs(request: Request) -> dict[str, Any]:
-    """Akasha 的四项模型配置，连同各次编译的快照比对。"""
+
     config = config_of(request)
     try:
         config.require_credentials()
@@ -170,10 +170,10 @@ def get_model_configs(request: Request) -> dict[str, Any]:
 def put_model_config(
     request: Request, feature: str, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-    """改 Akasha 的某一项模型配置。改的是那个部署，不是本平台。
 
-    ``provider`` 不进表单（只有一个合法取值），在这里补上，免得 PUT 缺必填字段。
-    """
+
+
+
     if feature not in FEATURES:
         raise HTTPException(422, f"未知配置项 {feature!r}；可用：{list(FEATURES)}")
     payload = {"provider": "openai-compatible", **payload}
@@ -205,7 +205,7 @@ def put_model_config(
 
 @router.get("/providers")
 def list_providers(request: Request, role: str | None = None) -> list[dict[str, Any]]:
-    """judge / 归因端点。响应里没有 api_key，只有它是否已设置。"""
+
     if role is not None and role not in config_store.MODEL_ROLES:
         raise HTTPException(422, f"role 必须是 {list(config_store.MODEL_ROLES)} 之一")
     with db(request) as connection:
@@ -228,8 +228,8 @@ def list_providers(request: Request, role: str | None = None) -> list[dict[str, 
 def put_provider(
     request: Request, role: str, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-    """存一个端点。带 ``id`` 是改那一条（可改 label），不带是按 label 认行。
-    ``api_key`` 为空时保留现有密钥。"""
+
+
     if role not in config_store.MODEL_ROLES:
         raise HTTPException(422, f"role 必须是 {list(config_store.MODEL_ROLES)} 之一")
     label = str(payload.get("label") or "default").strip()
@@ -248,7 +248,7 @@ def put_provider(
         by_id = {int(row["id"]): row for row in rows}
         if provider_id is not None and provider_id not in by_id:
             raise HTTPException(404, f"{role} 端点 #{provider_id} 不存在")
-        # 改名撞上另一条时拒绝，否则那一条会被覆盖掉。
+
         clash = next((r for r in rows if r["label"] == label and int(r["id"]) != provider_id), None)
         if clash is not None and provider_id is not None:
             raise HTTPException(409, f"{role} 下已经有一个叫 {label!r} 的端点")
@@ -278,10 +278,10 @@ def put_provider(
 
 @router.post("/providers/{provider_id}/probe")
 def probe_provider(request: Request, provider_id: int) -> dict[str, Any]:
-    """真调一次这个端点，回模型说了什么或它为什么失败。
 
-    密钥从库里取而不经前端。失败不抛 500：调不通是这个接口要报告的结果。
-    """
+
+
+
     with db(request) as connection:
         record = config_store.get_model_provider(connection, provider_id)
         if record is None:
@@ -292,7 +292,7 @@ def probe_provider(request: Request, provider_id: int) -> dict[str, Any]:
             return {"ok": False, "failure": "config", "detail": str(exc)}
 
     with JudgeClient(provider) as client:
-        # 部分 provider 要求提示词包含 "json" 才接受 json_object。
+
         reply = client.complete(
             "You reply with a single JSON object.",
             'hi — reply as JSON: {"reply": "<your greeting>"}',
@@ -303,7 +303,7 @@ def probe_provider(request: Request, provider_id: int) -> dict[str, Any]:
         "failure": reply.failure_kind,
         "status": reply.status,
         "reply": (reply.content or "")[:400],
-        # 失败时留一段原文，provider 的报错通常只在这里说得清楚。
+
         "detail": None if reply.failure_kind is None else (reply.raw or "")[:600],
         "provider": provider.redacted(),
     }
@@ -320,7 +320,7 @@ def delete_provider(request: Request, provider_id: int) -> dict[str, Any]:
 
 @router.get("/config/export")
 def export_config(request: Request) -> dict[str, Any]:
-    """导出连接与按用途保存的模型配置，包含明文密钥。"""
+
     with db(request) as connection:
         row = config_store.get_connection_row(connection)
         connection_data = {
@@ -345,7 +345,7 @@ def export_config(request: Request) -> dict[str, Any]:
 
 @router.post("/config/import")
 def import_config(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """回填配置；每个 Akasha 模型按 (feature, label) 独立覆盖。"""
+
     connection_data = payload.get("connection") or {}
     models = payload.get("models") or []
     try:
@@ -444,7 +444,7 @@ def delete_akasha_model(request: Request, model_id: int) -> dict[str, Any]:
 
 @router.post("/akasha-models/{model_id}/probe")
 def probe_akasha_model(request: Request, model_id: int) -> dict[str, Any]:
-    """用最小请求探测一个 Akasha 模型端点。"""
+
     config = config_of(request)
     with db(request) as connection:
         record = config_store.get_model_provider(connection, model_id)

@@ -1,4 +1,4 @@
-"""hotpotqa 适配器。1000 行，维基百科 2 跳，句子级 evidence。"""
+
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from .common import gold_titles_from_supporting_facts, resolve_gold_doc_ids
 from .corpus import CorpusIndex
 from .models import CanonicalSample, DataDependency, SubsetStrategy, make_sample_id
 
-# 本集的 context 句子用空串拼接才能还原成 corpus 的 text。原文基线要用。
+
 SENTENCE_JOINER = ""
 
 

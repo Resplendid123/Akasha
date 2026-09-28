@@ -1,4 +1,4 @@
-"""阶段：归一化验收、抽样不变量、指标计算与省略口径。"""
+
 
 from __future__ import annotations
 
@@ -277,7 +277,7 @@ def test_evaluate_separates_fallback_from_retrieval_failure(normalized):
         for row in eval_store.metric_summaries(normalized, eval_id)
     }
     assert summaries[("overall", "recall@2")]["value"] == pytest.approx(0.0)
-    # 空切片不生成指标行。
+
     assert ("knowledge_only", "recall@2") not in summaries
     modes = eval_store.dataset_evals(normalized, eval_id)[0]["answer_modes"]
     assert modes == {"no_match": pytest.approx(1.0)}
@@ -293,7 +293,7 @@ def test_evaluate_filters_to_selected_metrics(normalized):
     sample = eval_store.sample_evals(normalized, eval_id)[0]
     metrics = eval_store.sample_metrics_of(normalized, eval_id, sample["sample_id"])
     assert set(metrics) == {"em"}
-    # 明细保留完整链路供归因使用。
+
     assert "retrieval" in sample["detail"]
 
 

@@ -1,8 +1,8 @@
-"""多跳专项：图扩展的净价值。
 
-``snippets[].retrievalReasons`` 给出每个 snippet 由哪个信号产出，
-``sourceWindows[].sourcePageId`` 给出它对应哪些页。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ DIRECT_REASONS = frozenset({"semantic", "lexical", "exact-title"})
 
 
 def snippet_doc_ids(snippet: dict[str, Any], page_to_doc: dict[str, str]) -> set[str]:
-    """一个 snippet 背后对应的 doc_id 集合。"""
+
     return {
         page_to_doc[window["sourcePageId"]]
         for window in snippet.get("sourceWindows") or []
@@ -26,7 +26,7 @@ def snippet_doc_ids(snippet: dict[str, Any], page_to_doc: dict[str, str]) -> set
 def evaluate_sample(
     snippets: Sequence[dict[str, Any]], gold: Sequence[str], page_to_doc: dict[str, str]
 ) -> dict[str, Any]:
-    """按信号统计命中文档；同一文档的多个 snippet 只计一次。"""
+
     gold_set = set(gold)
     reason_counts: Counter[str] = Counter()
     reason_gold_counts: Counter[str] = Counter()
@@ -43,7 +43,7 @@ def evaluate_sample(
         docs = snippet_doc_ids(snippet, page_to_doc)
         hits = docs & gold_set
 
-        # 一个 snippet 可能同时挂多个原因，按 set 去重后各自记一次。
+
         for reason in set(reasons):
             reason_counts[reason] += 1
             reason_docs.setdefault(reason, set()).update(docs)
@@ -60,7 +60,7 @@ def evaluate_sample(
         if DIRECT_REASONS.intersection(reasons) or GRAPH_NEIGHBOR not in reasons:
             gold_from_other |= hits
 
-    # 只能靠图扩展才拿到的 gold，即图边的净增量。
+
     graph_exclusive_gold = gold_only_from_graph - gold_from_other
 
     return {

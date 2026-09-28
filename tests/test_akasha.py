@@ -1,8 +1,8 @@
-"""Akasha 客户端契约，以及编译/查询阶段的闸门。
 
-用假客户端跑，不需要真实部署。这些闸门拦的都是不报错的失败：
-非 owner 静默丢 chunk、换 embedding 让旧 chunk 召回不到、闸门读到空值假通过。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -306,6 +306,49 @@ def test_unauthorized_client_reuses_jwt_refreshed_by_another_client(
     akasha_client._AUTH_TOKENS.clear()
 
 
+def test_unauthorized_without_cookie_logs_in_and_saves_new_jwt(tmp_path, monkeypatch):
+    fresh = _jwt(time.time() + 7200)
+    login_calls = 0
+
+    class HTTPClient:
+        def __init__(self):
+            self.cookies = akasha_client.httpx.Cookies()
+            self.request_calls = 0
+
+        def request(self, method, url, **kwargs):
+            nonlocal login_calls
+            if url.endswith("/auth/login"):
+                login_calls += 1
+                self.cookies.set(akasha_client.AUTH_TOKEN_COOKIE, fresh)
+                return akasha_client.httpx.Response(
+                    201, json={"success": True, "status": 201}
+                )
+            self.request_calls += 1
+            status = 401 if self.request_calls == 1 else 200
+            return akasha_client.httpx.Response(
+                status, json={"data": {}, "success": status == 200, "status": status}
+            )
+
+        def close(self):
+            pass
+
+    cache_path = tmp_path / "auth.json"
+    monkeypatch.setattr(akasha_client, "_AUTH_CACHE_PATH", cache_path)
+    akasha_client._AUTH_TOKENS.clear()
+    config = AkashaConfig(base_url="http://akasha", email="e@x", password="pw")
+    client = AkashaClient(config)
+    client._client.close()
+    client._client = HTTPClient()
+
+    assert client.get("users/me") == {}
+    assert login_calls == 1
+    assert client._client.cookies.get(akasha_client.AUTH_TOKEN_COOKIE) == fresh
+    assert json.loads(cache_path.read_text(encoding="utf-8"))[
+        akasha_client._auth_cache_key(config)
+    ] == fresh
+    akasha_client._AUTH_TOKENS.clear()
+
+
 def test_client_collects_failed_run_pages_across_pages(monkeypatch):
     client = AkashaClient(AkashaConfig())
     calls: list[tuple[str, int, int]] = []
@@ -377,6 +420,36 @@ def test_retryable_pages_use_latest_status_across_runs(monkeypatch):
     )
     try:
         assert client.retryable_run_page_ids(["original", "retry"]) == ["still-failed"]
+    finally:
+        client.close()
+
+
+def test_retryable_pages_use_remote_updated_at_not_run_order(monkeypatch):
+    client = AkashaClient(AkashaConfig())
+    pages = {
+        "newer": [
+            {
+                "sourcePageId": "page",
+                "status": "succeeded",
+                "updatedAt": "2026-09-24T10:00:00Z",
+            }
+        ],
+        "older": [
+            {
+                "sourcePageId": "page",
+                "status": "skipped",
+                "errorCode": "manual_cancelled",
+                "updatedAt": "2026-09-24T09:00:00Z",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        client,
+        "run_pages",
+        lambda run_id, **_: {"items": pages[run_id], "total": 1, "limit": 100},
+    )
+    try:
+        assert client.retryable_run_page_ids(["newer", "older"]) == []
     finally:
         client.close()
 
@@ -730,6 +803,53 @@ def test_compile_progress_uses_latest_page_status_across_retry_runs(ready_connec
         [{"runId": "original"}, {"runId": "retry"}],
     )
     assert progress == {"expected": 2, "succeeded": 2, "failed": 0, "skipped": 0}
+
+
+def test_compile_progress_uses_remote_total_when_retrying(ready_connection, monkeypatch):
+    compile_id = compile_store.create_compile_run(
+        ready_connection,
+        run_id="remote-total",
+        datasets=["hotpotqa"],
+        seed=1,
+        qa_limit=1,
+        negatives_ratio=1.0,
+    )
+    task_id = task_store.create_task(ready_connection, stage="compile", params={})
+    task_store.set_task_target(ready_connection, task_id, "compile", compile_id)
+    ready_connection.commit()
+    page_ids = [f"page-{index}" for index in range(244)]
+    monkeypatch.setattr(
+        compile.compile_store,
+        "compile_docs",
+        lambda *_args, **_kwargs: [{"page_id": page_id} for page_id in page_ids],
+    )
+
+    class RemoteProgress(FakeClient):
+        def run_pages(self, run_id, *, page=1, limit=100):
+            if run_id == "original":
+                items = [
+                    {"sourcePageId": page_id, "status": "succeeded"}
+                    for page_id in page_ids[:105]
+                ]
+                total = 105
+            else:
+                items = [
+                    {"sourcePageId": f"page-{index}", "status": "succeeded"}
+                    for index in (105, 106, 107)
+                ]
+                total = 3
+            return {"items": items, "total": total, "limit": limit}
+
+    progress = compile._target_run_progress(
+        context(ready_connection, {}, task_id=task_id),
+        RemoteProgress(None),
+        [
+            {"runId": "original", "progress": {"text": {"expected": 244}}},
+            {"runId": "retry", "progress": {"text": {"expected": 3}}},
+        ],
+    )
+
+    assert progress == {"expected": 244, "succeeded": 108, "failed": 0, "skipped": 0}
 
 
 def test_compile_progress_counts_merge_failure_as_failed(ready_connection):
@@ -1401,11 +1521,11 @@ def test_compile_uses_remote_models_without_changing_them(ready_connection, monk
 
 
 def test_query_refuses_on_workspace_mismatch(ready_connection, monkeypatch):
-    """换了账号/部署之后，这次编译的 page_id 在这里解析不到。
 
-    查询打上去不报错，只会每条都召回不到 —— 一份 recall 全 0 的报告，
-    看起来像检索烂到极点而不像配置指向了别处。
-    """
+
+
+
+
     compile_id = _compiled(ready_connection, monkeypatch)
 
     class OtherWorkspace(FakeClient):

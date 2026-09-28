@@ -1,4 +1,4 @@
-"""查询层存取。"""
+
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def delete_query_run(connection: sqlite3.Connection, query_id: int) -> int:
 def freeze_query_samples(
     connection: sqlite3.Connection, query_id: int, samples: list[dict[str, Any]]
 ) -> None:
-    """固化这一轮要问哪些样本，续跑据此算待办。"""
+
     connection.executemany(
         "INSERT OR IGNORE INTO query_sample (query_id, sample_id) VALUES (?, ?)",
         [(query_id, s["sample_id"]) for s in samples],
@@ -82,7 +82,7 @@ def query_samples(connection: sqlite3.Connection, query_id: int) -> list[dict[st
 
 
 def pending_query_samples(connection: sqlite3.Connection, query_id: int) -> list[dict[str, Any]]:
-    """待问的样本 = 固化选择 - 已落库响应，即续跑的依据。"""
+
     return [
         dict(r)
         for r in connection.execute(
@@ -172,7 +172,7 @@ def response_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, dict[str, int], list[dict[str, Any]]]:
-    """查询响应列表；过滤、计数与分页都留在 SQLite。"""
+
     where = ["query_id = ?"]
     params: list[Any] = [query_id]
     if dataset:
@@ -234,7 +234,7 @@ def response_of(
 
 
 def delete_failed_responses(connection: sqlite3.Connection, query_id: int) -> int:
-    """删失败行让它们重试，成功的保留。"""
+
     return connection.execute(
         "DELETE FROM query_response WHERE query_id = ? "
         "AND (http_status < 200 OR http_status >= 300)",

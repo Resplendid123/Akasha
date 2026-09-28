@@ -1,4 +1,4 @@
-"""编译、查询、评测与归因运行记录的批量读取模型。"""
+
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ _MISSING = object()
 
 
 def build_compile_tree(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    """批量读取完整运行树，查询数量不随运行记录数增长。"""
+
     compile_rows = compile_store.list_compile_runs(connection)
     query_rows = query_store.list_query_runs(connection)
     eval_rows = eval_store.list_eval_runs(connection)

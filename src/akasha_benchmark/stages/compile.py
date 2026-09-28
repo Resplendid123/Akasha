@@ -1,17 +1,17 @@
-"""编译层：抽子集 -> 建空间 -> 导入 -> 编译 -> 质量闸门。
 
-抽样顺序是先 QA 后 corpus，否则大部分 gold 会落在子集外：
 
-    1. 固定种子抽 N 条 QA
-    2. 这些 QA 的 gold 全集作为语料必选集
-    3. 从剩余语料随机补负样本
 
-没有 gold 标注的两组走别的路，各自由适配器的 ``subset_strategy`` 声明：
-narrativeqa 整篇取文档再取属于这些文档的问题；itfaq 没有指回文档的字段，语料整份导入。
 
-一次编译一个空间，``run_id`` 固化这次的配置与模型快照。导入逐条提交，
-所以暂停后继续时跳过已导入的文档。
-"""
+
+
+
+
+
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -70,12 +70,12 @@ _MARKDOWN_HEADING = re.compile(r"^\s*#+\s*.*$", re.MULTILINE)
 
 
 def default_seed() -> int:
-    """当天日期，形如 20260915。同一天起的编译抽同一批。"""
+
     return int(datetime.now(UTC).strftime("%Y%m%d"))
 
 
 def _largest_remainder(weights: dict[str, int], total: int) -> dict[str, int]:
-    """按比例分配名额，各层之和精确等于 total。"""
+
     pool = sum(weights.values())
     if pool == 0:
         return dict.fromkeys(weights, 0)
@@ -90,7 +90,7 @@ def _largest_remainder(weights: dict[str, int], total: int) -> dict[str, int]:
 def _stratified(
     samples: list[dict[str, Any]], limit: int, key: str, rng: random.Random
 ) -> list[dict[str, Any]]:
-    """按 ``metadata[key]`` 分层抽样。musique 不分层的话几乎全是 2hop。"""
+
     strata: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for sample in samples:
         strata[str(sample["metadata"][key])].append(sample)
@@ -98,7 +98,7 @@ def _stratified(
     quotas = _largest_remainder({k: len(v) for k, v in strata.items()}, limit)
     picked: list[dict[str, Any]] = []
     for name in sorted(strata):
-        # 先排序再抽，结果因此不依赖查询返回顺序。
+
         available = sorted(strata[name], key=lambda s: s["sample_id"])
         picked.extend(rng.sample(available, min(quotas[name], len(available))))
 
@@ -112,14 +112,14 @@ def _stratified(
 
 
 def _safe_doc_id(doc_id: str) -> str:
-    """拒掉不能当导入 filename 用的 doc_id。"""
+
     if not doc_id or doc_id in {".", ".."} or set(doc_id) & set('/\\:*?"<>|'):
         raise ValueError(f"doc_id {doc_id!r} 不能作为文件名")
     return doc_id
 
 
 def _has_indexable_text(text: str) -> bool:
-    """判断正文是否除标题、图片外仍有可编译文本。"""
+
     body = _MARKDOWN_IMAGE.sub("", text or "")
     body = _MARKDOWN_HEADING.sub("", body)
     return bool(body.strip())
@@ -137,7 +137,7 @@ def build_subset(
     full_corpus: bool = False,
     narrativeqa_docs: int = DEFAULT_NARRATIVEQA_DOCS,
 ) -> dict[str, Any]:
-    """抽一个数据集的子集写库，返回统计。"""
+
     adapter = get_adapter(dataset)
     if data_store.get_dataset(connection, adapter.name) is None:
         raise ValueError(f"{adapter.name} 还没归一化")
@@ -159,12 +159,12 @@ def build_subset(
     if not samples:
         raise ValueError(f"{adapter.name} 没有样本")
 
-    # 随机源是 (数据集, seed) 而不含 run_id，同 seed 因此抽出同一批文档。
+
     rng = random.Random(f"{adapter.name}:{seed}")
 
     strategy = adapter.subset_strategy
     gold_strategies = (SubsetStrategy.QA_THEN_GOLD, SubsetStrategy.STRATIFIED_HOP)
-    # 声明要 gold 而数据集没有标注时报错，不静默产出空 gold 集。
+
     if strategy in gold_strategies and not adapter.has(DataDependency.GOLD_DOCS):
         raise ValueError(f"{adapter.name}: 策略 {strategy.value!r} 需要 gold 标注，但本组没有")
 
@@ -176,7 +176,7 @@ def build_subset(
         negatives = sorted(rng.sample(pool, min(wanted, len(pool))))
         doc_ids = sorted(set(gold_ids) | set(negatives))
     elif full_corpus:
-        # 显式全量语料：QA 仍受 qa_limit 控制，语料不再按 gold/负样本抽样。
+
         doc_ids = sorted(usable_doc_ids)
         picked = sorted(
             rng.sample(
@@ -191,8 +191,8 @@ def build_subset(
             else []
         )
     elif strategy is SubsetStrategy.FULL_CORPUS:
-        # itfaq：没有指回文档的字段，抽语料就无法保证被抽到的问题还答得上。
-        # 语料整份导入，所以 negatives_ratio 对这一组不起作用。
+
+
         doc_ids = sorted(usable_doc_ids)
         picked = sorted(
             rng.sample(
@@ -202,7 +202,7 @@ def build_subset(
         )
         gold_ids, negatives = [], []
     elif strategy is SubsetStrategy.WHOLE_DOCS:
-        # narrativeqa：整篇取文档，优先取 chunk 最少的（chunk 数决定编译成本）。
+
         chunks: dict[str, list[str]] = defaultdict(list)
         for doc in corpus:
             chunks[doc["doc_id"].rsplit("_", 1)[0]].append(doc["doc_id"])
@@ -233,7 +233,7 @@ def build_subset(
         negatives = sorted(rng.sample(pool, min(wanted, len(pool))))
         doc_ids = sorted(set(gold_ids) | set(negatives))
 
-    # 验收：每条样本的 gold 都要在子集语料内，否则 Recall 的上限不是 1。
+
     subset_ids = set(doc_ids)
     uncovered = {
         s["sample_id"]: sorted(set(s["gold_doc_ids"]) - subset_ids)
@@ -265,7 +265,7 @@ def build_subset(
 
 
 def markdown_of(connection: sqlite3.Connection, dataset: str, doc_id: str) -> str:
-    """渲染导入 Akasha 的正文。heading 承担 title，文件名承担 doc_id。"""
+
     doc = data_store.corpus_doc(connection, dataset, doc_id)
     if doc is None:
         raise ValueError(f"{dataset}/{doc_id} 不在语料里")
@@ -284,15 +284,16 @@ def _wait_for_compile(
     baseline_run_ids: set[str] | None = None,
     baseline_sequence: int = 0,
     progress_page_ids: set[str] | None = None,
+    progress_run_ids: list[str] | None = None,
     progress_note: str = "编译语料",
     progress_offset: int = 0,
     progress_total: int | None = None,
 ) -> dict[str, Any]:
-    """轮询到全部编译 Run 终态，返回 ``{status_counts, no_runs, timed_out}``。
 
-    空的 ``statusCounts`` 与「全部终态」分开报：两者的 ``active`` 都是 0，
-    但前者是压根没编译。``expect_runs`` 为 0 且看不到 Run 时立即返回。
-    """
+
+
+
+
     baseline_run_ids = baseline_run_ids or set()
     expected_run_ids = expected_run_ids or set()
     while True:
@@ -314,7 +315,7 @@ def _wait_for_compile(
                 else int(run.get("spaceJobSequence") or 0) > baseline_sequence
             )
         ]
-        # coalesced 请求复用已有 Run；此时取当前空间最新的一条，而不是把历史 Run 合计。
+
         if (
             not current
             and coalesced_runs
@@ -336,7 +337,7 @@ def _wait_for_compile(
         elif expect_runs and diagnostics_ok and any(
             run.get("runId") or run.get("id") or run.get("spaceJobSequence") for run in runs
         ):
-            # 等待本次 accepted Run 出现在诊断列表。
+
             counts = {}
             progress = {}
             active = 1
@@ -345,22 +346,31 @@ def _wait_for_compile(
             progress = {}
             active = 0
 
+        progress_runs = current
+        if progress_run_ids:
+            runs_by_id = {
+                str(run.get("runId") or run.get("id")): run
+                for run in runs
+                if run.get("runId") or run.get("id")
+            }
+            progress_runs = [
+                runs_by_id.get(run_id, {"runId": run_id}) for run_id in progress_run_ids
+            ]
         target_progress = (
-            _target_run_progress(ctx, client, current, progress_page_ids) if current else None
+            _target_run_progress(
+                ctx,
+                client,
+                progress_runs,
+                None if progress_run_ids else progress_page_ids,
+            )
+            if progress_runs else None
         )
         shown_progress = target_progress or progress
         if current and shown_progress.get("expected"):
-            detail = (
-                f"（成功 {shown_progress['succeeded']}，失败 {shown_progress['failed']}，"
-                f"跳过 {shown_progress['skipped']}）"
-            )
             ctx.progress(
-                progress_offset
-                + shown_progress["succeeded"]
-                + shown_progress["skipped"]
-                + shown_progress["failed"],
+                progress_offset + shown_progress["succeeded"],
                 progress_total or shown_progress["expected"],
-                progress_note + detail,
+                progress_note,
             )
         elif counts:
             ctx.progress(0, None, "等待远端编译")
@@ -385,7 +395,7 @@ def _target_run_progress(
     runs: list[dict[str, Any]],
     progress_page_ids: set[str] | None = None,
 ) -> dict[str, int] | None:
-    """只统计本次 compile_doc 对应的远端逐页记录。"""
+
     compile_id = ctx.target("compile")
     if compile_id is None:
         return None
@@ -398,7 +408,7 @@ def _target_run_progress(
     if not target_ids:
         return None
 
-    statuses: dict[str, str] = {}
+    statuses: dict[str, tuple[str, str]] = {}
     try:
         for run in runs:
             run_id = str(run.get("runId") or run.get("id") or "")
@@ -411,10 +421,15 @@ def _target_run_progress(
                 for item in items:
                     page_id = str(item.get("sourcePageId") or "")
                     if page_id in target_ids:
+                        updated_at = str(item.get("updatedAt") or "")
+                        previous = statuses.get(page_id)
+                        if previous is not None and updated_at < previous[1]:
+                            continue
                         statuses[page_id] = (
                             "failed"
                             if item.get("mergeStatus") == "failed"
-                            else str(item.get("status") or "pending")
+                            else str(item.get("status") or "pending"),
+                            updated_at,
                         )
                 total = int(result.get("total") or 0)
                 page_limit = int(result.get("limit") or 100)
@@ -426,26 +441,23 @@ def _target_run_progress(
 
     if not statuses:
         return None
-    remote_expected = sum(
+    remote_expected = [
         int((run.get("progress") or {}).get("text", {}).get("expected") or 0)
         for run in runs
-    )
-    expected = len(target_ids)
-    if progress_page_ids is None and 0 < remote_expected < len(all_target_ids):
-        # 续跑接管的是 retry-pages 子集 Run；逐页记录本身就是本轮目标集合。
-        expected = len(statuses)
+    ]
+    expected = max(remote_expected, default=0) or len(target_ids)
     return {
         "expected": expected,
-        "succeeded": sum(status == "succeeded" for status in statuses.values()),
-        "failed": sum(status == "failed" for status in statuses.values()),
+        "succeeded": sum(status == "succeeded" for status, _ in statuses.values()),
+        "failed": sum(status == "failed" for status, _ in statuses.values()),
         "skipped": sum(
-            status in {"skipped", "cancelled"} for status in statuses.values()
+            status in {"skipped", "cancelled"} for status, _ in statuses.values()
         ),
     }
 
 
 def _page_failures(client: AkashaClient, space_id: str) -> list[str]:
-    """按 errorCode 聚合失败页面，逐条描述成一行。"""
+
     try:
         log = client.page_log([space_id])
     except AkashaError as exc:
@@ -474,10 +486,10 @@ def _page_failures(client: AkashaClient, space_id: str) -> list[str]:
 def _compile_pace(
     client: AkashaClient, space_id: str, runs: list[dict[str, Any]] | None = None
 ) -> dict[str, Any] | None:
-    """每篇编译耗时的估算，取 Run 的墙钟时长除以页数。
 
-    是估算而不是实测：单篇的起止时间拿不到，并发度大于 1 时这个值偏高。
-    """
+
+
+
     if runs is None:
         try:
             report = client.run_diagnostics([space_id])
@@ -499,7 +511,7 @@ def _compile_pace(
 
 
 def _quality_gate(client: AkashaClient, space_id: str) -> dict[str, Any]:
-    """入库完整性闸门。要求四项计数都拿到值且都为 0，取不到值不算通过。"""
+
     report = client.quality_diagnostics([space_id])
     summary = report.get("summary") or {}
     gates = {
@@ -528,8 +540,10 @@ def _retry_batches(
     space_id: str,
     config: AkashaConfig,
     failed_page_ids: list[str] | None = None,
+    initial_total: int | None = None,
+    initial_completed: int = 0,
 ) -> tuple[dict[str, Any], int]:
-    """串行提交重试批次，并把跨重启状态持久化到任务参数。"""
+
     if failed_page_ids is not None:
         pending = list(dict.fromkeys(failed_page_ids))
         current: list[str] = []
@@ -537,8 +551,8 @@ def _retry_batches(
         all_run_ids = [
             str(value) for value in ctx.params.get("remote_compile_run_ids") or []
         ]
-        completed = 0
-        total = len(pending)
+        total = max(int(initial_total or 0), len(pending))
+        completed = max(0, min(int(initial_completed or 0), total))
         aggregate = {"expected": total, "succeeded": 0, "failed": 0, "skipped": 0}
     else:
         pending = [str(value) for value in ctx.params.get("retry_pending_page_ids") or []]
@@ -546,7 +560,14 @@ def _retry_batches(
         current_run_ids = [
             str(value) for value in ctx.params.get("retry_current_run_ids") or []
         ]
-        all_run_ids = [str(value) for value in ctx.params.get("retry_run_ids") or []]
+        all_run_ids = [
+            str(value)
+            for value in (
+                ctx.params.get("retry_run_ids")
+                or ctx.params.get("remote_compile_run_ids")
+                or []
+            )
+        ]
         completed = int(ctx.params.get("retry_completed") or 0)
         total = int(ctx.params.get("retry_total") or len(pending) + len(current))
         aggregate = dict(
@@ -604,14 +625,18 @@ def _retry_batches(
             expect_runs=len(current_run_ids),
             expected_run_ids=set(current_run_ids),
             progress_page_ids=set(current),
+            progress_run_ids=all_run_ids,
             progress_note="重试失败语料",
-            progress_offset=completed,
-            progress_total=total,
         )
         if wait["no_runs"] or wait["timed_out"]:
             return wait, len(all_run_ids)
 
-        batch_progress = wait.get("progress") or {}
+        batch_progress = _target_run_progress(
+            ctx,
+            client,
+            [{"runId": run_id} for run_id in current_run_ids],
+            set(current),
+        ) or wait.get("progress") or {}
         for key in ("succeeded", "failed", "skipped"):
             aggregate[key] = int(aggregate.get(key) or 0) + int(batch_progress.get(key) or 0)
         completed += len(current)
@@ -708,7 +733,7 @@ def _execute(
     config: AkashaConfig,
     resuming: bool,
 ) -> None:
-    """准备本地输入与远端空间，然后执行可恢复的编译状态机。"""
+
     _prepare_subset(ctx, compile_id, options)
 
     with AkashaClient(config) as client:
@@ -716,7 +741,7 @@ def _execute(
         me = client.current_user()
         user = (me or {}).get("user") or {}
         workspace = (me or {}).get("workspace") or {}
-        # 非 owner 会在授权闸门静默丢弃 chunk，症状看起来像召回质量差。
+
         if user.get("role") != "owner":
             raise RuntimeError(
                 f"当前账号角色是 {user.get('role')!r}，不是 owner。"
@@ -773,8 +798,8 @@ def _execute(
 
 
 def _prepare_subset(ctx: TaskContext, compile_id: int, options: CompileOptions) -> None:
-    """首次运行固化抽样子集；继续运行复用已有子集。"""
-    # 续跑复用固化子集，避免 page_id 与文档错配。
+
+
     if not compile_store.compile_docs(ctx.db, compile_id):
         for dataset in options.datasets:
             ctx.checkpoint()
@@ -807,7 +832,7 @@ def _run_remote_compile(
     config: AkashaConfig,
     current_configs: Any,
 ) -> None:
-    """驱动远端 Run、暂停恢复、页面重试、进度与质量检查。"""
+
     _import_docs(ctx, client, compile_id, space_id, import_concurrency)
 
     total_docs = len(compile_store.compile_docs(ctx.db, compile_id))
@@ -857,9 +882,13 @@ def _run_remote_compile(
     elif previous_run_ids:
         failed_page_ids = client.retryable_run_page_ids(previous_run_ids)
         if failed_page_ids:
-            ctx.progress(0, len(failed_page_ids), "重试失败语料")
             wait, accepted = _retry_batches(
-                ctx, client, space_id, config, failed_page_ids
+                ctx,
+                client,
+                space_id,
+                config,
+                failed_page_ids,
+                initial_total=len(failed_page_ids),
             )
             coalesced = 0
         elif previous_runs and all(
@@ -867,7 +896,7 @@ def _run_remote_compile(
             and not int((run.get("progress") or {}).get("text", {}).get("expected") or 0)
             for run in previous_runs
         ):
-            # 未初始化 RunPage 时仅重试本次导入页。
+
             target_page_ids = list(
                 dict.fromkeys(
                     str(row["page_id"])
@@ -883,7 +912,7 @@ def _run_remote_compile(
             )
             coalesced = 0
         else:
-            # 远端 Run 已经终态且没有失败页：后端重启可能只漏了质量检查。
+
             ctx.log("已保存的远端编译没有失败页面，只刷新质量闸门")
             wait = {
                 "status_counts": {
@@ -932,7 +961,7 @@ def _run_remote_compile(
             baseline_sequence=baseline_sequence,
         )
     if wait["no_runs"]:
-        # 一个 Run 都没有：page 停在「已上传、未编译」，没有源文本也没有 chunk。
+
         raise RuntimeError(
             f"编译没有启动：Akasha 一个编译 Run 都没有（accepted={accepted} "
             f"coalesced={coalesced}）。{len(compile_store.compile_docs(ctx.db, compile_id))} "
@@ -949,7 +978,7 @@ def _run_remote_compile(
         )
 
     quality = _quality_gate(client, space_id)
-    # 保存逐页结果，供查询层区分全量与部分失败。
+
     ordered_run_ids = list(
         dict.fromkeys(
             [str(value) for value in ctx.params.get("remote_compile_run_ids") or []]
@@ -971,7 +1000,7 @@ def _run_remote_compile(
     ctx.db.commit()
     ctx.log(f"质量闸门 {quality['gates']} -> {'通过' if quality['passed'] else '未通过'}")
     if not quality["passed"]:
-        # 闸门报的是后果，原因要从逐页日志取。
+
         reasons = _page_failures(client, space_id)
         for line in reasons:
             ctx.log(f"编译失败原因：{line}", "error")
@@ -999,7 +1028,7 @@ def _run_remote_compile(
 def _import_one(
     client: AkashaClient, doc: dict[str, Any], markdown: str, space_id: str
 ) -> dict[str, Any]:
-    """导入一篇文档；预期的传输失败转成可由主线程落库的结果。"""
+
     try:
         page = client.import_page_text(f"{doc['doc_id']}.md", markdown, space_id)
         page_id = page.get("id") if isinstance(page, dict) else None
@@ -1016,11 +1045,11 @@ def _import_docs(
     space_id: str,
     concurrency: int,
 ) -> None:
-    """并发导入未导入文档；失败项在末尾重试一次，仍失败则暂停。
 
-    worker 不接触 SQLite。正文在主线程读取，结果也由主线程逐条提交，因此暂停或
-    进程退出后，继续任务只会选中 ``page_id`` 仍为空的文档。
-    """
+
+
+
+
     pending = compile_store.compile_docs(ctx.db, compile_id, pending_only=True)
     total = len(compile_store.compile_docs(ctx.db, compile_id))
     done = total - len(pending)
@@ -1031,7 +1060,7 @@ def _import_docs(
     worker_count = min(concurrency, len(pending))
     ctx.log(f"导入语料：待导入 {len(pending)} / 共 {total}，并发 {worker_count}")
 
-    # httpx client 与实例级限流状态不跨 worker 共享；登录会复用共享 JWT。
+
     extras = [AkashaClient(client.config) for _ in range(worker_count - 1)]
     try:
         for spare in extras:

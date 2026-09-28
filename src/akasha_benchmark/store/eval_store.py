@@ -1,4 +1,4 @@
-"""评测层存取。"""
+
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def delete_eval_run(connection: sqlite3.Connection, eval_id: int) -> int:
 
 
 def clear_eval_results(connection: sqlite3.Connection, eval_id: int, dataset: str) -> None:
-    """重算确定性结果；已有 Judge 分数由 verdict 重新写入指标表。"""
+
     for table in ("sample_eval", "metric_summary", "dataset_eval"):
         connection.execute(
             f"DELETE FROM {table} WHERE eval_id = ? AND dataset = ?", (eval_id, dataset)
@@ -234,7 +234,7 @@ def sample_eval_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, dict[str, int], list[dict[str, Any]]]:
-    """评测样本列表；过滤、计数与分页都留在 SQLite。"""
+
     where = ["eval_id = ?"]
     params: list[Any] = [eval_id]
     if dataset:
@@ -348,7 +348,7 @@ def samples_ranked_by(
     ascending: bool = True,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """按某个指标排序并截取样本。"""
+
     sql = """
         SELECT sm.sample_id, se.dataset, sm.value, se.answer_mode, se.answer
         FROM sample_metric sm
@@ -401,7 +401,7 @@ def record_judge_verdict(
 def judged_sample_ids(
     connection: sqlite3.Connection, eval_id: int, metric: str | None = None
 ) -> set[str]:
-    """已判过的样本。``metric`` 为空时不分指标；续跑要逐指标问。"""
+
     sql = "SELECT sample_id FROM judge_verdict WHERE eval_id = ?"
     params: list[Any] = [eval_id]
     if metric is not None:
@@ -413,7 +413,7 @@ def judged_sample_ids(
 def completed_judge_sample_ids(
     connection: sqlite3.Connection, eval_id: int, metric: str
 ) -> set[str]:
-    """无需重试的 Judge：已评分或正常无定义；失败项可在续跑时重试。"""
+
     return {
         row["sample_id"]
         for row in connection.execute(
@@ -427,7 +427,7 @@ def completed_judge_sample_ids(
 def judge_verdicts(
     connection: sqlite3.Connection, eval_id: int, *, include_detail: bool = True
 ) -> list[dict[str, Any]]:
-    """返回 Judge 结论；列表视图可跳过大段原始响应。"""
+
     return [
         {
             **{k: v for k, v in dict(row).items() if k != "detail_json"},
@@ -442,7 +442,7 @@ def judge_verdicts(
 def judge_means_by_dataset(
     connection: sqlite3.Connection, eval_id: int, metric: str | None = None
 ) -> list[tuple[str, float, int]]:
-    """各数据集的 judge 均值。跳过与失败的不进分母。"""
+
     sql = """
         SELECT se.dataset, AVG(jv.score) AS mean, COUNT(*) AS n
         FROM judge_verdict jv
@@ -462,7 +462,7 @@ def judge_means_by_dataset(
 def judge_summary(
     connection: sqlite3.Connection, eval_id: int, metric: str | None = None
 ) -> dict[str, Any]:
-    """judge 汇总。失败该条排除、不记 0，另给失败率说明均值覆盖了多少。"""
+
     scope = "" if metric is None else " AND metric = ?"
     extra: list[Any] = [] if metric is None else [metric]
     row = connection.execute(

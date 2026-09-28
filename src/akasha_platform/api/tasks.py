@@ -1,7 +1,8 @@
-"""任务启动、运行树、暂停/继续、清理与增量日志接口。"""
+
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
@@ -13,29 +14,77 @@ from ._common import db, runner_of
 
 router = APIRouter(prefix="/api")
 
+_INTERNAL_TASK_PARAMS = {
+    "run_id",
+    "model_configs",
+    "remote_compile_run_ids",
+    "retry_run_ids",
+    "retry_pending_page_ids",
+    "retry_current_page_ids",
+    "retry_current_run_ids",
+    "retry_completed",
+    "retry_total",
+    "retry_progress",
+}
+
+
+def _public_task(task: dict[str, Any]) -> dict[str, Any]:
+
+    note = task.get("progress_note")
+    if isinstance(note, str):
+        note = re.sub(r"（成功 \d+，失败 \d+，跳过 \d+）$", "", note)
+    return {
+        **task,
+        "progress_note": note,
+        "params": {
+            key: value
+            for key, value in (task.get("params") or {}).items()
+            if key not in _INTERNAL_TASK_PARAMS
+        },
+    }
+
+
+def _public_tree(tree: dict[str, Any]) -> dict[str, Any]:
+    def visit(node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **node,
+            "tasks": [_public_task(task) for task in node.get("tasks", [])],
+            "pending_tasks": [_public_task(task) for task in node.get("pending_tasks", [])],
+            "children": [visit(child) for child in node.get("children", [])],
+        }
+
+    return {
+        **tree,
+        "compiles": [visit(node) for node in tree.get("compiles", [])],
+        "unlinked_tasks": [_public_task(task) for task in tree.get("unlinked_tasks", [])],
+    }
+
 
 @router.get("/task-tree")
 def task_tree(request: Request) -> dict[str, Any]:
-    """按运行产物外键返回编译、查询、评测、归因的分叉树。"""
+
     with db(request) as connection:
-        return task_store.task_tree(connection)
+        return _public_tree(task_store.task_tree(connection))
 
 
 @router.get("/tasks/{task_id}")
 def task_detail(
     request: Request, task_id: int, after_id: int = Query(0, ge=0)
 ) -> dict[str, Any]:
-    """任务详情与增量日志。``after_id`` 让前端只拉新增的行。"""
+
     with db(request) as connection:
         task = task_store.get_task(connection, task_id)
         if task is None:
             raise HTTPException(404, f"任务 #{task_id} 不存在")
-        return {**task, "logs": task_store.task_logs(connection, task_id, after_id=after_id)}
+        return {
+            **_public_task(task),
+            "logs": task_store.task_logs(connection, task_id, after_id=after_id),
+        }
 
 
 @router.post("/chain")
 def start_chain(request: Request, args: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    """起一条链路测试：编译到归因四条普通任务，前一条成功时自动接上后一条。"""
+
     try:
         return runner_of(request).start_chain(args)
     except TaskRejected as exc:
@@ -46,7 +95,7 @@ def start_chain(request: Request, args: dict[str, Any] = Body(default={})) -> di
 def start_task(
     request: Request, stage: str, args: dict[str, Any] = Body(default={})
 ) -> dict[str, Any]:
-    """起一个阶段任务。参数按阶段声明过滤，未声明的键不会传给阶段代码。"""
+
     try:
         return runner_of(request).start(stage, args)
     except TaskRejected as exc:
@@ -71,7 +120,7 @@ def resume_task(request: Request, task_id: int) -> dict[str, Any]:
 
 @router.delete("/tasks/{task_id}")
 def cleanup_task(request: Request, task_id: int) -> dict[str, Any]:
-    """删一条任务记录，审计日志保留。在跑的任务不许删，先暂停。"""
+
     try:
         return runner_of(request).cleanup(task_id)
     except TaskRejected as exc:
@@ -80,7 +129,7 @@ def cleanup_task(request: Request, task_id: int) -> dict[str, Any]:
 
 @router.post("/tasks/cleanup/inactive")
 def cleanup_inactive(request: Request) -> dict[str, Any]:
-    """清掉所有非运行中的任务记录。审计日志保留。"""
+
     try:
         return runner_of(request).cleanup(None)
     except TaskRejected as exc:
@@ -91,6 +140,6 @@ def cleanup_inactive(request: Request) -> dict[str, Any]:
 def audit(
     request: Request, stage: str | None = None, limit: int = Query(200, ge=1, le=2000)
 ) -> list[dict[str, Any]]:
-    """审计日志。只追加，清理任务不删它。"""
+
     with db(request) as connection:
         return task_store.audit_logs(connection, stage=stage, limit=limit)

@@ -1,8 +1,8 @@
-"""RAGAS 那几条 judge 判据的解析与计分。
 
-共同的口径：**无定义时回 None，不回 0**。拒答、没有上下文、没有参考答案都属于
-无定义 —— 记 0 会把「没找到资料」算成「答错了」，而这两件事的处置完全不同。
-"""
+
+
+
+
 
 from __future__ import annotations
 
@@ -67,8 +67,8 @@ def test_context_relevancy_is_the_useful_share():
 
 
 def test_context_relevancy_rejects_missing_verdicts():
-    """漏判不能当成 useless —— 那会把「prompt 不听话」伪装成「检索很脏」，
-    而这个指标的用途正是判断检索脏不脏。"""
+
+
     with pytest.raises(ValueError, match="expected 3 verdicts"):
         context_relevancy.parse_verdict(
             {"passages": [{"index": 1, "verdict": "useful"}]}, expected=3

@@ -1,4 +1,4 @@
-"""共用夹具：一个建好表的临时库，以及一个装了假数据集的库。"""
+
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from akasha_benchmark.store import (
     query_store,
 )
 
-# 一份最小的假数据集：2 条 QA、4 篇语料，够跑通抽样与指标。
+
 QA_ROWS = [
     {
         "_id": "q1",
@@ -60,7 +60,7 @@ def db(db_path: Path):
 
 @pytest.fixture
 def dataset_dir(tmp_path: Path) -> Path:
-    """hotpotqa 形状的原始文件，行数与适配器预期不符，所以测试要绕开行数校验。"""
+
     directory = tmp_path / "dataset"
     directory.mkdir()
     (directory / "hotpotqa.json").write_text(json.dumps(QA_ROWS), encoding="utf-8")
@@ -68,7 +68,7 @@ def dataset_dir(tmp_path: Path) -> Path:
     return directory
 
 
-# itfaq 形状：QA 只有 {id, question, answer}，语料 {id, title, text} 且正文自带 H1。
+
 ITFAQ_QA_ROWS = [
     {"id": "qa_001", "question": "怎么申请手机？", "answer": "走 IT 设备申请流程。"},
     {"id": "qa_002", "question": "显卡坏了怎么换？", "answer": "到 IT 现场登记后更换。"},
@@ -83,7 +83,7 @@ ITFAQ_CORPUS_ROWS = [
 
 @pytest.fixture
 def itfaq_dataset_dir(tmp_path: Path) -> Path:
-    """itfaq 形状的原始文件。行数与适配器预期不符，所以测试要绕开行数校验。"""
+
     directory = tmp_path / "itfaq"
     directory.mkdir()
     (directory / "itfaq.json").write_text(
@@ -97,7 +97,7 @@ def itfaq_dataset_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def itfaq_normalized(db, itfaq_dataset_dir: Path, monkeypatch):
-    """把假 itfaq 归一化进库，返回连接。"""
+
     from akasha_benchmark.datasets.itfaq import ITFaqAdapter
     from akasha_benchmark.stages import normalize
 
@@ -108,11 +108,11 @@ def itfaq_normalized(db, itfaq_dataset_dir: Path, monkeypatch):
 
 @pytest.fixture
 def normalized(db, dataset_dir: Path, monkeypatch):
-    """把假数据集归一化进库，返回连接。"""
+
     from akasha_benchmark.datasets.hotpotqa import HotpotQAAdapter
     from akasha_benchmark.stages import normalize
 
-    # 真实适配器按锁定快照校验行数；假数据只有 2 行。
+
     monkeypatch.setattr(HotpotQAAdapter, "expected_qa_rows", lambda self: None)
     normalize.normalize_dataset(db, "hotpotqa", None, dataset_dir)
     assert data_store.get_dataset(db, "hotpotqa") is not None

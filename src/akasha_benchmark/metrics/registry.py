@@ -1,4 +1,4 @@
-"""指标声明所需依赖，数据集声明已有标注；缺少依赖时省略指标。"""
+
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from ..datasets.models import DataDependency, DependencyError
 
-# 检索/引用/多跳三族依赖 gold 文档，qa 依赖参考答案，judge 无依赖。
+
 FAMILY_RETRIEVAL = "retrieval"
 FAMILY_QA = "qa"
 FAMILY_ATTRIBUTION = "attribution"
@@ -19,7 +19,7 @@ KIND_JUDGE = "judge"
 
 @dataclass(frozen=True)
 class MetricDefinition:
-    """一个指标的身份与它的数据依赖。registry 里存不带 k 的模板名。"""
+
 
     name: str
     family: str
@@ -27,7 +27,7 @@ class MetricDefinition:
     kind: str
     higher_is_better: bool
     description: str
-    # 需要按 k 展开的指标（recall@2、recall@5 ...）。
+
     per_k: bool = False
 
 
@@ -57,7 +57,7 @@ _ANSWERS = frozenset({DataDependency.REFERENCE_ANSWERS})
 _NONE: frozenset[DataDependency] = frozenset()
 
 METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
-    # 检索指标使用未裁剪的 retrievedSources。
+
     _definition("precision", FAMILY_RETRIEVAL, _GOLD, "前 k 个实际返回文档中命中的 gold 占比", per_k=True),
     _definition("recall", FAMILY_RETRIEVAL, _GOLD, "前 k 个里命中的 gold 占比", per_k=True),
     _definition("retrieval_f1", FAMILY_RETRIEVAL, _GOLD, "Precision@k 与 Recall@k 的调和平均", per_k=True),
@@ -107,7 +107,7 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
         _GOLD,
         "按文档去重后，图扩展命中的文档中 gold 所占比例",
     ),
-    # 供其他指标和 UI 使用的诊断计数。
+
     _definition(
         "graph_neighbor_gold_snippets", FAMILY_MULTIHOP, _GOLD, "图扩展 snippet 里命中 gold 的条数"
     ),
@@ -145,7 +145,7 @@ METRIC_REGISTRY: dict[str, MetricDefinition] = {d.name: d for d in METRIC_DEFINI
 
 
 def get_metric(name: str) -> MetricDefinition:
-    """按名字取指标定义。带 ``@k`` 的名字会先剥掉 k。"""
+
     base = name.split("@", 1)[0]
     try:
         return METRIC_REGISTRY[base]
@@ -156,17 +156,17 @@ def get_metric(name: str) -> MetricDefinition:
 
 
 def available(provides: frozenset[DataDependency]) -> list[MetricDefinition]:
-    """给定数据集拥有的标注，返回能算的全部指标。"""
+
     return [d for d in METRIC_DEFINITIONS if d.requires <= provides]
 
 
 def omitted(provides: frozenset[DataDependency]) -> list[MetricDefinition]:
-    """算不了的那些。报告连同原因一起写出来，不伪造 0 分。"""
+
     return [d for d in METRIC_DEFINITIONS if not d.requires <= provides]
 
 
 def require(dataset: str, provides: frozenset[DataDependency], metric: str) -> MetricDefinition:
-    """闸门：数据集缺依赖就抛 :class:`DependencyError`，不返回 0.0。"""
+
     definition = get_metric(metric)
     missing = definition.requires - provides
     if missing:
