@@ -142,17 +142,11 @@ describe('KnowledgeGraphService', () => {
     expect(capsuleRepo.findGraphCandidatesForSpace).not.toHaveBeenCalled();
   });
 
-  it('adds readable Wiki sections as child nodes and hides synthesis-only overview pages', async () => {
+  it('adds readable Wiki sections as child nodes', async () => {
     const capsuleRepo = {
       findGraphCandidatesForSpace: jest.fn().mockResolvedValue({
-        pages: [
-          page('kp-1', 'Architecture'),
-          { ...page('overview-1', 'Space overview'), pageType: 'overview' },
-        ],
-        pageSources: [
-          pageSource('kp-1', 'source-1'),
-          pageSource('overview-1', 'source-1'),
-        ],
+        pages: [page('kp-1', 'Architecture')],
+        pageSources: [pageSource('kp-1', 'source-1')],
         parentSections: [
           {
             id: 'section-1',
@@ -517,7 +511,7 @@ function page(id: string, title: string) {
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    compileScope: 'space',
+    compileScope: 'page',
     title,
     slug: id,
     pageType: 'source_summary',

@@ -107,13 +107,11 @@ export class KnowledgeGraphService {
       graph.pageSources,
       (source) => source.knowledgePageId,
     );
-    const visiblePages = graph.pages.filter(
-      (page) =>
-        page.pageType !== 'overview' &&
-        allSourcesReadable(
-          pageSourcesByPageId.get(page.id) ?? [],
-          readableSourceSet,
-        ),
+    const visiblePages = graph.pages.filter((page) =>
+      allSourcesReadable(
+        pageSourcesByPageId.get(page.id) ?? [],
+        readableSourceSet,
+      ),
     );
     const visiblePageIds = new Set(visiblePages.map((page) => page.id));
 

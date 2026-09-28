@@ -118,7 +118,6 @@ export interface KnowledgeQueueSnapshot extends KnowledgeQueueCounts {
 export type KnowledgeRunStatus =
   | "queued"
   | "compiling"
-  | "aggregate_pending"
   | "aggregating"
   | "succeeded"
   | "partial"
@@ -128,11 +127,9 @@ export type KnowledgeRunStatus =
 
 export type KnowledgeRunPhase =
   | "text"
-  | "initial_aggregate"
   | "images"
   | "image_merge"
   | "finalizing"
-  | "final_aggregate"
   | "complete";
 
 export interface KnowledgeRunDiagnosticsSummary {

@@ -7,9 +7,7 @@ import {
 describe('knowledge space execution contract', () => {
   it.each([
     ['text', 'text'],
-    ['initial_aggregate', 'text'],
     ['image_merge', 'image_merge'],
-    ['final_aggregate', 'image_merge'],
     ['finalizing', 'text'],
   ] as const)(
     'maps business phase %s to physical phase %s',

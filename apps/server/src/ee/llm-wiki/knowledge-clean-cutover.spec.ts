@@ -53,18 +53,65 @@ describe('knowledge compilation clean cutover', () => {
     expect(finalizer).not.toContain('KnowledgeArtifactCatalogService');
   });
 
-  it('ships an explicitly scoped, transactional manual Overview cleanup', () => {
+  it('ships a guarded migration for the removed Space overview model', () => {
     const source = readFileSync(
-      join(__dirname, '../../../scripts/cleanup-knowledge-overviews.sql'),
+      join(
+        __dirname,
+        '../../database/migrations/20260923T130000-retire-legacy-knowledge-overviews.ts',
+      ),
       'utf8',
     );
 
     expect(source).toContain("page_type = 'overview'");
     expect(source).toContain("compile_scope = 'space'");
     expect(source).toContain("canonical_key = 'overview'");
-    expect(source).toContain('BEGIN;');
-    expect(source).toContain('COMMIT;');
+    expect(source).toContain('chk_knowledge_pages_active_page_publication');
+    expect(source).toContain(
+      'Active legacy knowledge overview survived retirement',
+    );
     expect(source).not.toContain('TRUNCATE');
+  });
+
+  it('keeps legacy overview and Space scope out of active publication paths', () => {
+    const types = readFileSync(
+      join(__dirname, 'types/compiler-artifact.types.ts'),
+      'utf8',
+    );
+    const importer = readFileSync(
+      join(__dirname, 'services/knowledge-import.service.ts'),
+      'utf8',
+    );
+    const capsuleRepo = readFileSync(
+      join(
+        __dirname,
+        '../../database/repos/llm-wiki/knowledge-capsule.repo.ts',
+      ),
+      'utf8',
+    );
+    const compilationRepo = readFileSync(
+      join(
+        __dirname,
+        '../../database/repos/llm-wiki/knowledge-space-compilation.repo.ts',
+      ),
+      'utf8',
+    );
+    const graph = readFileSync(
+      join(__dirname, 'services/knowledge-graph.service.ts'),
+      'utf8',
+    );
+    const vector = readFileSync(
+      join(__dirname, 'services/knowledge-vector-index.service.ts'),
+      'utf8',
+    );
+
+    expect(types).toContain("compileMode: 'pages'");
+    expect(types).not.toContain("| 'overview'");
+    expect(importer).toContain("compileScope: 'page'");
+    expect(importer).not.toContain('markCompileScopeStale');
+    expect(capsuleRepo).not.toContain('markCompileScopeStale');
+    expect(compilationRepo).not.toContain("pageType', '=', 'overview'");
+    expect(graph).not.toContain("pageType !== 'overview'");
+    expect(vector).not.toContain("page.pageType', '!=', 'overview'");
   });
 
   it('keeps legacy natural Run writers out of the compilation repository', () => {

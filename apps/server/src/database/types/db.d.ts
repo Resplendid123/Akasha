@@ -390,11 +390,6 @@ export interface KnowledgeCompilationAttempts {
   lastSuccessfulEffectiveHash: string | null;
   lastSuccessfulSourceHash: string | null;
   lastSuccessfulSourceVersion: string | null;
-  pendingCreatedAt: Timestamp | null;
-  pendingEffectiveKnowledgeHash: string | null;
-  pendingImport: Json | null;
-  pendingSourceVersion: string | null;
-  pendingSpaceId: string | null;
   promptVersion: string;
   queuedAt: Generated<Timestamp>;
   resultQuality: Generated<string>;
@@ -727,10 +722,7 @@ export interface KnowledgeSpaceCompileRunPages {
 
 export interface KnowledgeSpaceCompileRuns {
   aggregateJobId: string | null;
-  aggregateRequired: Generated<boolean>;
   aggregateStartedAt: Timestamp | null;
-  catalogHash: string;
-  catalogSnapshot: Generated<Json>;
   compilerVersion: string;
   createdAt: Generated<Timestamp>;
   errorCode: string | null;
@@ -740,6 +732,7 @@ export interface KnowledgeSpaceCompileRuns {
   expectedPageCount: Generated<number>;
   failedPageCount: Generated<number>;
   finishedAt: Timestamp | null;
+  followUpTargetSourcePageIds: Json | null;
   heartbeatAt: Timestamp | null;
   id: Generated<string>;
   importedArtifactCount: Generated<number>;

@@ -2,7 +2,7 @@ import { LlmWikiFileCompilerAdapter } from './llm-wiki-file-compiler.adapter';
 import { LlmWikiCompilerRunner } from './llm-wiki-file-compiler.runner';
 
 describe('LlmWikiFileCompilerAdapter', () => {
-  it('delegates space-scoped compile input to the configured runner', async () => {
+  it('delegates page-scoped compile input to the configured runner', async () => {
     const runner: LlmWikiCompilerRunner = {
       compileSpace: jest.fn().mockResolvedValue({
         compilerRunId: 'run-1',
@@ -11,6 +11,7 @@ describe('LlmWikiFileCompilerAdapter', () => {
         sources: [],
         compilerVersion: 'compiler@1',
         promptVersion: 'prompt@1',
+        compileMode: 'pages',
         artifacts: [],
         diagnostics: { warnings: [], errors: [] },
       }),
@@ -23,6 +24,7 @@ describe('LlmWikiFileCompilerAdapter', () => {
         spaceId: 'space-1',
         compilerVersion: 'compiler@1',
         promptVersion: 'prompt@1',
+        compileMode: 'pages',
         sources: [
           {
             workspaceId: 'workspace-1',
@@ -57,6 +59,7 @@ describe('LlmWikiFileCompilerAdapter', () => {
         spaceId: 'space-1',
         compilerVersion: 'compiler@1',
         promptVersion: 'prompt@1',
+        compileMode: 'pages',
         sources: [
           {
             workspaceId: 'workspace-1',

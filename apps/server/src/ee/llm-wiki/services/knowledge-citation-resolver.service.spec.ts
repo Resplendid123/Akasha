@@ -652,7 +652,7 @@ function capsule(id: string, title = `Title ${id}`) {
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    compileScope: 'space',
+    compileScope: 'page',
     canonicalKey: id,
     title,
     slug: id,

@@ -50,12 +50,19 @@ export class PageListener {
     const { pageIds, workspaceId } = event;
 
     await this.searchQueue.add(QueueJob.PAGE_UPDATED, { pageIds });
-    await this.enqueueKnowledgeAccessReindex(workspaceId, pageIds);
-    // A regular edit is a cheap no-op here. A cross-Space move is detected by
-    // comparing current page ownership with persisted contribution scopes and
-    // retires only the old-Space contributions.
-    await this.enqueueKnowledgeSourceRetirement(workspaceId, pageIds);
+
+    // A collaboration content save carries skipKnowledgeCompile and enqueues
+    // PAGE_CONTENT_UPDATED only after its transaction commits. That post-commit
+    // handler owns ACL reindex and compile scheduling, so running either here
+    // would observe caller-owned, potentially uncommitted state and duplicate
+    // the ACL work. A content-only save cannot move a page between Spaces, so
+    // source retirement is intentionally unnecessary on this branch.
     if (!event.skipKnowledgeCompile) {
+      await this.enqueueKnowledgeAccessReindex(workspaceId, pageIds);
+      // A regular edit is a cheap no-op here. A cross-Space move is detected by
+      // comparing current page ownership with persisted contribution scopes and
+      // retires only the old-Space contributions.
+      await this.enqueueKnowledgeSourceRetirement(workspaceId, pageIds);
       await this.scheduleKnowledgeRuns(workspaceId, pageIds, 'page_updated');
     }
   }

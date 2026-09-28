@@ -142,6 +142,29 @@ describePostgres('KnowledgeImageExtractionRepo PostgreSQL round trip', () => {
     ]);
   });
 
+  it('reconstructs a frozen merge input only from its exact ready extraction ids', async () => {
+    const frozen = await repo.findReadyByIds({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      extractionIds: ['ready-same-fingerprint'],
+    });
+    expect(frozen).toEqual([
+      expect.objectContaining({
+        id: 'ready-same-fingerprint',
+        attachmentId: 'attachment-1',
+        ocrText: '数据库连接成功',
+      }),
+    ]);
+
+    await expect(
+      repo.findReadyByIds({
+        workspaceId: 'workspace-1',
+        spaceId: 'space-1',
+        extractionIds: ['unknown-or-replaced-extraction'],
+      }),
+    ).resolves.toEqual([]);
+  });
+
   it('deletes the durable image cache for a retried source page only', async () => {
     await expect(
       repo.deleteByPageIds({ workspaceId: 'workspace-1', sourcePageIds: [] }),

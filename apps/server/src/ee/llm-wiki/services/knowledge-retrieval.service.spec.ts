@@ -1045,7 +1045,7 @@ function candidate(id: string, spaceId: string) {
     id,
     workspaceId: 'workspace-1',
     spaceId,
-    compileScope: 'space',
+    compileScope: 'page',
     title: `Title ${id}`,
     slug: id,
     pageType: null,

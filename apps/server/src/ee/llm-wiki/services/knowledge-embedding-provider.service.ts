@@ -1,9 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { embed, EmbeddingModel } from 'ai';
+import { embed, embedMany, EmbeddingModel } from 'ai';
 import { createBoundedAbortSignal } from './knowledge-operation-budget';
 import { AiModelConfigService } from './ai-model-config.service';
 import { createEmbeddingModelFromConfig } from './ai-model-factory';
+
+/**
+ * Bailian text-embedding-v4 provider limits:
+ * - at most 10 input strings in one request;
+ * - at most 8,192 tokens for EACH input string, not for the batch as a whole.
+ *
+ * Only the item count can be enforced locally. Bailian does not expose the
+ * model's tokenizer through its OpenAI-compatible endpoint, so character or
+ * byte counts must not be presented as the 8,192-token limit. The provider is
+ * authoritative for that per-input token check; its rejection is normalized
+ * below to `embedding_input_too_large`.
+ */
+export const BAILIAN_TEXT_EMBEDDING_V4_MAX_INPUTS_PER_REQUEST = 10;
 
 export type KnowledgeEmbedding = {
   vector: number[];
@@ -42,6 +55,10 @@ export interface KnowledgeEmbeddingProvider {
     text: string,
     options?: { abortSignal?: AbortSignal },
   ): Promise<KnowledgeEmbedding>;
+  embedManyRequired(
+    texts: string[],
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<KnowledgeEmbedding[]>;
 }
 
 export function buildKnowledgeEmbeddingProfile(input: {
@@ -86,6 +103,89 @@ export class ConfiguredKnowledgeEmbeddingProvider implements KnowledgeEmbeddingP
       );
     }
     return result;
+  }
+
+  async embedManyRequired(
+    texts: string[],
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<KnowledgeEmbedding[]> {
+    if (texts.length === 0) return [];
+    if (texts.length > BAILIAN_TEXT_EMBEDDING_V4_MAX_INPUTS_PER_REQUEST) {
+      throw new KnowledgeEmbeddingError(
+        'embedding_invalid_input',
+        `Bailian text-embedding-v4 accepts at most ${BAILIAN_TEXT_EMBEDDING_V4_MAX_INPUTS_PER_REQUEST} inputs per request.`,
+        false,
+      );
+    }
+    if (texts.some((text) => text.trim().length === 0)) {
+      throw new KnowledgeEmbeddingError(
+        'embedding_invalid_input',
+        'Knowledge chunk is empty and cannot be embedded.',
+        false,
+      );
+    }
+    const config = await this.configService.getResolvedConfig('embedding');
+    const driver = config.driver;
+    const modelName = config.model;
+    const model = createEmbeddingModelFromConfig(config, 'openai-compatible');
+    if (!driver || !modelName || !model) {
+      throw new KnowledgeEmbeddingError(
+        'embedding_not_configured',
+        'Knowledge embedding provider is not configured.',
+        false,
+      );
+    }
+
+    const boundedSignal = createBoundedAbortSignal(
+      options?.abortSignal,
+      30_000,
+    );
+    try {
+      // This is provider-level batching, not merely a local concurrency loop.
+      // `texts` has already been capped at Bailian's 10-item request limit;
+      // embedMany preserves item boundaries and result order, so batching also
+      // leaves non-table embedding semantics unchanged.
+      const result = await embedMany({
+        model,
+        values: texts,
+        maxParallelCalls: 2,
+        abortSignal: boundedSignal.signal,
+      });
+      if (
+        result.embeddings.length !== texts.length ||
+        result.embeddings.some(
+          (vector) =>
+            vector.length === 0 ||
+            vector.some((value) => !Number.isFinite(value)),
+        )
+      ) {
+        throw new KnowledgeEmbeddingError(
+          'embedding_invalid_vector',
+          'Knowledge embedding provider returned an invalid vector.',
+          true,
+        );
+      }
+
+      return result.embeddings.map((vector) => ({
+        vector,
+        profile: buildKnowledgeEmbeddingProfile({
+          driver,
+          baseUrl: config.baseUrl,
+          model: modelName,
+          dimensions: vector.length,
+        }),
+        model: modelName,
+        dimensions: vector.length,
+      }));
+    } catch (error) {
+      if (options?.abortSignal?.aborted) {
+        throw options.abortSignal.reason ?? error;
+      }
+      if (error instanceof KnowledgeEmbeddingError) throw error;
+      throw classifyRequiredEmbeddingError(error, boundedSignal.signal);
+    } finally {
+      boundedSignal.dispose();
+    }
   }
 
   private async embedValue(
@@ -167,7 +267,6 @@ export class ConfiguredKnowledgeEmbeddingProvider implements KnowledgeEmbeddingP
       boundedSignal.dispose();
     }
   }
-
 }
 
 function classifyRequiredEmbeddingError(
@@ -237,7 +336,7 @@ function isInputTooLargeError(error: unknown): boolean {
       : typeof error === 'string'
         ? error
         : '';
-  return /(token|context|input).*(limit|length|large|maximum|max)/i.test(
+  return /(token|context|input).*(limit|length|large|long|maximum|max|exceed)/i.test(
     message,
   );
 }

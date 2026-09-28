@@ -276,7 +276,7 @@ describe('KnowledgeSpaceCompilationService', () => {
     const fixture = createService();
 
     await expect(fixture.service.initializeLeasedRun(lease())).resolves.toEqual(
-      expect.objectContaining({ pageCompilationRequired: true }),
+      expect.objectContaining({ initialized: true }),
     );
 
     expect(fixture.executionRepo.initializeRun).toHaveBeenCalledWith(lease(), {
@@ -300,7 +300,6 @@ describe('KnowledgeSpaceCompilationService', () => {
       compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
       promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
       initializedAt: new Date('2026-08-03T00:00:00.000Z'),
-      aggregateRequired: false,
       expectedPageCount: 1,
       succeededPageCount: 1,
       failedPageCount: 0,
@@ -310,8 +309,6 @@ describe('KnowledgeSpaceCompilationService', () => {
     await expect(fixture.service.initializeLeasedRun(lease())).resolves.toEqual(
       expect.objectContaining({
         initialized: false,
-        aggregateRequired: false,
-        pageCompilationRequired: false,
       }),
     );
 
@@ -548,7 +545,6 @@ function createService(
       succeededPageCount: 0,
       failedPageCount: 0,
       skippedPageCount: 0,
-      aggregateRequired: true,
     }),
     initializeRun: jest.fn().mockResolvedValue({
       initialized: true,
@@ -558,7 +554,6 @@ function createService(
         succeededPageCount: 0,
         failedPageCount: 0,
         skippedPageCount: 0,
-        aggregateRequired: true,
       },
     }),
     bindTextPage: jest.fn().mockImplementation((_lease, input) =>

@@ -508,52 +508,6 @@ export class KnowledgeCapsuleRepo {
     }
   }
 
-  async markCompileScopeStale(
-    input: { workspaceId: string; spaceId: string },
-    trx?: KyselyTransaction,
-  ): Promise<void> {
-    const db = dbOrTx(this.db, trx);
-    const staleAt = new Date();
-    const stalePages = await db
-      .updateTable('knowledgePages')
-      .set({ staleAt })
-      .where('workspaceId', '=', input.workspaceId)
-      .where('spaceId', '=', input.spaceId)
-      .where('compileScope', '=', 'space')
-      .returning('id')
-      .execute();
-    const artifactIds = stalePages.map((page) => page.id);
-    if (artifactIds.length === 0) return;
-
-    await Promise.all([
-      db
-        .updateTable('knowledgeParentSections')
-        .set({ staleAt })
-        .where('knowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeClaims')
-        .set({ staleAt })
-        .where('knowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeChunks')
-        .set({ staleAt })
-        .where('knowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeLinks')
-        .set({ staleAt })
-        .where('fromKnowledgePageId', 'in', artifactIds)
-        .execute(),
-      db
-        .updateTable('knowledgeGraphEdges')
-        .set({ staleAt })
-        .where('fromKnowledgePageId', 'in', artifactIds)
-        .execute(),
-    ]);
-  }
-
   async markArtifactsStaleByIds(
     input: { workspaceId: string; spaceId?: string; artifactIds: string[] },
     trx?: KyselyTransaction,

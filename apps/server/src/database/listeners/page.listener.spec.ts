@@ -71,8 +71,8 @@ describe('PageListener knowledge jobs', () => {
     );
   });
 
-  it('leaves content compilation to the post-commit content queue', async () => {
-    const { listener, knowledgeQueue, runRepo } = createListener();
+  it('leaves all knowledge maintenance to the post-commit content queue for content saves', async () => {
+    const { listener, searchQueue, knowledgeQueue, runRepo } = createListener();
 
     await listener.handlePageUpdated({
       workspaceId: 'workspace-1',
@@ -80,9 +80,20 @@ describe('PageListener knowledge jobs', () => {
       skipKnowledgeCompile: true,
     });
 
-    expect(knowledgeQueue.add).toHaveBeenCalledWith(
+    // Search indexing still runs. ACL reindex and scheduling are owned by the
+    // post-commit PAGE_CONTENT_UPDATED job; retirement is unnecessary because a
+    // collaboration content save does not change the page's Space.
+    expect(searchQueue.add).toHaveBeenCalledWith(QueueJob.PAGE_UPDATED, {
+      pageIds: ['page-1'],
+    });
+    expect(knowledgeQueue.add).not.toHaveBeenCalledWith(
       QueueJob.KNOWLEDGE_REINDEX_ACCESS,
-      { workspaceId: 'workspace-1', sourcePageIds: ['page-1'] },
+      expect.anything(),
+    );
+    expect(knowledgeQueue.add).not.toHaveBeenCalledWith(
+      QueueJob.KNOWLEDGE_RETIRE_SOURCES,
+      expect.anything(),
+      expect.anything(),
     );
     expect(runRepo.scheduleIncrementalCompileForPages).not.toHaveBeenCalled();
     expect(runRepo.requestIncrementalCompileForPages).not.toHaveBeenCalled();

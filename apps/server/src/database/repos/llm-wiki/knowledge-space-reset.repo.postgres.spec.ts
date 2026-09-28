@@ -43,8 +43,6 @@ describePostgres('force-reset PostgreSQL scope', () => {
       trigger: 'manual_compile',
       compilerVersion: 'compiler-v1',
       promptVersion: 'prompt-v1',
-      catalogSnapshot: [],
-      catalogHash: 'sha256:reset',
       sources: [
         {
           sourcePageId: 'page-target',
@@ -136,8 +134,6 @@ describePostgres('force-reset PostgreSQL scope', () => {
         trigger: 'manual_compile',
         compilerVersion: 'compiler-v1',
         promptVersion: 'prompt-v1',
-        catalogSnapshot: [],
-        catalogHash: 'hash',
         sources: [],
       }),
     ).resolves.toEqual({ reset: false, reason: 'space_name_mismatch' });
@@ -173,8 +169,7 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       status varchar not null, expected_page_count integer not null,
       succeeded_page_count integer not null default 0, failed_page_count integer not null default 0,
       skipped_page_count integer not null default 0, compiler_version varchar not null,
-      prompt_version varchar not null, catalog_snapshot jsonb not null, catalog_hash varchar not null,
-      aggregate_required boolean not null default true,
+      prompt_version varchar not null,
       aggregate_job_id varchar, imported_artifact_count integer not null default 0,
       quarantined_artifact_count integer not null default 0, error_code varchar, error_message varchar,
       queued_at timestamptz not null, started_at timestamptz, aggregate_started_at timestamptz,
@@ -228,9 +223,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       status varchar not null, stage varchar not null, compile_task_id varchar,
       effective_knowledge_hash varchar, last_successful_effective_hash varchar,
       last_successful_source_version varchar, last_successful_source_hash varchar,
-      pending_import jsonb, pending_space_id varchar,
-      pending_source_version varchar, pending_effective_knowledge_hash varchar,
-      pending_created_at timestamptz,
       error_code varchar, error_message varchar, updated_at timestamptz not null default now()
     );
     create table knowledge_query_audit (id varchar primary key);
@@ -247,8 +239,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       ('delay-target','workspace-1','space-target','page-target','page_updated',now(),now(),now() + interval '1 hour'),
       ('delay-control','workspace-1','space-control','page-control','page_updated',now(),now(),now() + interval '1 hour');
     insert into attachments values ('attachment-target','workspace-1','space-target','page-target'),('attachment-control','workspace-1','space-control','page-control');
-    insert into knowledge_space_compile_runs (id,workspace_id,space_id,trigger,mode,knowledge_generation,phase,status,expected_page_count,compiler_version,prompt_version,catalog_snapshot,catalog_hash,aggregate_job_id,queued_at,space_job_id,space_job_dispatched_at,execution_token,execution_lease_expires_at,worker_id,heartbeat_at,rerun_requested)
-      values ('run-old','workspace-1','space-target','manual_compile','incremental',3,'text','compiling',1,'c','p','[]','h','aggregate-old',now(),'space-old',now(),'old-token',now() + interval '3 minutes','old-worker',now(),true);
+    insert into knowledge_space_compile_runs (id,workspace_id,space_id,trigger,mode,knowledge_generation,phase,status,expected_page_count,compiler_version,prompt_version,aggregate_job_id,queued_at,space_job_id,space_job_dispatched_at,execution_token,execution_lease_expires_at,worker_id,heartbeat_at,rerun_requested)
+      values ('run-old','workspace-1','space-target','manual_compile','incremental',3,'text','compiling',1,'c','p','aggregate-old',now(),'space-old',now(),'old-token',now() + interval '3 minutes','old-worker',now(),true);
     insert into knowledge_space_compile_run_pages (id,run_id,workspace_id,space_id,source_page_id,expected_source_version,expected_source_content_hash,expected_image_count,succeeded_image_count,image_status,image_job_id,merge_status,merge_job_id,status,job_id)
       values ('rp-old','run-old','workspace-1','space-target','page-target','v1','h1',2,1,'queued','image-old','queued','merge-old','running','page-old');
     insert into knowledge_space_compile_run_images (id,run_id,run_page_id,workspace_id,space_id,source_page_id,status,failure_class,job_id,processing_expires_at)

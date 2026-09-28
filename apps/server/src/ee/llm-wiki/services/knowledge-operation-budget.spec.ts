@@ -1,16 +1,11 @@
 import {
   KnowledgeComplexityLimitError,
   KnowledgeOperationBudget,
-  DEFAULT_KNOWLEDGE_SPACE_SLOT_WORST_CASE_MS,
   createBoundedAbortSignal,
   mapKnowledgeOperations,
 } from './knowledge-operation-budget';
 
 describe('knowledge operation budget', () => {
-  it('keeps the default space slot worst case at 1,505 seconds', () => {
-    expect(DEFAULT_KNOWLEDGE_SPACE_SLOT_WORST_CASE_MS).toBe(1_505_000);
-  });
-
   it('combines a parent cancellation with a shorter operation timeout', () => {
     jest.useFakeTimers();
     const parent = new AbortController();
@@ -49,6 +44,10 @@ describe('knowledge operation budget', () => {
       },
     ],
     ['chunks', () => new KnowledgeOperationBudget().assertChunkCount(201)],
+    [
+      'table rows',
+      () => new KnowledgeOperationBudget().assertTableRowCount(2_001),
+    ],
   ])('rejects page complexity above the %s limit', (_name, operation) => {
     expect(operation).toThrow(
       expect.objectContaining<Partial<KnowledgeComplexityLimitError>>({

@@ -16,7 +16,6 @@ import {
 const RUN_STATUSES = [
   'queued',
   'compiling',
-  'aggregate_pending',
   'aggregating',
   'succeeded',
   'partial',
@@ -53,11 +52,9 @@ const DELAYED_PAGE_STATUSES = ['waiting', 'due'] as const;
 
 const RUN_PHASES = [
   'text',
-  'initial_aggregate',
   'images',
   'image_merge',
   'finalizing',
-  'final_aggregate',
   'complete',
 ] as const;
 

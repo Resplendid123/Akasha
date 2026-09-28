@@ -107,7 +107,7 @@ describe('reliable knowledge compilation migration sequence', () => {
     expect(runs).toContain('mode: Generated<string>;');
     expect(runs).toContain('phase: Generated<string>;');
     expect(runs).toContain('initializedAt: Timestamp | null;');
-    expect(runs).toContain('aggregateRequired: Generated<boolean>;');
+    expect(runs).toContain('followUpTargetSourcePageIds: Json | null;');
     expect(runs).toContain('spaceJobSequence: Generated<number>;');
     expect(runPages).toContain('expectedImageCount: Generated<number | null>;');
     expect(runPages).toContain('bindingStatus: Generated<string>;');

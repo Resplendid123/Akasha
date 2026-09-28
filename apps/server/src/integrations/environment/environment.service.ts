@@ -350,15 +350,6 @@ export class EnvironmentService {
     );
   }
 
-  getKnowledgeAggregateDeadlineMs(): number {
-    return Number(
-      this.configService.get<string | number>(
-        'KNOWLEDGE_AGGREGATE_DEADLINE_MS',
-        300_000,
-      ),
-    );
-  }
-
   getKnowledgeImageJobDeadlineMs(): number {
     return Number(
       this.configService.get<string | number>(

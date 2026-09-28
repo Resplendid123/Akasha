@@ -158,7 +158,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
         : undefined;
     if (
       (existing &&
-        ['queued', 'compiling', 'aggregate_pending', 'aggregating'].includes(
+        ['queued', 'compiling', 'aggregating'].includes(
           String(existing.runStatus),
         )) ||
       activeUnbound
@@ -203,7 +203,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
           }
         : { status: 'not_compiled' as const };
     }
-    const active = ['queued', 'compiling', 'aggregate_pending', 'aggregating'];
+    const active = ['queued', 'compiling', 'aggregating'];
     let status:
       | 'completed'
       | 'compiling'
@@ -340,10 +340,6 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       return {
         initialized: false,
         run,
-        aggregateRequired: run.aggregateRequired,
-        pageCompilationRequired:
-          run.expectedPageCount >
-          run.succeededPageCount + run.failedPageCount + run.skippedPageCount,
       };
     }
     const targetSourcePageIds = parseRunTargetSourcePageIds(
@@ -353,15 +349,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       targetSourcePageIds,
     });
     if (!initialized) return undefined;
-    return {
-      ...initialized,
-      aggregateRequired: initialized.run.aggregateRequired,
-      pageCompilationRequired:
-        initialized.run.expectedPageCount >
-        initialized.run.succeededPageCount +
-          initialized.run.failedPageCount +
-          initialized.run.skippedPageCount,
-    };
+    return initialized;
   }
 
   async bindLeasedRunPage(

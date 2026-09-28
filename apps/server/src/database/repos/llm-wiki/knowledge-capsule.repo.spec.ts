@@ -144,7 +144,7 @@ function basePage(id: string) {
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    compileScope: 'space',
+    compileScope: 'page',
     title: id,
     slug: id,
     body: 'body',
@@ -521,7 +521,7 @@ describe('KnowledgeCapsuleRepo', () => {
           id: 'knowledge-page-1',
           workspaceId: 'workspace-1',
           spaceId: 'space-1',
-          compileScope: 'space',
+          compileScope: 'page',
           title: 'Compiled',
           slug: 'compiled',
           body: 'body',
@@ -681,41 +681,6 @@ describe('KnowledgeCapsuleRepo', () => {
         }),
       ],
     });
-  });
-
-  it('marks only Space-scope artifacts and their children stale', async () => {
-    const query = new FakeKyselyQuery({
-      knowledgePages: [{ id: 'space-artifact-1' }],
-    });
-    const repo = createRepo(query);
-
-    await repo.markCompileScopeStale({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-    });
-
-    expect(query.calls).toEqual(
-      expect.arrayContaining([
-        { method: 'updateTable', args: ['knowledgePages'] },
-        { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-        { method: 'where', args: ['spaceId', '=', 'space-1'] },
-        { method: 'where', args: ['compileScope', '=', 'space'] },
-        { method: 'returning', args: ['id'] },
-        { method: 'updateTable', args: ['knowledgeParentSections'] },
-        { method: 'updateTable', args: ['knowledgeClaims'] },
-        { method: 'updateTable', args: ['knowledgeChunks'] },
-        { method: 'updateTable', args: ['knowledgeLinks'] },
-        { method: 'updateTable', args: ['knowledgeGraphEdges'] },
-        {
-          method: 'where',
-          args: ['knowledgePageId', 'in', ['space-artifact-1']],
-        },
-        {
-          method: 'where',
-          args: ['fromKnowledgePageId', 'in', ['space-artifact-1']],
-        },
-      ]),
-    );
   });
 
   it('does not query dependency sources when knowledgePageIds is empty', async () => {

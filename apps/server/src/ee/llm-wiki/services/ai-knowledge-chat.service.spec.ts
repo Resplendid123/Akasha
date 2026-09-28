@@ -1488,7 +1488,7 @@ function capsule(id: string, title = 'Kafka') {
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    compileScope: 'space',
+    compileScope: 'page',
     title,
     slug: id,
     pageType: null,
