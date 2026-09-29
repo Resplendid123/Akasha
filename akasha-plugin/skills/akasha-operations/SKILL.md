@@ -3,12 +3,15 @@ name: akasha-operations
 description: >
   Use Akasha MCP for explicit operations on Pages, Spaces, Comments, workspace members, identity, and
   attachments. Use when the user asks to search, read, create, update, delete, restore, copy, move, comment,
-  upload, or download. Do not use this skill for general knowledge questions; use the akasha skill instead.
+  upload, or download. For questions about company-specific policies, internal projects, personal notes,
+  or explicit requests to query Akasha, use the akasha skill instead. Do not use Akasha for ordinary public
+  knowledge unless explicitly requested.
 ---
 
 # Akasha Operations
 
-此 Skill 只指导对 Akasha 对象的显式操作。知识问答和来源核对使用 `akasha` Skill。
+此 Skill 只指导对 Akasha 对象的显式操作。公司制度、内部项目、个人笔记及用户明确指定 Akasha 的
+知识问答和来源核对使用 `akasha` Skill；普通公共知识不使用 Akasha 查询，除非用户明确指定 Akasha。
 
 ## Tool 选择
 

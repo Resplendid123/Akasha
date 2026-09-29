@@ -24,9 +24,12 @@ endpoint 和 API Key 占位符替换为实际值并写入宿主静态配置；�
 
 ## Claude Code 会话引导
 
-Plugin 包含 Claude Code 的 `SessionStart` Hook。会话启动、恢复、清空或压缩后，Hook 会像
-Superpowers 一样注入 Akasha 路由规则和完整 Skill 内容，要求 Agent 在问题可能依赖本地知识库时
-先调用 `query_knowledge`；不依赖知识库的通用问题可以直接回答。
+Plugin 包含 Claude Code 的 `SessionStart` Hook。会话启动、恢复、清空或压缩后，Hook 注入简短的
+Akasha 路由提示，完整 Skill 由宿主按需发现和加载。
+
+各宿主统一遵循以下知识查询规则：公司制度、内部项目、个人笔记，或用户明确要求查询 Akasha 时，
+先调用 `query_knowledge`；普通公共知识不使用 Akasha 查询，除非用户明确指定 Akasha。不因模型
+不确定或公共信息需要更新而触发查询。触发示例见 [`SKILL.md`](./skills/akasha/SKILL.md#触发示例)。
 
 ## 其他 Agent
 

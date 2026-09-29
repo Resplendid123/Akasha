@@ -146,7 +146,7 @@ export class McpService {
       },
       {
         instructions:
-          'Akasha is a company and personal knowledge base. Use the query_knowledge tool when the answer may require information outside general model knowledge, including information that may exist in this knowledge base. Clearly stable general knowledge and simple calculations do not require a search. Base knowledge-base facts on returned citations and evidence.',
+          'Akasha is a company and personal knowledge base. Use query_knowledge for questions about company-specific policies, internal projects, personal notes, or when the user explicitly asks to query Akasha. Do not use Akasha for ordinary public knowledge unless explicitly requested; uncertainty or a need for up-to-date public information alone is not a trigger. Base knowledge-base facts on returned citations and evidence.',
       },
     );
 
