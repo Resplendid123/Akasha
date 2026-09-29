@@ -52,7 +52,7 @@ export class KnowledgeMcpToolExtension
       {
         title: 'Query Akasha knowledge',
         description:
-          'Search the Akasha knowledge base containing company and personal knowledge. Use it when an answer may need information outside general model knowledge; clearly stable general knowledge and simple calculations do not require a search.',
+          'Search the Akasha knowledge base containing company and personal knowledge. Use query_knowledge for questions about company-specific policies, internal projects, personal notes, or when the user explicitly asks to query Akasha. Do not use Akasha for ordinary public knowledge unless explicitly requested; uncertainty or a need for up-to-date public information alone is not a trigger.',
         inputSchema: {
           query: z
             .string()
