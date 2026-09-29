@@ -1,3 +1,9 @@
+<h1 align="center">Akasha</h1>
+
+<p align="center">
+  <strong>A self-hosted knowledge workspace that turns team content into source-grounded, permission-aware knowledge for people and AI agents.</strong>
+</p>
+
 <div align="center">
   English / <a href="./README_zh.md">中文</a>
 </div>
@@ -16,126 +22,91 @@
   <img src="https://img.shields.io/badge/pnpm-workspace-F69220?style=flat&logo=pnpm&logoColor=white" alt="pnpm">
 </p>
 
-## Table of Contents
+Akasha helps organizations turn scattered work context and experience into knowledge that can be discovered, connected, reused, and grounded in its sources. Teams collaborate in shared spaces, while agents retrieve and work with organizational knowledge within the same permission boundaries.
 
-- [Introduction](#introduction)
-  - [Why Choose Akasha](#why-choose-akasha)
-  - [Key Features](#key-features)
-  - [Core Concepts](#core-concepts)
-    - [Knowledge Compilation](#knowledge-compilation)
-    - [Source-Grounded Knowledge](#source-grounded-knowledge)
-    - [Relationship-Aware Knowledge](#relationship-aware-knowledge)
-    - [Human and Agent Access](#human-and-agent-access)
-  - [Roadmap / Vision](#roadmap--vision)
-    - [Organizational Memory Beyond Pages](#organizational-memory-beyond-pages)
-    - [Compounding Agent Experience](#compounding-agent-experience)
-  - [Development](#development)
-    - [Install](#install)
-    - [Start](#start)
-    - [Build](#build)
-  - [Agent Integration](#agent-integration)
-  - [Self-hosted](#self-hosted)
-  - [Acknowledgements](#acknowledgements)
-  - [Contributors](#contributors)
-
-# Introduction
-
-Akasha is an enterprise knowledge and memory workspace for humans and agents.
-
-It helps organizations turn scattered work context and experience into knowledge that can be discovered, connected, reused, and grounded in its sources. Teams collaborate in shared spaces, while agents retrieve and work with organizational knowledge within the same permission boundaries.
-
-Akasha brings together a collaborative Wiki, AI-powered knowledge compilation and retrieval, relationship-aware navigation, and MCP-based agent access in a self-hosted platform.
+It brings together a collaborative Wiki, AI-powered knowledge compilation and retrieval, relationship-aware navigation, and MCP-based agent access in a self-hosted platform.
 
 ![Preview image](resources/hero1.webp)
 
 ![Preview image](resources/hero2.webp)
 
-## Why Choose Akasha
+## Table of Contents
 
-Akasha combines the familiarity of a collaborative Wiki with an AI-ready knowledge layer.
+- [Why Akasha](#why-akasha)
+- [Features](#features)
+- [How It Works](#how-it-works)
+  - [Product Method Overview](#product-method-overview)
+  - [Technical Processing Flow](#technical-processing-flow)
+- [Benchmark Results](#benchmark-results)
+- [Roadmap / Vision](#roadmap--vision)
+  - [Organizational Memory Beyond Pages](#organizational-memory-beyond-pages)
+  - [Compounding Agent Experience](#compounding-agent-experience)
+- [Development](#development)
+  - [Install](#install)
+  - [Start](#start)
+  - [Build](#build)
+- [Agent Integration](#agent-integration)
+- [Self-hosted](#self-hosted)
+- [Acknowledgements](#acknowledgements)
+- [Contributors](#contributors)
 
-- 🧠 **Knowledge that stays connected** — Pages, spaces, attachments, and compiled knowledge are connected through links, citations, and relationships.
+## Why Akasha
 
-- 🔍 **Answers grounded in sources** — AI retrieval and answers can point back to source pages and supporting evidence instead of returning unsupported summaries.
+Most knowledge tools store pages, while most AI assistants retrieve isolated fragments. Akasha connects source material, derived knowledge, people, and agents in one permission-aware system.
 
-- 🤝 **Built for humans and agents** — People and agents access the same knowledge surface within the same workspace and permission model.
+- **Wiki-first organizational memory** — Teams keep a familiar collaborative workspace while building a reusable knowledge layer above it.
+- **Evidence before answers** — Derived knowledge and AI responses remain connected to source pages and supporting evidence.
+- **Structure beyond similarity** — Links, entities, claims, concepts, and relations provide context that keyword or vector similarity alone cannot capture.
+- **One knowledge surface for people and agents** — Human and MCP access follow the same workspace and resource permissions.
+- **Infrastructure you control** — Akasha is self-hosted, with configurable storage and model endpoints.
 
-- 🕸️ **Context beyond keyword search** — Relationship-aware navigation helps users explore how pages, concepts, entities, and sources are connected.
+## Features
 
-- 🏠 **Self-hosted by design** — Organizations can run Akasha in their own environment and control their data, storage, and model endpoints.
+| Area | Capabilities |
+| :-- | :-- |
+| Collaborative workspace | Spaces, rich-text and Markdown pages, attachments, comments, version history, real-time collaboration, and access control |
+| Knowledge compilation | Asynchronous page and space compilation into entities, concepts, claims, relations, comparisons, contradictions, and evidence |
+| Retrieval and Q&A | Lexical and vector retrieval, source citations, supporting evidence, and permission-aware results |
+| Relationship graph | Visual exploration of direct page links and compiled semantic relationships |
+| Agent integration | MCP access to knowledge and permitted page, space, comment, attachment, and workspace operations |
+| Self-hosting | PostgreSQL with pgvector, configurable model endpoints, and local, S3, or Azure file storage |
 
-## Key Features
+## How It Works
 
-- 📝 **Collaborative Knowledge Workspace**
+Akasha keeps source content and derived knowledge as distinct but connected layers.
 
-  Create and organize pages in shared spaces with rich-text editing, Markdown support, attachments, comments, version history, real-time collaboration, and access control.
+### Product Method Overview
 
-- 🌙 **AI Knowledge Compilation**
+<p align="center">
+  <img src="resources/akasha-method-overview-en.png" alt="Akasha product method from collaborative content to traceable organizational knowledge" width="1200" />
+</p>
 
-  Queue selected pages and spaces for asynchronous compilation into structured knowledge artifacts. Jobs begin processing after they are enqueued; the pipeline can identify entities, concepts, claims, relations, comparisons, contradictions, and supporting evidence.
+### Technical Processing Flow
 
-- 🔍 **Source-Grounded Retrieval and Q&A**
+<p align="center">
+  <img src="resources/akasha-technical-method-visual.png" alt="Akasha technical pipeline from offline knowledge compilation to online retrieval and question answering" width="1400" />
+</p>
 
-  Search and ask questions over organizational knowledge using lexical and vector retrieval. When workspace knowledge is used, answers include source-page citations and supporting evidence, with permission-aware results.
+**1. Capture trusted sources.** Teams create Wiki pages or import content into shared spaces. Original pages, attachments, and their permissions remain the canonical source layer.
 
-- 🕸️ **Relationship Graph**
+**2. Compile structure and evidence.** Akasha asynchronously turns selected pages and spaces into entities, concepts, claims, relations, comparisons, and contradictions. Each artifact retains source references and supporting evidence, while indexes make the compiled layer searchable. Compilation augments the original Wiki rather than replacing it.
 
-  Explore direct page links and semantic relationships through a visual graph. Graph data is filtered according to the user's access permissions.
+**3. Retrieve and act.** People search and ask questions through the workspace; agents use MCP. Lexical, vector, and relationship-aware retrieval assemble relevant context, while source permissions continue to govern results. Answers can cite supporting pages, and supported agent operations are recorded for auditing.
 
-- 🤖 **Agent Access through MCP**
+## Benchmark Results
 
-  Connect agents to Akasha through the `/mcp` endpoint. Agents can query knowledge and perform permitted operations on pages, spaces, comments, attachments, and workspace information using API-key authentication.
+Akasha is evaluated on three public multi-hop question-answering datasets. `R@5` measures the proportion of gold evidence retrieved in the top five results, while `F1` balances retrieval precision and recall against the gold evidence.
 
-## Core Concepts
+| Dataset | R@5 | F1 |
+| :-- | --: | --: |
+| MuSiQue | **87.17** | 56.57 |
+| 2WikiMultiHopQA | 90.50 | 59.66 |
+| HotpotQA | **99.00** | 56.19 |
+| **Average** | **92.22** | 57.47 |
 
-### Knowledge Compilation
+Under the benchmark configuration currently recorded in this repository, Akasha achieved an average Recall@5 (`R@5`) of **92.22** across MuSiQue, 2WikiMultiHopQA, and HotpotQA, with an average `F1` of **57.47**. These figures describe the recorded retrieval run and should be compared only under consistent dataset and evaluation settings.
 
-Akasha keeps original Wiki pages and imported content as the source layer, then builds a structured knowledge layer from them.
-
-The compilation pipeline analyzes source content and produces knowledge artifacts such as summaries, entities, concepts, claims, relations, comparisons, and contradictions. Each artifact retains its source references and evidence so that compiled knowledge can be traced back to the original content.
-
-```text
-Wiki pages / imported content
-            ↓
-    Knowledge compilation
-            ↓
-Structured artifacts + evidence + indexes
-            ↓
-   Retrieval / Q&A / graph navigation
-```
-
-Compilation augments the original Wiki; it does not replace it. Source pages remain available for reading, editing, permission checks, and citation.
-
-### Source-Grounded Knowledge
-
-Akasha distinguishes between source content and derived knowledge.
-
-Original Wiki pages and imported content remain the primary sources. Compiled artifacts and AI answers are derived from those sources and retain citations, source references, or supporting evidence whenever available.
-
-This makes it possible to:
-
-- trace a compiled claim back to its source page;
-- inspect the evidence behind an answer;
-- respect source-page permissions during retrieval;
-- identify knowledge that needs to be refreshed after its sources change.
-
-When the available evidence is insufficient, the system can indicate that limitation instead of presenting an unsupported conclusion as fact.
-
-### Relationship-Aware Knowledge
-
-Akasha does not treat knowledge as a collection of isolated pages.
-
-The knowledge layer records direct page links and semantic relationships discovered during compilation. These relationships connect pages, sections, entities, concepts, and shared sources, making it easier to explore related context and navigate across a knowledge space.
-
-The relationship graph is an aid for discovery and retrieval, not a replacement for the original source pages. Graph results are filtered according to the user's access permissions.
-
-### Human and Agent Access
-
-Akasha is designed for both people and agents.
-
-People use the Wiki interface to create, edit, organize, and discuss knowledge. Agents connect through MCP to search knowledge and perform permitted operations on pages, spaces, comments, attachments, and workspace information.
-
-Both access paths use workspace and resource-level authorization. Agent requests are authenticated with API keys, and supported knowledge queries and operations are recorded for auditing.
+See the [complete benchmark comparison and local evaluation toolkit](benchmark/README.md#多跳问答基准综合对比) for baselines, per-dataset results, and instructions for running the evaluation pipeline.
 
 ## Roadmap / Vision
 
