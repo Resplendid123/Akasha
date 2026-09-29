@@ -12,30 +12,27 @@ import classes from "../styles/ai-chat.module.css";
 
 type Suggestion = {
   icon: React.ReactNode;
-  text: string;
-  prompt: string;
+  // i18n key. Doubles as the prompt sent to the model, so it must be
+  // translated: an English prompt pins the answer to English.
+  label: string;
 };
 
 const SUGGESTIONS: Suggestion[] = [
   {
     icon: <IconSearch size={16} />,
-    text: "Find answers across the knowledge base",
-    prompt: "What does our knowledge base say about ",
+    label: "Find answers across the knowledge base",
   },
   {
     icon: <IconArrowsSplit2 size={16} />,
-    text: "Compare concepts across pages",
-    prompt: "Compare the knowledge base information about ",
+    label: "Compare concepts across pages",
   },
   {
     icon: <IconFileText size={16} />,
-    text: "Summarize a knowledge topic",
-    prompt: "Summarize what the knowledge base says about ",
+    label: "Summarize a knowledge topic",
   },
   {
     icon: <IconRoute size={16} />,
-    text: "Explain a process or procedure",
-    prompt: "Explain the documented process for ",
+    label: "Explain a process or procedure",
   },
 ];
 
@@ -52,8 +49,8 @@ type Props = {
 export default function ChatEmptyState({ isStreaming, onSend, onStop }: Props) {
   const { t } = useTranslation();
 
-  const handleSuggestionClick = (prompt: string) => {
-    onSend(prompt, [], []);
+  const handleSuggestionClick = (label: string) => {
+    onSend(t(label), [], []);
   };
 
   return (
@@ -79,13 +76,13 @@ export default function ChatEmptyState({ isStreaming, onSend, onStop }: Props) {
         <div className={classes.suggestionsGrid}>
           {SUGGESTIONS.map((s) => (
             <button
-              key={s.text}
+              key={s.label}
               type="button"
               className={classes.suggestionCard}
-              onClick={() => handleSuggestionClick(s.prompt)}
+              onClick={() => handleSuggestionClick(s.label)}
             >
               <span className={classes.suggestionIcon}>{s.icon}</span>
-              <span className={classes.suggestionText}>{s.text}</span>
+              <span className={classes.suggestionText}>{t(s.label)}</span>
             </button>
           ))}
         </div>

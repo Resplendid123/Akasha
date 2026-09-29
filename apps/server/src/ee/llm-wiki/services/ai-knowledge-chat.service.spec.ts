@@ -1238,7 +1238,7 @@ describe('AiKnowledgeChatService', () => {
     );
   });
 
-  it('loads authorized current pages, mentions, and owned attachments as explicit context', async () => {
+  it('answers from an attached current page without running knowledge retrieval', async () => {
     const answer = jest
       .fn()
       .mockResolvedValue(
@@ -1313,12 +1313,11 @@ describe('AiKnowledgeChatService', () => {
         url: '/p/current-design',
       },
     ]);
-    // The explicit-context authorization must reuse the very same cache instance
-    // that retrieval used, so decisions are shared within the request.
-    const sharedCache = retrieve.mock.calls[0][0].authCache;
-    expect(sharedCache).toBeInstanceOf(KnowledgeAuthorizationCache);
+    expect(retrieve).not.toHaveBeenCalled();
     expect(filterReadableSources).toHaveBeenCalledWith(
-      expect.objectContaining({ cache: sharedCache }),
+      expect.objectContaining({
+        cache: expect.any(KnowledgeAuthorizationCache),
+      }),
     );
   });
 });

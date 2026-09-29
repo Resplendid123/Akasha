@@ -164,21 +164,23 @@ export default function AsideChatPanel() {
 
   const hasMessages = messages.length > 0 || isStreaming;
 
+  // The prompt is the literal question sent to the model, so it follows the UI
+  // language too: an English prompt pins the answer to English.
   const quickActions: QuickAction[] = [
     {
       icon: <IconFileText size={16} />,
       label: t("Summarize this page"),
-      prompt: "Summarize this page",
+      prompt: t("Summarize this page"),
     },
     {
       icon: <IconLanguage size={16} />,
       label: t("Translate this page"),
-      prompt: "Translate this page",
+      prompt: t("Translate this page"),
     },
     {
       icon: <IconSearch size={16} />,
       label: t("Analyze for insights"),
-      prompt: "Analyze this page for insights",
+      prompt: t("Analyze for insights"),
     },
   ];
 
@@ -249,13 +251,15 @@ export default function AsideChatPanel() {
         </Tooltip>
       </div>
 
-      <KnowledgeScopeBar
-        options={knowledgeScope.options}
-        selectedSpaceId={knowledgeScope.selectedSpaceId}
-        onChange={knowledgeScope.setSelectedSpaceId}
-        isLoading={knowledgeScope.isLoading}
-        compact
-      />
+      {contextPages.length === 0 && (
+        <KnowledgeScopeBar
+          options={knowledgeScope.options}
+          selectedSpaceId={knowledgeScope.selectedSpaceId}
+          onChange={knowledgeScope.setSelectedSpaceId}
+          isLoading={knowledgeScope.isLoading}
+          compact
+        />
+      )}
 
       {error && (
         <div
@@ -292,7 +296,9 @@ export default function AsideChatPanel() {
             className={classes.emptyStateIcon}
           />
           <div className={classes.emptyStateTitle}>
-            {t("Ask about this page or the knowledge base")}
+            {contextPages.length > 0
+              ? t("Ask about this page")
+              : t("Ask your workspace knowledge base")}
           </div>
           <div className={classes.quickActions}>
             {quickActions.map((action) => (
@@ -316,7 +322,11 @@ export default function AsideChatPanel() {
           disabled={isEditingHistory}
           onSend={handleSend}
           onStop={stopGeneration}
-          placeholder={t("Ask the knowledge base...")}
+          placeholder={
+            contextPages.length > 0
+              ? t("Ask about this page...")
+              : t("Ask the knowledge base...")
+          }
           autofocus={false}
           contextPages={contextPages}
           onRemoveContextPage={handleRemoveContextPage}
