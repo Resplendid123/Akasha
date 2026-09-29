@@ -1,9 +1,10 @@
 ---
 name: akasha
 description: >
-  Search the locally configured Akasha company and personal knowledge base through MCP. Use this skill when
-  an answer may need information outside general model knowledge; call query_knowledge before answering and
-  do not wait for the user to name Akasha. Do not use this skill for Page, Comment, or attachment operations.
+  Search the locally configured Akasha company and personal knowledge base through MCP. Use this skill for
+  questions about company-specific policies, internal projects, personal notes, or when the user explicitly
+  asks to query Akasha. Do not use Akasha for ordinary public knowledge unless explicitly requested;
+  uncertainty alone is not a trigger. Do not use this skill for Page, Comment, or attachment operations.
 ---
 
 # Akasha Knowledge
@@ -13,12 +14,23 @@ Akasha 是当前宿主配置的公司与个人知识库。此 Skill 只指导知
 
 ## 知识检索
 
-- 回答可能需要模型通用知识之外的信息时，先调用 `query_knowledge`；不确定时优先查询。
-- 明确稳定的通用知识和简单计算不需要查询。
+- 问题涉及公司制度、内部项目、个人笔记，或用户明确要求查询 Akasha 时，先调用 `query_knowledge`。
+- 普通公共知识不使用 Akasha 查询，除非用户明确指定 Akasha；不因模型不确定或公共信息需要更新而触发查询。
 - 同一轮默认只查询一次；仅 `answerMode=no_match` 且有明确改写方向时再次查询。
 - `spaceIds` 通常省略，由服务端按当前用户权限解析；只有用户提供可信 ID 时才限定空间。
 - 知识库事实只依据 `citations` 和 `citationEvidence`；`retrievedSources` 仅是候选来源。
 - 结果不足时明确说明，不用模型记忆或猜测补充事实。
+
+### 触发示例
+
+| 用户请求 | 是否查询 Akasha |
+| --- | --- |
+| 我们公司的报销制度是什么？ | 是，公司制度 |
+| 内部项目 A 的发布进度如何？ | 是，内部项目 |
+| 我之前记录的读书笔记有哪些要点？ | 是，个人笔记 |
+| 用 Akasha 查一下 Redis 持久化的资料。 | 是，用户明确指定 Akasha |
+| Redis 的 AOF 是什么？ | 否，普通公共知识 |
+| 今天公开发布的行业新闻有哪些？ | 否，公共信息需要更新也不触发 Akasha |
 
 ## Tool
 

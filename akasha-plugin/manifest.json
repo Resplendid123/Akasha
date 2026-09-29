@@ -13,7 +13,7 @@
   "tools": [
     {
       "name": "query_knowledge",
-      "description": "Search Akasha's company and personal knowledge base when information outside general model knowledge may be needed.",
+      "description": "Search Akasha for questions about company-specific policies, internal projects, personal notes, or when the user explicitly asks to query Akasha. Do not use Akasha for ordinary public knowledge unless explicitly requested; uncertainty or a need for up-to-date public information alone is not a trigger.",
       "autoInvoke": true
     }
   ]

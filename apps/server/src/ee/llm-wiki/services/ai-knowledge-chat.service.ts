@@ -301,6 +301,16 @@ export class AiKnowledgeChatService {
       chatId: input.chatId,
     });
 
+    // The page side panel supplies the open page as direct context. Answering
+    // that page must not depend on semantic recall: broad retrieval can add
+    // unrelated documents and cause a simple question such as "what is this
+    // page about?" to be rejected as insufficient. Removing the page chip in
+    // the client omits contextPageId and restores the normal knowledge-search
+    // path below.
+    if (input.contextPageId) {
+      return this.answerFromAttachedPage(input, authCache, thinking);
+    }
+
     thinking.start('understanding', {
       historyMessageCount: input.chatContext?.length ?? 0,
     });
@@ -630,6 +640,170 @@ export class AiKnowledgeChatService {
       completenessNotice: pack.completenessNotice,
       retrievalDiagnostics,
       ...(retrievalScope ? { retrievalScope } : {}),
+      attachmentHitContext,
+    };
+  }
+
+  private async answerFromAttachedPage(
+    input: AiKnowledgeChatInput,
+    authCache: KnowledgeAuthorizationCache,
+    thinking: AiChatThinkingProgress,
+  ): Promise<AiKnowledgeChatResult> {
+    input.onStage?.('understanding');
+    thinking.start('understanding', {
+      historyMessageCount: input.chatContext?.length ?? 0,
+    });
+    thinking.complete('understanding', { queryRewritten: false });
+    thinking.start('analyzing');
+
+    const explicit = await measureAiChatPhase(
+      input.debugTiming,
+      'context.load_explicit',
+      () => this.loadExplicitContext(input, authCache),
+      (result) => ({
+        explicitContextChars: result.context.length,
+        explicitCitationCount: result.citations.length,
+        requestedPageCount:
+          (input.contextPageId ? 1 : 0) + (input.mentionedPageIds?.length ?? 0),
+        attachmentCount: input.attachmentIds?.length ?? 0,
+      }),
+    );
+    const pack = this.contextPack.buildContextPack({});
+    const attachmentHitContext = { directHitChunkIds: [] as string[] };
+    const hasKnowledgeEvidence = explicit.context.trim().length > 0;
+
+    thinking.complete(
+      'analyzing',
+      {
+        includedItemCount: explicit.citations.length,
+        sourceCount: explicit.citations.length,
+      },
+      hasKnowledgeEvidence ? 'knowledge' : 'insufficient',
+    );
+
+    if (!hasKnowledgeEvidence) {
+      if (input.generalKnowledgeEnabled === false) {
+        return {
+          ...this.buildNoMatchResult(
+            input.query,
+            thinking,
+            input.onToken,
+            input.onStage,
+          ),
+          attachmentHitContext,
+        };
+      }
+      const generalAnswer = await this.answerFromGeneralKnowledge(
+        input,
+        thinking,
+        'fallback',
+      );
+      return { ...generalAnswer, attachmentHitContext };
+    }
+
+    const answerInput = {
+      query: input.query,
+      context: explicit.context,
+      chatContext: input.chatContext,
+    };
+    let rawAnswer = '';
+    let generatedAnswer: ParsedGeneratedAnswer = {
+      mode: 'knowledge',
+      content: '',
+      hasExplicitModeMarker: false,
+    };
+    const streamed = Boolean(this.answerProvider.stream);
+    input.onStage?.('generation');
+    thinking.start('preparing');
+
+    if (this.answerProvider.stream) {
+      const streamRouter = new KnowledgeAnswerStreamRouter(input.onToken);
+      const generationStartedAt = performance.now();
+      let providerFirstTokenLogged = false;
+      await measureAiChatPhase(
+        input.debugTiming,
+        'generation.provider',
+        async () => {
+          for await (const token of this.answerProvider.stream!(answerInput)) {
+            if (!providerFirstTokenLogged && token) {
+              providerFirstTokenLogged = true;
+              input.debugTiming?.record(
+                'generation.provider_first_token',
+                performance.now() - generationStartedAt,
+                { attempt: 'attached_page' },
+              );
+            }
+            rawAnswer += token;
+            streamRouter.push(token);
+          }
+        },
+        { attempt: 'attached_page', streamed: true },
+      );
+      streamRouter.finish();
+      generatedAnswer = parseGeneratedAnswer(rawAnswer);
+    } else {
+      rawAnswer = await measureAiChatPhase(
+        input.debugTiming,
+        'generation.provider',
+        () => this.answerProvider.answer(answerInput),
+        { attempt: 'attached_page', streamed: false },
+      );
+      generatedAnswer = parseGeneratedAnswer(rawAnswer);
+    }
+
+    if (
+      generatedAnswer.mode === 'no_match' ||
+      generatedAnswer.mode === 'general'
+    ) {
+      thinking.complete('preparing', undefined, 'insufficient');
+      if (input.generalKnowledgeEnabled === false) {
+        return {
+          ...this.buildNoMatchResult(
+            input.query,
+            thinking,
+            input.onToken,
+            input.onStage,
+          ),
+          attachmentHitContext,
+        };
+      }
+      const generalAnswer = await this.answerFromGeneralKnowledge(
+        { ...input, onStage: undefined },
+        thinking,
+        'fallback',
+      );
+      return { ...generalAnswer, attachmentHitContext };
+    }
+
+    let cleanAnswer = stripCitationMarkers(generatedAnswer.content);
+    if (!cleanAnswer) {
+      cleanAnswer = buildGenerationUnavailableAnswer(input.query);
+      input.onToken?.(cleanAnswer);
+    } else if (!streamed) {
+      input.onToken?.(cleanAnswer);
+    }
+    thinking.complete('preparing', undefined, 'knowledge');
+
+    const citations = resolveAnswerCitations(
+      explicit.citations,
+      generatedAnswer.hasExplicitModeMarker
+        ? extractCitedSourceIds(rawAnswer)
+        : new Set<string>(),
+      [],
+      explicit.citations.map((citation) => citation.sourcePageId),
+    );
+
+    return {
+      answer: cleanAnswer,
+      answerMode: 'knowledge',
+      citations,
+      citationEvidence: buildCitationEvidence(citations, []),
+      retrievedSources: explicit.citations,
+      snippets: [],
+      warnings: pack.warnings,
+      retrievalReasons: [],
+      budget: pack.budget,
+      completenessNotice: pack.completenessNotice,
       attachmentHitContext,
     };
   }
