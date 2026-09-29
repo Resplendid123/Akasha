@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 import queue
@@ -64,6 +49,8 @@ class CompileOptions:
     negatives_ratio: float
     full_corpus: bool
     import_concurrency: int
+
+
 POLL_INTERVAL_SECONDS = 30.0
 _MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _MARKDOWN_HEADING = re.compile(r"^\s*#+\s*.*$", re.MULTILINE)
@@ -90,7 +77,6 @@ def _largest_remainder(weights: dict[str, int], total: int) -> dict[str, int]:
 def _stratified(
     samples: list[dict[str, Any]], limit: int, key: str, rng: random.Random
 ) -> list[dict[str, Any]]:
-
     strata: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for sample in samples:
         strata[str(sample["metadata"][key])].append(sample)
@@ -98,7 +84,6 @@ def _stratified(
     quotas = _largest_remainder({k: len(v) for k, v in strata.items()}, limit)
     picked: list[dict[str, Any]] = []
     for name in sorted(strata):
-
         available = sorted(strata[name], key=lambda s: s["sample_id"])
         picked.extend(rng.sample(available, min(quotas[name], len(available))))
 
@@ -137,7 +122,6 @@ def build_subset(
     full_corpus: bool = False,
     narrativeqa_docs: int = DEFAULT_NARRATIVEQA_DOCS,
 ) -> dict[str, Any]:
-
     adapter = get_adapter(dataset)
     if data_store.get_dataset(connection, adapter.name) is None:
         raise ValueError(f"{adapter.name} 还没归一化")
@@ -158,7 +142,6 @@ def build_subset(
     }
     if not samples:
         raise ValueError(f"{adapter.name} 没有样本")
-
 
     rng = random.Random(f"{adapter.name}:{seed}")
 
@@ -191,7 +174,6 @@ def build_subset(
             else []
         )
     elif strategy is SubsetStrategy.FULL_CORPUS:
-
 
         doc_ids = sorted(usable_doc_ids)
         picked = sorted(
@@ -232,7 +214,6 @@ def build_subset(
         wanted = round(len(gold_ids) * negatives_ratio)
         negatives = sorted(rng.sample(pool, min(wanted, len(pool))))
         doc_ids = sorted(set(gold_ids) | set(negatives))
-
 
     subset_ids = set(doc_ids)
     uncovered = {
@@ -276,7 +257,6 @@ def _wait_for_compile(
     ctx: TaskContext,
     client: AkashaClient,
     space_id: str,
-    config: AkashaConfig,
     *,
     expect_runs: int = 0,
     coalesced_runs: int = 0,
@@ -289,11 +269,6 @@ def _wait_for_compile(
     progress_offset: int = 0,
     progress_total: int | None = None,
 ) -> dict[str, Any]:
-
-
-
-
-
     baseline_run_ids = baseline_run_ids or set()
     expected_run_ids = expected_run_ids or set()
     while True:
@@ -337,7 +312,6 @@ def _wait_for_compile(
         elif expect_runs and diagnostics_ok and any(
             run.get("runId") or run.get("id") or run.get("spaceJobSequence") for run in runs
         ):
-
             counts = {}
             progress = {}
             active = 1
@@ -395,7 +369,6 @@ def _target_run_progress(
     runs: list[dict[str, Any]],
     progress_page_ids: set[str] | None = None,
 ) -> dict[str, int] | None:
-
     compile_id = ctx.target("compile")
     if compile_id is None:
         return None
@@ -486,10 +459,6 @@ def _page_failures(client: AkashaClient, space_id: str) -> list[str]:
 def _compile_pace(
     client: AkashaClient, space_id: str, runs: list[dict[str, Any]] | None = None
 ) -> dict[str, Any] | None:
-
-
-
-
     if runs is None:
         try:
             report = client.run_diagnostics([space_id])
@@ -538,12 +507,10 @@ def _retry_batches(
     ctx: TaskContext,
     client: AkashaClient,
     space_id: str,
-    config: AkashaConfig,
     failed_page_ids: list[str] | None = None,
     initial_total: int | None = None,
     initial_completed: int = 0,
 ) -> tuple[dict[str, Any], int]:
-
     if failed_page_ids is not None:
         pending = list(dict.fromkeys(failed_page_ids))
         current: list[str] = []
@@ -621,7 +588,6 @@ def _retry_batches(
             ctx,
             client,
             space_id,
-            config,
             expect_runs=len(current_run_ids),
             expected_run_ids=set(current_run_ids),
             progress_page_ids=set(current),
@@ -733,7 +699,6 @@ def _execute(
     config: AkashaConfig,
     resuming: bool,
 ) -> None:
-
     _prepare_subset(ctx, compile_id, options)
 
     with AkashaClient(config) as client:
@@ -793,12 +758,11 @@ def _execute(
             ctx.log(f"复用本次编译的空间 {space_id}")
 
         _run_remote_compile(
-            ctx, client, compile_id, space_id, options.import_concurrency, config, current_configs
+            ctx, client, compile_id, space_id, options.import_concurrency, current_configs
         )
 
 
 def _prepare_subset(ctx: TaskContext, compile_id: int, options: CompileOptions) -> None:
-
 
     if not compile_store.compile_docs(ctx.db, compile_id):
         for dataset in options.datasets:
@@ -829,10 +793,8 @@ def _run_remote_compile(
     compile_id: int,
     space_id: str,
     import_concurrency: int,
-    config: AkashaConfig,
     current_configs: Any,
 ) -> None:
-
     _import_docs(ctx, client, compile_id, space_id, import_concurrency)
 
     total_docs = len(compile_store.compile_docs(ctx.db, compile_id))
@@ -863,7 +825,7 @@ def _run_remote_compile(
 
     ctx.checkpoint()
     if retry_in_progress:
-        wait, accepted = _retry_batches(ctx, client, space_id, config)
+        wait, accepted = _retry_batches(ctx, client, space_id)
         coalesced = 0
     elif active_previous:
         remote_run_ids = {
@@ -875,7 +837,6 @@ def _run_remote_compile(
             ctx,
             client,
             space_id,
-            config,
             expect_runs=len(remote_run_ids),
             expected_run_ids=remote_run_ids,
         )
@@ -886,7 +847,6 @@ def _run_remote_compile(
                 ctx,
                 client,
                 space_id,
-                config,
                 failed_page_ids,
                 initial_total=len(failed_page_ids),
             )
@@ -896,7 +856,6 @@ def _run_remote_compile(
             and not int((run.get("progress") or {}).get("text", {}).get("expected") or 0)
             for run in previous_runs
         ):
-
             target_page_ids = list(
                 dict.fromkeys(
                     str(row["page_id"])
@@ -907,9 +866,7 @@ def _run_remote_compile(
             if not target_page_ids:
                 raise RuntimeError("上次远端 Run 在逐页初始化前取消，且没有可重试页面")
             ctx.progress(0, len(target_page_ids), "重试未初始化语料")
-            wait, accepted = _retry_batches(
-                ctx, client, space_id, config, target_page_ids
-            )
+            wait, accepted = _retry_batches(ctx, client, space_id, target_page_ids)
             coalesced = 0
         else:
 
@@ -953,7 +910,6 @@ def _run_remote_compile(
             ctx,
             client,
             space_id,
-            config,
             expect_runs=accepted + coalesced,
             coalesced_runs=coalesced,
             expected_run_ids=remote_run_ids,
@@ -1028,7 +984,6 @@ def _run_remote_compile(
 def _import_one(
     client: AkashaClient, doc: dict[str, Any], markdown: str, space_id: str
 ) -> dict[str, Any]:
-
     try:
         page = client.import_page_text(f"{doc['doc_id']}.md", markdown, space_id)
         page_id = page.get("id") if isinstance(page, dict) else None
@@ -1045,11 +1000,6 @@ def _import_docs(
     space_id: str,
     concurrency: int,
 ) -> None:
-
-
-
-
-
     pending = compile_store.compile_docs(ctx.db, compile_id, pending_only=True)
     total = len(compile_store.compile_docs(ctx.db, compile_id))
     done = total - len(pending)
@@ -1059,7 +1009,6 @@ def _import_docs(
 
     worker_count = min(concurrency, len(pending))
     ctx.log(f"导入语料：待导入 {len(pending)} / 共 {total}，并发 {worker_count}")
-
 
     extras = [AkashaClient(client.config) for _ in range(worker_count - 1)]
     try:

@@ -5,16 +5,16 @@ import type {
   AttributionRun,
   CompiledAnswers,
   CompileRun,
-  EvidenceChain,
   EvalRun,
+  EvidenceChain,
   Provider,
   QueryAuditSnapshot,
 } from '../types'
 import {
   CauseTag,
   CleanupButton,
-  ConfigPanel,
   Collapsible,
+  ConfigPanel,
   Failed,
   Field,
   Loading,
@@ -223,12 +223,12 @@ function NewAttribution({
 
       <label className="check" style={{ marginTop: 8 }}>
         <input type="checkbox" checked={useModel} onChange={() => setUseModel(!useModel)} />
-        用模型分析本次评测的全部指标并生成一份整体报告（每轮一次调用）
+        用模型分析并生成一份报告
       </label>
 
       {useModel && (providers.data ?? []).length === 0 && (
         <div className="note warn">
-          还没配归因模型端点；不配也能跑逐样本规则归因，只是没有整体分析报告。
+          还没配归因模型端点；不配只能进行规则归因。
           <button className="action small" style={{ marginLeft: 8 }} onClick={onOpenSettings}>
             去配置
           </button>

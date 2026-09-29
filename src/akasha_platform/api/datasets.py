@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -84,17 +78,12 @@ def delete_dataset(request: Request, name: str) -> dict[str, Any]:
 
 @router.get("/datasets/{name}/raw")
 def raw_samples(
-    request: Request,
     name: str,
     kind: str = "qa",
     q: str | None = None,
     limit: int = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-
-
-
-
     if kind not in ("qa", "corpus"):
         raise HTTPException(422, "kind 必须是 qa 或 corpus")
     try:
@@ -133,7 +122,6 @@ def normalized_samples(
     limit: int = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-
     with db(request) as connection:
         if data_store.get_dataset(connection, name) is None:
             raise HTTPException(404, f"{name} 还没归一化")
@@ -183,7 +171,6 @@ def normalized_corpus(
     limit: int = Query(10, ge=1, le=50),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-
     with db(request) as connection:
         if data_store.get_dataset(connection, name) is None:
             raise HTTPException(404, f"{name} 还没归一化")
@@ -204,12 +191,7 @@ def normalized_corpus(
 
 
 @router.get("/metrics")
-def metrics(request: Request, datasets: str | None = None) -> dict[str, Any]:
-
-
-
-
-
+def metrics(datasets: str | None = None) -> dict[str, Any]:
 
     definitions = [
         {

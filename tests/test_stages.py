@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import threading
@@ -18,6 +16,7 @@ from akasha_benchmark.store import (
     run_store,
 )
 from akasha_benchmark.task import TaskContext
+from conftest import make_compile_run
 
 
 def context(connection, params=None) -> TaskContext:
@@ -36,8 +35,6 @@ def _task_row(connection) -> None:
         "VALUES (1, 'test', 'running', '{}', 'now')"
     )
     connection.commit()
-
-
 
 
 def test_normalize_writes_samples_and_corpus(normalized):
@@ -70,8 +67,6 @@ def test_normalize_rejects_duplicate_sample_ids(db, dataset_dir, monkeypatch):
         normalize.normalize_dataset(db, "hotpotqa", None, dataset_dir)
 
 
-
-
 def test_subset_covers_every_gold(normalized):
     compile_id = compile_store.create_compile_run(
         normalized, run_id="r", datasets=["hotpotqa"], seed=7, qa_limit=2, negatives_ratio=1.0
@@ -93,7 +88,6 @@ def test_subset_covers_every_gold(normalized):
 
 
 def test_subset_is_seed_stable(normalized):
-
     def docs_for(seed: int, run_id: str) -> set[str]:
         compile_id = compile_store.create_compile_run(
             normalized,
@@ -113,9 +107,7 @@ def test_subset_is_seed_stable(normalized):
 
 
 def test_subset_negatives_ratio_zero_keeps_only_gold(normalized):
-    compile_id = compile_store.create_compile_run(
-        normalized, run_id="r", datasets=["hotpotqa"], seed=1, qa_limit=2, negatives_ratio=0.0
-    )
+    compile_id = make_compile_run(normalized, datasets=["hotpotqa"], negatives_ratio=0.0)
     normalized.commit()
     stats = compile.build_subset(
         normalized, compile_id, "hotpotqa", seed=1, qa_limit=2, negatives_ratio=0.0
@@ -125,10 +117,7 @@ def test_subset_negatives_ratio_zero_keeps_only_gold(normalized):
 
 
 def test_subset_can_select_one_exact_sample(normalized):
-    compile_id = compile_store.create_compile_run(
-        normalized, run_id="exact", datasets=["hotpotqa"], seed=1, qa_limit=1,
-        negatives_ratio=1.0,
-    )
+    compile_id = make_compile_run(normalized, "exact", ["hotpotqa"], qa_limit=1)
     target = data_store.samples_of(normalized, "hotpotqa")[1]
 
     stats = compile.build_subset(
@@ -150,9 +139,7 @@ def test_subset_can_select_one_exact_sample(normalized):
 
 
 def test_full_corpus_keeps_every_document(normalized):
-    compile_id = compile_store.create_compile_run(
-        normalized, run_id="r", datasets=["hotpotqa"], seed=1, qa_limit=1, negatives_ratio=1.0
-    )
+    compile_id = make_compile_run(normalized, datasets=["hotpotqa"], qa_limit=1)
     normalized.commit()
     stats = compile.build_subset(
         normalized,
@@ -186,12 +173,8 @@ def test_image_only_document_has_no_indexable_text():
     assert compile._has_indexable_text("# 标题\n\n这里有可检索的正文。")
 
 
-
-
 def _fixture_chain(connection, response: dict) -> tuple[int, int, int]:
-    compile_id = compile_store.create_compile_run(
-        connection, run_id="r", datasets=["hotpotqa"], seed=1, qa_limit=2, negatives_ratio=1.0
-    )
+    compile_id = make_compile_run(connection, datasets=["hotpotqa"])
     connection.commit()
     compile.build_subset(
         connection, compile_id, "hotpotqa", seed=1, qa_limit=2, negatives_ratio=1.0
@@ -251,12 +234,7 @@ def test_evaluate_scores_perfect_retrieval(normalized):
         normalized, {"answerMode": "knowledge", "answer": "Rita Moreno", "citations": []}
     )
     summary = evaluate.evaluate_dataset(
-        normalized,
-        eval_id,
-        query_id,
-        compile_id,
-        "hotpotqa",
-        (2,),
+        normalized, eval_id, query_id, compile_id, "hotpotqa", (2,),
         frozenset({"recall", "hit", "em", "f1"}),
     )
     assert summary["responses_evaluated"] == 2
@@ -353,12 +331,7 @@ def test_attribution_model_writes_one_overall_report(normalized, monkeypatch):
         normalized, {"answerMode": "general", "answer": "A general answer", "citations": []}
     )
     evaluate.evaluate_dataset(
-        normalized,
-        eval_id,
-        query_id,
-        compile_id,
-        "hotpotqa",
-        (2,),
+        normalized, eval_id, query_id, compile_id, "hotpotqa", (2,),
         frozenset({"recall", "hit", "em", "f1"}),
     )
     _task_row(normalized)
@@ -414,8 +387,6 @@ def test_resolve_metrics_rejects_unknown():
     with pytest.raises(ValueError, match="未知指标"):
         evaluate.resolve_metrics(["recall", "bogus"])
     assert evaluate.resolve_metrics([]) == sorted(registry.METRIC_REGISTRY)
-
-
 
 
 @pytest.mark.parametrize(
@@ -505,13 +476,7 @@ def test_judge_runs_all_metrics_for_each_sample_before_next(normalized, monkeypa
         normalized, {"answerMode": "knowledge", "answer": "a"}
     )
     evaluate.evaluate_dataset(
-        normalized,
-        eval_id,
-        query_id,
-        compile_id,
-        "hotpotqa",
-        (2,),
-        frozenset({"em"}),
+        normalized, eval_id, query_id, compile_id, "hotpotqa", (2,), frozenset({"em"})
     )
     task_id = task_store.create_task(normalized, stage="evaluate", params={})
     normalized.commit()

@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 from enum import StrEnum
@@ -40,27 +29,16 @@ class DependencyError(RuntimeError):
 
 
 class SubsetStrategy(StrEnum):
-
-
-
     QA_THEN_GOLD = "uniform_qa_then_gold_corpus"
 
     STRATIFIED_HOP = "stratified_by_hop"
 
     WHOLE_DOCS = "whole_documents"
 
-
     FULL_CORPUS = "full_corpus"
 
 
 class DataDependency(StrEnum):
-
-
-
-
-
-
-
     GOLD_DOCS = "gold_docs"
 
     REFERENCE_ANSWERS = "reference_answers"
@@ -100,13 +78,6 @@ class CorpusDoc(BaseModel):
     text: str
 
     def to_markdown(self) -> str:
-
-
-
-
-
-
-
 
         first = self.text.lstrip().splitlines()[0] if self.text.strip() else ""
         if first == f"# {self.title}":

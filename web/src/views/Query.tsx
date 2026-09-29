@@ -86,6 +86,7 @@ export function Query({
           </Field>
           {compile && (
             <NewQuery
+              key={compile.id}
               compile={compile}
               onStarted={() => {
                 compiles.reload()
@@ -149,7 +150,7 @@ export function Query({
                         </button>
                         <button
                           className="action small"
-                          disabled={run.status !== 'succeeded'}
+                          disabled={run.status !== 'succeeded' || failures > 0}
                           onClick={() => onEvaluate(run.id)}
                         >
                           去评测
@@ -170,7 +171,7 @@ export function Query({
                               })
                             }
                           >
-                            重试失败（{failures}）
+                            重试失败/空回答（{failures}）
                           </button>
                         )}
                         <CleanupButton
@@ -215,6 +216,7 @@ function NewQuery({
   const start = useAction<unknown>()
 
   const available = Object.keys(compile.stats)
+  const selectedAvailable = selected.filter((name) => available.includes(name))
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -226,7 +228,7 @@ function NewQuery({
       ))}
       <DatasetPicker
         all={available}
-        selected={selected.filter((n) => available.includes(n))}
+        selected={selectedAvailable}
         onChange={setSelected}
       />
       <div className="row" style={{ marginTop: 10 }}>
@@ -259,12 +261,12 @@ function NewQuery({
       <div className="panel-actions">
         <button
           className="action primary"
-          disabled={start.busy || selected.length === 0}
+          disabled={start.busy || selectedAvailable.length === 0}
           onClick={() =>
             start.run(async () => {
               const task = await api.startTask('query', {
                 compile_id: compile.id,
-                datasets: selected,
+                datasets: selectedAvailable,
                 concurrency,
                 ...(name.trim() ? { name: name.trim() } : {}),
                 ...(limit === '' ? {} : { sample_limit: limit }),

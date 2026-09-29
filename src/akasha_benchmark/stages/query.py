@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 import queue
@@ -26,7 +20,6 @@ def _query_one(
     sample: dict[str, Any],
     space_id: str,
 ) -> dict[str, Any]:
-
     try:
         response = client.query(sample["question"], [space_id])
         status, body, latency = response.status, response.body, response.latency_ms
@@ -68,7 +61,6 @@ def run(ctx: TaskContext) -> None:
     if compile_run is None:
         raise ValueError(f"编译 #{compile_id} 不存在")
 
-
     readiness = compile_store.compile_ready(ctx.db, compile_id)
     if not readiness["ready"]:
         raise ValueError("这次编译还不能用于查询：" + "；".join(readiness["reasons"]))
@@ -89,7 +81,6 @@ def run(ctx: TaskContext) -> None:
 
     with AkashaClient(config) as client:
         client.login()
-
 
         me = client.current_user()
         mismatch = compile_store.workspace_mismatch(
@@ -145,7 +136,6 @@ def run(ctx: TaskContext) -> None:
             )
             ctx.bind("query", query_id)
 
-
         if not query_store.query_samples(ctx.db, query_id):
             selected = _select_samples(ctx.db, compile_id, datasets, limit)
             if not selected:
@@ -154,12 +144,19 @@ def run(ctx: TaskContext) -> None:
             ctx.db.commit()
 
         if params.get("retry_failed"):
-            removed = query_store.delete_failed_responses(ctx.db, query_id)
+            removed = query_store.delete_retryable_responses(ctx.db, query_id)
             ctx.db.commit()
-            ctx.log(f"已清除 {removed} 条失败响应以便重试")
+            ctx.log(f"已清除 {removed} 条失败或空回答响应以便重试")
             ctx.freeze(retry_failed=False)
 
         _issue(ctx, client, query_id, compile_run["space_id"], concurrency)
+        retryable = query_store.retryable_responses(ctx.db, query_id)
+        if retryable:
+            examples = [row["sample_id"] for row in retryable[:3]]
+            raise RuntimeError(
+                f"查询质量阀门未通过：{len(retryable)} 条响应失败或为空回答；"
+                f"可使用查询记录上的重试入口（示例：{examples}）"
+            )
         final_configs = client.get_model_configs()
         changed_during_run = [
             feature
@@ -187,7 +184,6 @@ def _issue(
     space_id: str,
     concurrency: int,
 ) -> None:
-
     todo = query_store.pending_query_samples(ctx.db, query_id)
     total = len(query_store.query_samples(ctx.db, query_id))
     done = total - len(todo)
@@ -220,7 +216,6 @@ def _issue(
             ctx.checkpoint()
             emit(_query_one(client, sample, space_id))
         return
-
 
     extra = [AkashaClient(client.config) for _ in range(concurrency - 1)]
     try:

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -33,7 +27,6 @@ def ranked_doc_ids(retrieved: Sequence[dict[str, Any]], page_to_doc: dict[str, s
 def unmapped_page_ids(
     retrieved: Sequence[dict[str, Any]], page_to_doc: dict[str, str]
 ) -> list[str]:
-
     return sorted(
         {
             s["sourcePageId"]
@@ -101,7 +94,6 @@ def full_coverage(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
 def evaluate_sample(
     ranked: Sequence[str], gold: Sequence[str], ks: Sequence[int] = DEFAULT_KS
 ) -> dict[str, float]:
-
     metrics: dict[str, float] = {"mrr": mrr(ranked, gold)}
     for k in ks:
         metrics[f"precision@{k}"] = precision_at_k(ranked, gold, k)

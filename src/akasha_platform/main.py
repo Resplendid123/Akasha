@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -23,7 +17,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Akasha-Benchmark 评测平台", version="0.2.0")
     app.state.settings = resolved
 
-
     init_db(resolved.db_path)
     app.state.runner = TaskRunner(resolved)
 
@@ -31,7 +24,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.startup = {
         "recovered_tasks": recovered,
     }
-
 
     app.add_middleware(
         CORSMiddleware,

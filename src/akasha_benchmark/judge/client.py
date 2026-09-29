@@ -1,8 +1,3 @@
-
-
-
-
-
 from __future__ import annotations
 
 import json
@@ -24,10 +19,6 @@ from ..akasha_client import (
 )
 
 
-
-
-
-
 FAILURE_RATE_LIMIT = "rate_limit"
 FAILURE_TIMEOUT = "timeout"
 FAILURE_PARSE = "parse_error"
@@ -45,13 +36,6 @@ class JudgeConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class JudgeProvider:
-
-
-
-
-
-
-
     base_url: str
     model: str
     api_key: str = ""
@@ -70,9 +54,6 @@ class JudgeProvider:
 
     def redacted(self) -> dict[str, Any]:
 
-
-
-
         return {
             "base_url": self.base_url,
             "model": self.model,
@@ -82,8 +63,6 @@ class JudgeProvider:
 
 @dataclass
 class JudgeReply:
-
-
     content: str | None
     failure_kind: str | None
     raw: str | None
@@ -98,8 +77,6 @@ def _delay(attempt: int) -> float:
 
 
 class JudgeClient:
-
-
     def __init__(self, provider: JudgeProvider, client: httpx.Client | None = None) -> None:
         self.provider = provider
         self._client = client or httpx.Client(
@@ -116,9 +93,6 @@ class JudgeClient:
         self._client.close()
 
     def complete(self, system: str, user: str, *, max_tokens: int = MAX_TOKENS) -> JudgeReply:
-
-
-
 
         started = time.monotonic()
         reply = self._complete(system, user, max_tokens=max_tokens)
@@ -196,11 +170,6 @@ def complete_many(
     *,
     max_tokens: int = MAX_TOKENS,
 ) -> list[JudgeReply]:
-
-
-
-
-
     if concurrency <= 1 or len(prompts) <= 1:
         with JudgeClient(provider) as client:
             return [
@@ -229,10 +198,6 @@ def complete_many(
 
 
 def parse_json_object(content: str) -> dict[str, Any]:
-
-
-
-
 
     text = content.strip()
     if text.startswith("```"):

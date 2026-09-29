@@ -1,4 +1,3 @@
-# Python-generated files
 __pycache__/
 *.py[oc]
 build/
@@ -6,27 +5,21 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
 .venv
 
-# Raw datasets. narrativeqa inlines Project Gutenberg books and IMSDb
-# screenplays that must not be redistributed.
 /dataset/
 
-# 评测库含 akasha_connection 与 model_provider 的明文凭据。
 /akasha_bench.db
 /akasha_bench.db-wal
 /akasha_bench.db-shm
-# 重构前的库留档。
 /akasha_bench.db.legacy-*
 
-# 前端构建产物与依赖。
 /web/dist/
 /web/node_modules/
 
-# Test and tooling caches
 .pytest_cache/
 .ruff_cache/
+.uv-cache/
 .idea
 *.log
 .tmptest/
@@ -38,3 +31,4 @@ CLAUDE.md
 !/tmp/process.py
 report/
 akasha-config.template.json
+docs/TODO.md

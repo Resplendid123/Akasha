@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -127,7 +125,6 @@ def sample_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, list[dict[str, Any]]]:
-
     if search:
 
         needle = search.lower()
@@ -229,7 +226,6 @@ def corpus_page(
     limit: int = 10,
     offset: int = 0,
 ) -> tuple[int, list[dict[str, Any]]]:
-
     where = ["dataset = ?"]
     params: list[Any] = [dataset]
     if search:

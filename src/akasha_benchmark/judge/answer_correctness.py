@@ -1,8 +1,3 @@
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -56,7 +51,6 @@ def parse_verdict(payload: dict[str, Any]) -> tuple[float | None, dict[str, Any]
 def build_prompt(
     question: str, answer: str, reference: str
 ) -> tuple[str, str] | None:
-
     if not question.strip() or not answer.strip() or not reference.strip():
         return None
     return SYSTEM, USER_TEMPLATE.format(

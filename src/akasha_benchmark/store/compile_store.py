@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -76,7 +74,6 @@ def replace_compile_subset(
     sample_ids: list[str],
     docs: list[dict[str, Any]],
 ) -> None:
-
     connection.execute(
         "DELETE FROM compile_sample WHERE compile_id = ? "
         "AND sample_id IN (SELECT sample_id FROM sample WHERE dataset = ?)",
@@ -145,7 +142,6 @@ def compile_doc_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, int, list[dict[str, Any]]]:
-
     where = ["cd.compile_id = ?"]
     params: list[Any] = [compile_id]
     if dataset:
@@ -239,11 +235,6 @@ def compile_stats(connection: sqlite3.Connection, compile_id: int) -> dict[str, 
 def workspace_mismatch(
     connection: sqlite3.Connection, compile_id: int, resolved_workspace_id: str | None
 ) -> str | None:
-
-
-
-
-
     run = get_compile_run(connection, compile_id)
     if run is None:
         return f"编译 #{compile_id} 不存在"
@@ -265,10 +256,6 @@ def workspace_mismatch(
 
 def compile_ready(connection: sqlite3.Connection, compile_id: int) -> dict[str, Any]:
 
-
-
-
-
     run = get_compile_run(connection, compile_id)
     if run is None:
         return {"ready": False, "reasons": ["编译记录不存在"], "warnings": []}
@@ -278,14 +265,10 @@ def compile_ready(connection: sqlite3.Connection, compile_id: int) -> dict[str, 
         "FROM compile_doc WHERE compile_id = ?",
         (compile_id,),
     ).fetchone()
-    return compile_readiness(
-        run,
-        total=int(doc_counts["total"] or 0),
-        missing=int(doc_counts["missing"] or 0),
-    )
+    return compile_readiness(run, missing=int(doc_counts["missing"] or 0))
 
 
-def compile_readiness(run: dict[str, Any], *, total: int, missing: int) -> dict[str, Any]:
+def compile_readiness(run: dict[str, Any], *, missing: int) -> dict[str, Any]:
 
     reasons: list[str] = []
     warnings: list[str] = []

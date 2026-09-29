@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -14,7 +8,6 @@ from .corpus import CorpusIndex
 def gold_titles_from_supporting_facts(
     row: dict[str, Any], row_index: int, dataset: str
 ) -> tuple[str, ...]:
-
     facts = row.get("supporting_facts")
     if not isinstance(facts, list) or not facts:
         raise ValueError(f"{dataset}: row {row_index} has empty or non-list supporting_facts")
@@ -36,7 +29,6 @@ def gold_titles_from_supporting_facts(
 def resolve_gold_doc_ids(
     titles: tuple[str, ...], corpus: CorpusIndex, row_index: int, dataset: str
 ) -> tuple[str, ...]:
-
     resolved: list[str] = []
     for title in titles:
         try:

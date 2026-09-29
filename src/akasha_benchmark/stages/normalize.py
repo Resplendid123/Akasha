@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -27,16 +21,13 @@ def normalize_dataset(
     ctx: TaskContext | None = None,
     dataset_dir: Path | None = None,
 ) -> dict[str, Any]:
-
     resolved = resolve(name, dataset_dir)
     adapter = resolved.adapter
-
 
     corpus = load_corpus(adapter.name, resolved.corpus_path)
     rows = load_json(resolved.qa_path)
     if not isinstance(rows, list):
         raise ValueError(f"{resolved.qa_path.name}: expected a JSON array")
-
 
     expected = adapter.expected_qa_rows()
     if expected is not None and len(rows) != expected:
@@ -58,7 +49,6 @@ def normalize_dataset(
         samples.append(sample)
         if ctx and (index + 1) % 200 == 0:
             ctx.progress(index + 1, len(rows), f"{name} 解析 {index + 1}/{len(rows)}")
-
 
     with transaction(connection):
         data_store.upsert_dataset(
@@ -85,10 +75,6 @@ def normalize_dataset(
 
 
 def validate_dataset(connection: sqlite3.Connection, name: str) -> list[str]:
-
-
-
-
 
     problems: list[str] = []
     record = data_store.get_dataset(connection, name)

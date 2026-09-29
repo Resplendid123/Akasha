@@ -1,15 +1,7 @@
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 import time
+from contextlib import closing
 
 from test_akasha import FakeClient
 
@@ -105,22 +97,16 @@ def test_runner_advances_the_chain(db_path, normalized, monkeypatch):
     from akasha_platform.settings import Settings
     from akasha_platform.tasks import TaskRunner
 
-    connection = connect(db_path)
-    try:
+    with closing(connect(db_path)) as connection:
         config_store.update_connection(connection, base_url="http://x", email="e@x", password="p")
         connection.commit()
-    finally:
-        connection.close()
 
     monkeypatch.setattr(compile, "AkashaClient", lambda config: FakeClient(config))
     monkeypatch.setattr(platform_tasks, "AkashaClient", lambda config: FakeClient(config))
 
     def _fake_query_client(config):
-        probe = connect(db_path)
-        try:
+        with closing(connect(db_path)) as probe:
             return FakeClient(config, retrieved=_imported_pages(probe))
-        finally:
-            probe.close()
 
     monkeypatch.setattr(query, "AkashaClient", _fake_query_client)
     monkeypatch.setattr(chain, "DATASETS", ("hotpotqa",))
@@ -132,19 +118,15 @@ def test_runner_advances_the_chain(db_path, normalized, monkeypatch):
 
     deadline = time.time() + 120
     while time.time() < deadline:
-        probe = connect(db_path)
-        try:
+        with closing(connect(db_path)) as probe:
             tasks = task_store.list_tasks(probe, limit=50)
             done = [t for t in tasks if t["status"] == task_store.SUCCEEDED]
             active = [t for t in tasks if t["status"] in task_store.ACTIVE]
             if len(done) == 4 or (not active and len(tasks) >= 1):
                 break
-        finally:
-            probe.close()
         time.sleep(0.2)
 
-    probe = connect(db_path)
-    try:
+    with closing(connect(db_path)) as probe:
         tasks = task_store.list_tasks(probe, limit=50)
         failed = [(t["stage"], t["error"]) for t in tasks if t["status"] == task_store.FAILED]
         assert not failed, f"链上有任务失败：{failed}"
@@ -157,5 +139,3 @@ def test_runner_advances_the_chain(db_path, normalized, monkeypatch):
         assert all(t["status"] == task_store.SUCCEEDED for t in tasks)
         assert {t["chain_id"] for t in tasks} == {int(head["id"])}
         assert task_store.task_chain(probe, max(int(t["id"]) for t in tasks))[1] == []
-    finally:
-        probe.close()

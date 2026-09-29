@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 import base64
@@ -29,6 +23,28 @@ from akasha_benchmark.store import (
     task_store,
 )
 from akasha_benchmark.task import TaskContext, execute
+from conftest import make_compile_run
+
+
+def compile_with_pages(connection, run_id: str, page_ids: list[str]) -> tuple[int, int]:
+    compile_id = make_compile_run(connection, run_id, ["hotpotqa"], qa_limit=1)
+    compile.build_subset(
+        connection, compile_id, "hotpotqa", seed=1, qa_limit=1, negatives_ratio=1.0
+    )
+    docs = compile_store.compile_docs(connection, compile_id)[: len(page_ids)]
+    for doc, page_id in zip(docs, page_ids):
+        compile_store.record_page(
+            connection, compile_id, doc["dataset"], doc["doc_id"], page_id=page_id, error=None
+        )
+    task_id = bind_compile_task(connection, compile_id)
+    return compile_id, task_id
+
+
+def bind_compile_task(connection, compile_id: int, params: dict[str, Any] | None = None) -> int:
+    task_id = task_store.create_task(connection, stage="compile", params=params or {})
+    task_store.set_task_target(connection, task_id, "compile", compile_id)
+    connection.commit()
+    return task_id
 
 
 def context(connection, params: dict[str, Any], task_id=None) -> TaskContext:
@@ -55,7 +71,6 @@ CONFIGS = {
 
 
 class FakeClient:
-
     def __init__(
         self,
         config,
@@ -182,8 +197,6 @@ def ready_connection(normalized):
     config_store.update_connection(normalized, base_url="http://x", email="e@x", password="p")
     normalized.commit()
     return normalized
-
-
 
 
 def test_envelope_is_unwrapped_only_when_it_is_an_envelope():
@@ -496,8 +509,6 @@ def test_normalize_model_configs_is_order_stable():
     assert model_configs.normalize(CONFIGS) == model_configs.normalize(reversed_configs)
 
 
-
-
 def test_compile_requires_owner(ready_connection, monkeypatch):
     monkeypatch.setattr(compile, "AkashaClient", lambda config: FakeClient(config, role="member"))
     ctx = context(ready_connection, {"datasets": ["hotpotqa"], "qa_limit": 2})
@@ -506,7 +517,6 @@ def test_compile_requires_owner(ready_connection, monkeypatch):
 
 
 def test_compile_fails_when_quality_gate_reports_nothing(ready_connection, monkeypatch):
-
     def factory(config):
         client = FakeClient(config)
         client.quality = {}
@@ -522,7 +532,6 @@ def test_compile_fails_when_quality_gate_reports_nothing(ready_connection, monke
 
 
 def test_compile_records_pace_estimate(ready_connection, monkeypatch):
-
     def factory(config):
         return FakeClient(
             config,
@@ -574,7 +583,6 @@ def test_compile_reports_page_failure_reason(ready_connection, monkeypatch):
 
 
 def test_query_can_use_partially_successful_compile(ready_connection, monkeypatch):
-
     class Partial(FakeClient):
         def run_diagnostics(self, space_ids, *, limit=50):
             return {
@@ -627,7 +635,6 @@ def test_query_can_use_partially_successful_compile(ready_connection, monkeypatc
 
 
 def test_compile_fails_when_no_run_was_accepted(ready_connection, monkeypatch):
-
     def factory(config):
         return FakeClient(config, accepted_runs=0, run_items=[])
 
@@ -670,7 +677,6 @@ def test_compile_waits_when_runs_are_still_active(ready_connection, monkeypatch)
 
 
 def test_compile_progress_uses_current_run_not_space_history(ready_connection, monkeypatch):
-    from akasha_benchmark.config import AkashaConfig
     monkeypatch.setattr(compile, "POLL_INTERVAL_SECONDS", 0)
 
     class Runs(FakeClient):
@@ -712,7 +718,6 @@ def test_compile_progress_uses_current_run_not_space_history(ready_connection, m
         context(ready_connection, {}),
         client,
         "space-1",
-        AkashaConfig(),
         expect_runs=1,
         baseline_run_ids={"old"},
         baseline_sequence=1,
@@ -722,26 +727,7 @@ def test_compile_progress_uses_current_run_not_space_history(ready_connection, m
 
 
 def test_compile_progress_counts_only_current_compile_pages(ready_connection):
-    compile_id = compile_store.create_compile_run(
-        ready_connection,
-        run_id="target-progress",
-        datasets=["hotpotqa"],
-        seed=1,
-        qa_limit=1,
-        negatives_ratio=1.0,
-    )
-    compile.build_subset(
-        ready_connection, compile_id, "hotpotqa", seed=1, qa_limit=1, negatives_ratio=1.0
-    )
-    docs = compile_store.compile_docs(ready_connection, compile_id)[:2]
-    for index, doc in enumerate(docs):
-        compile_store.record_page(
-            ready_connection, compile_id, doc["dataset"], doc["doc_id"],
-            page_id=f"target-{index}", error=None,
-        )
-    task_id = task_store.create_task(ready_connection, stage="compile", params={})
-    task_store.set_task_target(ready_connection, task_id, "compile", compile_id)
-    ready_connection.commit()
+    _, task_id = compile_with_pages(ready_connection, "target-progress", ["target-0", "target-1"])
 
     class RunPages(FakeClient):
         def run_pages(self, run_id, *, page=1, limit=100):
@@ -765,25 +751,8 @@ def test_compile_progress_counts_only_current_compile_pages(ready_connection):
 
 
 def test_compile_progress_uses_latest_page_status_across_retry_runs(ready_connection):
-    compile_id = compile_store.create_compile_run(
-        ready_connection, run_id="retry-progress", datasets=["hotpotqa"],
-        seed=1, qa_limit=1, negatives_ratio=1.0,
-    )
-    compile.build_subset(
-        ready_connection, compile_id, "hotpotqa", seed=1, qa_limit=1, negatives_ratio=1.0
-    )
-    docs = compile_store.compile_docs(ready_connection, compile_id)[:2]
-    page_ids = []
-    for index, doc in enumerate(docs):
-        page_id = f"retry-target-{index}"
-        page_ids.append(page_id)
-        compile_store.record_page(
-            ready_connection, compile_id, doc["dataset"], doc["doc_id"],
-            page_id=page_id, error=None,
-        )
-    task_id = task_store.create_task(ready_connection, stage="compile", params={})
-    task_store.set_task_target(ready_connection, task_id, "compile", compile_id)
-    ready_connection.commit()
+    page_ids = ["retry-target-0", "retry-target-1"]
+    _, task_id = compile_with_pages(ready_connection, "retry-progress", page_ids)
 
     class RunPages(FakeClient):
         def run_pages(self, run_id, *, page=1, limit=100):
@@ -806,17 +775,8 @@ def test_compile_progress_uses_latest_page_status_across_retry_runs(ready_connec
 
 
 def test_compile_progress_uses_remote_total_when_retrying(ready_connection, monkeypatch):
-    compile_id = compile_store.create_compile_run(
-        ready_connection,
-        run_id="remote-total",
-        datasets=["hotpotqa"],
-        seed=1,
-        qa_limit=1,
-        negatives_ratio=1.0,
-    )
-    task_id = task_store.create_task(ready_connection, stage="compile", params={})
-    task_store.set_task_target(ready_connection, task_id, "compile", compile_id)
-    ready_connection.commit()
+    compile_id = make_compile_run(ready_connection, "remote-total", ["hotpotqa"], qa_limit=1)
+    task_id = bind_compile_task(ready_connection, compile_id)
     page_ids = [f"page-{index}" for index in range(244)]
     monkeypatch.setattr(
         compile.compile_store,
@@ -853,21 +813,7 @@ def test_compile_progress_uses_remote_total_when_retrying(ready_connection, monk
 
 
 def test_compile_progress_counts_merge_failure_as_failed(ready_connection):
-    compile_id = compile_store.create_compile_run(
-        ready_connection, run_id="merge-progress", datasets=["hotpotqa"],
-        seed=1, qa_limit=1, negatives_ratio=1.0,
-    )
-    compile.build_subset(
-        ready_connection, compile_id, "hotpotqa", seed=1, qa_limit=1, negatives_ratio=1.0
-    )
-    doc = compile_store.compile_docs(ready_connection, compile_id)[0]
-    compile_store.record_page(
-        ready_connection, compile_id, doc["dataset"], doc["doc_id"],
-        page_id="merge-page", error=None,
-    )
-    task_id = task_store.create_task(ready_connection, stage="compile", params={})
-    task_store.set_task_target(ready_connection, task_id, "compile", compile_id)
-    ready_connection.commit()
+    _, task_id = compile_with_pages(ready_connection, "merge-progress", ["merge-page"])
 
     class MergeFailed(FakeClient):
         def run_pages(self, run_id, *, page=1, limit=100):
@@ -882,10 +828,7 @@ def test_compile_progress_counts_merge_failure_as_failed(ready_connection):
 
 
 def test_retry_batches_resume_current_run_before_submitting_pending(ready_connection, monkeypatch):
-    compile_id = compile_store.create_compile_run(
-        ready_connection, run_id="retry-state", datasets=["hotpotqa"],
-        seed=1, qa_limit=1, negatives_ratio=1.0,
-    )
+    compile_id = make_compile_run(ready_connection, "retry-state", ["hotpotqa"], qa_limit=1)
     current = [f"current-{index}" for index in range(100)]
     pending = [f"pending-{index}" for index in range(6)]
     retry_state = {
@@ -910,7 +853,7 @@ def test_retry_batches_resume_current_run_before_submitting_pending(ready_connec
             submitted.append(list(page_ids))
             return {"jobIds": ["run-pending"], "queuedPageCount": 1}
 
-    def wait(_ctx, _client, _space, _config, **kwargs):
+    def wait(_ctx, _client, _space, **kwargs):
         count = len(kwargs["progress_page_ids"])
         return {
             "status_counts": {"succeeded": 1}, "no_runs": False,
@@ -919,9 +862,7 @@ def test_retry_batches_resume_current_run_before_submitting_pending(ready_connec
         }
 
     monkeypatch.setattr(compile, "_wait_for_compile", wait)
-    result, run_count = compile._retry_batches(
-        ctx, RetryClient(None), "space", AkashaConfig()
-    )
+    result, run_count = compile._retry_batches(ctx, RetryClient(None), "space")
 
     assert submitted == [pending]
     assert run_count == 2
@@ -931,13 +872,8 @@ def test_retry_batches_resume_current_run_before_submitting_pending(ready_connec
 
 
 def test_retry_batches_reject_inconsistent_remote_run_count(ready_connection):
-    compile_id = compile_store.create_compile_run(
-        ready_connection, run_id="bad-retry-count", datasets=["hotpotqa"],
-        seed=1, qa_limit=1, negatives_ratio=1.0,
-    )
-    task_id = task_store.create_task(ready_connection, stage="compile", params={})
-    task_store.set_task_target(ready_connection, task_id, "compile", compile_id)
-    ready_connection.commit()
+    compile_id = make_compile_run(ready_connection, "bad-retry-count", ["hotpotqa"], qa_limit=1)
+    task_id = bind_compile_task(ready_connection, compile_id)
 
     class BadCount(FakeClient):
         def retry_pages(self, page_ids):
@@ -948,7 +884,6 @@ def test_retry_batches_reject_inconsistent_remote_run_count(ready_connection):
             context(ready_connection, {}, task_id=task_id),
             BadCount(None),
             "space",
-            AkashaConfig(),
             ["page-1"],
         )
 
@@ -956,7 +891,6 @@ def test_retry_batches_reject_inconsistent_remote_run_count(ready_connection):
 def test_compile_does_not_finish_on_historical_run_before_new_run_appears(
     ready_connection, monkeypatch
 ):
-    from akasha_benchmark.config import AkashaConfig
     monkeypatch.setattr(compile, "POLL_INTERVAL_SECONDS", 0)
 
     class Delayed(FakeClient):
@@ -990,7 +924,6 @@ def test_compile_does_not_finish_on_historical_run_before_new_run_appears(
         context(ready_connection, {}),
         client,
         "space-1",
-        AkashaConfig(),
         expect_runs=1,
         baseline_run_ids={"old"},
         baseline_sequence=1,
@@ -1142,14 +1075,7 @@ def test_compile_resume_retries_only_failed_remote_pages(ready_connection, monke
 
 
 def test_compile_resume_adopts_active_remote_run(ready_connection, monkeypatch):
-    compile_id = compile_store.create_compile_run(
-        ready_connection,
-        run_id="recover",
-        datasets=["hotpotqa"],
-        seed=1,
-        qa_limit=1,
-        negatives_ratio=1.0,
-    )
+    compile_id = make_compile_run(ready_connection, "recover", ["hotpotqa"], qa_limit=1)
     compile.build_subset(
         ready_connection,
         compile_id,
@@ -1409,8 +1335,6 @@ def test_compile_retries_then_pauses_and_resume_only_imports_pending(
     assert compile_calls == 1
 
 
-
-
 def _compiled(connection, monkeypatch) -> int:
     monkeypatch.setattr(compile, "AkashaClient", lambda config: FakeClient(config))
     execute(
@@ -1521,11 +1445,6 @@ def test_compile_uses_remote_models_without_changing_them(ready_connection, monk
 
 
 def test_query_refuses_on_workspace_mismatch(ready_connection, monkeypatch):
-
-
-
-
-
     compile_id = _compiled(ready_connection, monkeypatch)
 
     class OtherWorkspace(FakeClient):
@@ -1580,14 +1499,7 @@ def test_workspace_mismatch_rejects_missing_record(ready_connection, monkeypatch
 
 
 def test_query_refuses_unready_compile(ready_connection, monkeypatch):
-    compile_id = compile_store.create_compile_run(
-        ready_connection,
-        run_id="half",
-        datasets=["hotpotqa"],
-        seed=1,
-        qa_limit=1,
-        negatives_ratio=1.0,
-    )
+    compile_id = make_compile_run(ready_connection, "half", ["hotpotqa"], qa_limit=1)
     ready_connection.commit()
     monkeypatch.setattr(query, "AkashaClient", lambda config: FakeClient(config))
     with pytest.raises(ValueError, match="不能用于查询"):
@@ -1616,6 +1528,35 @@ def test_query_records_responses_and_resumes(ready_connection, monkeypatch):
 
     execute(query.run, ctx)
     assert clients[-1].queries == []
+
+
+def test_query_quality_gate_rejects_generation_unavailable_answer(ready_connection, monkeypatch):
+    compile_id = _compiled(ready_connection, monkeypatch)
+
+    class EmptyAnswerClient(FakeClient):
+        def query(self, question, space_ids):
+            from akasha_benchmark.akasha_client import Response
+
+            self.queries.append(question)
+            return Response(
+                status=200,
+                body={
+                    "answerMode": "knowledge",
+                    "answer": query_store.ANSWER_GENERATION_UNAVAILABLE,
+                    "retrievedSources": [{"sourcePageId": "p1"}],
+                },
+                latency_ms=10,
+            )
+
+    monkeypatch.setattr(query, "AkashaClient", lambda config: EmptyAnswerClient(config))
+    ctx = context(ready_connection, {"compile_id": compile_id, "name": "empty-answer"})
+
+    with pytest.raises(RuntimeError, match="质量阀门"):
+        execute(query.run, ctx)
+
+    run = query_store.query_run_by_name(ready_connection, "empty-answer")
+    assert run["status"] == run_store.STATUS_FAILED
+    assert query_store.retryable_response_count(ready_connection, int(run["id"])) == 2
 
 
 def test_query_resume_refuses_remote_answer_config_drift(ready_connection, monkeypatch):
@@ -1674,9 +1615,7 @@ def test_query_uses_frozen_selection(ready_connection, monkeypatch):
 
 def test_query_rejects_name_from_another_compile(ready_connection, monkeypatch):
     compile_id = _compiled(ready_connection, monkeypatch)
-    other = compile_store.create_compile_run(
-        ready_connection, run_id="other", datasets=[], seed=1, qa_limit=1, negatives_ratio=1.0
-    )
+    other = make_compile_run(ready_connection, "other", [], qa_limit=1)
     query_store.create_query_run(
         ready_connection,
         name="taken",

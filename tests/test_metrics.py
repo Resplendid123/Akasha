@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import pytest
@@ -215,8 +213,6 @@ def test_every_registered_metric_has_structured_evidence_and_formula():
     assert all(row.get("formula") for row in evidence.values())
 
 
-
-
 def _sample(metrics: dict, mode: str = "knowledge", gold=("g1",)) -> dict:
     return {
         "answer_mode": mode,
@@ -224,6 +220,13 @@ def _sample(metrics: dict, mode: str = "knowledge", gold=("g1",)) -> dict:
         "answer": "x",
         "detail": {"gold_doc_ids": list(gold), "question": "q"},
     }
+
+
+def _musique(metrics: dict, steps: list[dict], mode: str = "general") -> dict:
+    sample = _sample(metrics, mode=mode)
+    sample["dataset"] = "musique"
+    sample["detail"]["metadata"] = {"question_decomposition": steps}
+    return sample
 
 
 def test_correct_answer_has_an_explicit_root_cause():
@@ -235,11 +238,11 @@ def test_answer_correct_uses_reference_token_coverage():
     sample = _sample({"hit@5": 1.0}, mode="knowledge")
     sample["answer"] = "You would not see the Brooklyn Nets play there."
     sample["detail"]["reference_answers"] = ["Brooklyn Nets"]
-    assert attribution.classify(sample, []) ["root_cause"] == attribution.CAUSE_ANSWER_CORRECT
+    assert attribution.classify(sample, [])["root_cause"] == attribution.CAUSE_ANSWER_CORRECT
 
     sample["answer"] = "This is a complete explanation."
     sample["detail"]["reference_answers"] = ["in"]
-    assert attribution.classify(sample, []) ["root_cause"] == attribution.CAUSE_ANSWER_INCORRECT
+    assert attribution.classify(sample, [])["root_cause"] == attribution.CAUSE_ANSWER_INCORRECT
 
 
 def test_rule_attribution_ignores_judge_metrics():
@@ -380,6 +383,7 @@ def test_general_with_retrieval_is_not_classified_as_no_evidence_fallback():
     )
     assert ruling["root_cause"] == attribution.CAUSE_GENERATION_IGNORED_RETRIEVAL
 
+
 def test_general_partial_recall_is_evidence_incomplete():
     ruling = attribution.classify(
         _sample({"hit@5": 1.0, "recall@5": 0.5}, mode="general"), []
@@ -395,10 +399,9 @@ def test_general_retrieval_uses_full_detail_when_hit_metric_was_not_selected():
 
 
 def test_musique_evidence_chain_marks_complete_context_as_false_negative_candidate():
-    sample = _sample({"hit@10": 1.0}, mode="general")
-    sample["dataset"] = "musique"
-    sample["detail"]["metadata"] = {
-        "question_decomposition": [
+    sample = _musique(
+        {"hit@10": 1.0},
+        [
             {
                 "id": 1,
                 "question": "Who made X?",
@@ -415,8 +418,8 @@ def test_musique_evidence_chain_marks_complete_context_as_false_negative_candida
                 "support_title": "X history",
                 "support_text": "X was made by Acme in 2020.",
             },
-        ]
-    }
+        ],
+    )
     response = {
         "answerMode": "general",
         "snippets": [
@@ -442,22 +445,17 @@ def test_musique_evidence_chain_marks_complete_context_as_false_negative_candida
 
 
 def test_musique_evidence_chain_marks_missing_step():
-    sample = _sample({}, mode="general")
-    sample["dataset"] = "musique"
-    sample["detail"]["metadata"] = {
-        "question_decomposition": [
-            {
-                "answer": "Acme",
-                "support_title": "X",
-                "support_text": "X was made by Acme.",
-            },
+    sample = _musique(
+        {},
+        [
+            {"answer": "Acme", "support_title": "X", "support_text": "X was made by Acme."},
             {
                 "answer": "2020",
                 "support_title": "X history",
                 "support_text": "The year was 2020.",
             },
-        ]
-    }
+        ],
+    )
     chain = attribution.analyze_evidence_chain(
         sample,
         {"snippets": [{"title": "X", "text": "X was made by Acme."}]},
@@ -483,15 +481,15 @@ def test_knowledge_empty_generation_is_not_misattributed_as_citation_drop():
 
 
 def test_compiled_answer_analysis_distinguishes_source_and_compilation_loss():
-    sample = _sample({}, mode="knowledge")
-    sample["dataset"] = "musique"
-    sample["detail"]["metadata"] = {
-        "question_decomposition": [
+    sample = _musique(
+        {},
+        [
             {"question": "Who?", "answer": "Acme", "support_doc_id": "d1"},
             {"question": "When?", "answer": "2020", "support_doc_id": "d2"},
             {"question": "Where?", "answer": "Paris", "support_doc_id": "d3"},
-        ]
-    }
+        ],
+        mode="knowledge",
+    )
     analysis = attribution.analyze_compiled_answers(
         sample,
         [
@@ -511,17 +509,17 @@ def test_compiled_answer_analysis_distinguishes_source_and_compilation_loss():
 
 
 def test_compiled_answer_analysis_uses_eighty_percent_token_recall():
-    sample = _sample({}, mode="knowledge")
-    sample["dataset"] = "musique"
-    sample["detail"]["metadata"] = {
-        "question_decomposition": [
+    sample = _musique(
+        {},
+        [
             {
                 "question": "Where?",
                 "answer": "Cairo Illinois river city county",
                 "support_doc_id": "d1",
             }
-        ]
-    }
+        ],
+        mode="knowledge",
+    )
     analysis = attribution.analyze_compiled_answers(
         sample,
         [
@@ -562,13 +560,9 @@ def test_compiled_answer_missing_outranks_retrieval_and_citation_symptoms():
 
 
 def test_evidence_chain_does_not_treat_retrieved_source_title_as_claim():
-    sample = _sample({}, mode="general")
-    sample["dataset"] = "musique"
-    sample["detail"]["metadata"] = {
-        "question_decomposition": [
-            {"answer": "Acme", "support_title": "X", "support_text": "X was made by Acme."}
-        ]
-    }
+    sample = _musique(
+        {}, [{"answer": "Acme", "support_title": "X", "support_text": "X was made by Acme."}]
+    )
     chain = attribution.analyze_evidence_chain(
         sample,
         {"retrievedSources": [{"title": "X was made by Acme."}]},
@@ -577,17 +571,16 @@ def test_evidence_chain_does_not_treat_retrieved_source_title_as_claim():
 
 
 def test_evidence_chain_keeps_all_matching_retrieved_evidence():
-    sample = _sample({}, mode="general")
-    sample["dataset"] = "musique"
-    sample["detail"]["metadata"] = {
-        "question_decomposition": [
+    sample = _musique(
+        {},
+        [
             {
                 "answer": "Acme",
                 "support_title": "X",
                 "support_text": "Acme was founded in 2020 by Jane.",
             }
-        ]
-    }
+        ],
+    )
     response = {
         "snippets": [
             {"title": f"candidate-{index}", "text": text}

@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -37,7 +35,6 @@ def eval_samples(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-
     with db(request) as connection:
         if eval_store.get_eval_run(connection, eval_id) is None:
             raise HTTPException(404, f"评测 #{eval_id} 不存在")
@@ -169,6 +166,8 @@ def sample_detail(request: Request, eval_id: int, sample_id: str) -> dict[str, A
             },
             "judge_verdicts": verdicts,
         }
+
+
 @router.delete("/evals/{eval_id}")
 def delete_eval(request: Request, eval_id: int) -> dict[str, Any]:
 
@@ -178,7 +177,6 @@ def delete_eval(request: Request, eval_id: int) -> dict[str, Any]:
         reject_if_busy(connection, "eval", eval_id)
         removed = eval_store.delete_eval_run(connection, eval_id)
     return {"deleted": removed}
-
 
 
 @router.get("/attributions/{attribution_id}")
@@ -211,10 +209,6 @@ def delete_attribution(request: Request, attribution_id: int) -> dict[str, Any]:
 
 @router.get("/lineage/{page_id}")
 def lineage(request: Request, page_id: str, question: str = "") -> dict[str, Any]:
-
-
-
-
 
     with db(request) as connection:
         config = load_config(connection)

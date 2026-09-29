@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import os
@@ -25,10 +23,6 @@ class Settings:
 
     def validate_binding(self) -> None:
 
-
-
-
-
         if not self.is_loopback():
             raise RuntimeError(
                 f"拒绝绑定 {self.host}：该服务持有 Akasha 管理员凭据并能启动长任务。"
@@ -45,7 +39,6 @@ class Settings:
 
 
 def load_settings() -> Settings:
-
 
     def env(name: str, default: str = "") -> str:
         return os.environ.get(f"{ENV_PREFIX}{name}", default)

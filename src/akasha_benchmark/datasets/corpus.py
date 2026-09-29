@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -15,8 +9,6 @@ from .models import CORPUS_ID_RULES, CorpusDoc
 
 
 class CorpusIndex:
-
-
     def __init__(self, dataset: str, docs: list[CorpusDoc]) -> None:
         self.dataset = dataset
         self.docs = docs
@@ -30,7 +22,6 @@ class CorpusIndex:
                 )
             self.by_id[doc.doc_id] = doc
 
-
         self.title_to_ids: dict[str, list[str]] = defaultdict(list)
         self.pair_to_id: dict[tuple[str, str], str] = {}
         collisions: list[tuple[str, str]] = []
@@ -41,7 +32,6 @@ class CorpusIndex:
                 collisions.append(key)
             else:
                 self.pair_to_id[key] = doc.doc_id
-
 
         if collisions:
             title, text = collisions[0]

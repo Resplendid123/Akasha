@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import json
@@ -68,7 +66,6 @@ def dataset_dir(tmp_path: Path) -> Path:
     return directory
 
 
-
 ITFAQ_QA_ROWS = [
     {"id": "qa_001", "question": "怎么申请手机？", "answer": "走 IT 设备申请流程。"},
     {"id": "qa_002", "question": "显卡坏了怎么换？", "answer": "到 IT 现场登记后更换。"},
@@ -97,7 +94,6 @@ def itfaq_dataset_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def itfaq_normalized(db, itfaq_dataset_dir: Path, monkeypatch):
-
     from akasha_benchmark.datasets.itfaq import ITFaqAdapter
     from akasha_benchmark.stages import normalize
 
@@ -108,10 +104,8 @@ def itfaq_normalized(db, itfaq_dataset_dir: Path, monkeypatch):
 
 @pytest.fixture
 def normalized(db, dataset_dir: Path, monkeypatch):
-
     from akasha_benchmark.datasets.hotpotqa import HotpotQAAdapter
     from akasha_benchmark.stages import normalize
-
 
     monkeypatch.setattr(HotpotQAAdapter, "expected_qa_rows", lambda self: None)
     normalize.normalize_dataset(db, "hotpotqa", None, dataset_dir)
@@ -119,11 +113,16 @@ def normalized(db, dataset_dir: Path, monkeypatch):
     return db
 
 
+def make_compile_run(connection, run_id="r", datasets=("d",), **overrides) -> int:
+    params = {"seed": 1, "qa_limit": 2, "negatives_ratio": 1.0} | overrides
+    return compile_store.create_compile_run(
+        connection, run_id=run_id, datasets=list(datasets), **params
+    )
+
+
 @pytest.fixture
 def compile_id(db):
-    return compile_store.create_compile_run(
-        db, run_id="r", datasets=["d"], seed=1, qa_limit=2, negatives_ratio=1.0
-    )
+    return make_compile_run(db)
 
 
 @pytest.fixture

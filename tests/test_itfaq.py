@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import threading
@@ -16,6 +14,7 @@ from akasha_benchmark.metrics import registry
 from akasha_benchmark.stages import compile, download
 from akasha_benchmark.store import compile_store, data_store
 from akasha_benchmark.task import TaskContext
+from conftest import make_compile_run
 
 
 def _context(connection, params: dict) -> TaskContext:
@@ -47,7 +46,6 @@ def _missing_status() -> list[dict[str, object]]:
     ]
 
 
-
 def test_sample_and_doc_ids_come_from_native_fields(itfaq_normalized):
     samples = data_store.samples_of(itfaq_normalized, "itfaq")
     assert [s["sample_id"] for s in samples] == [
@@ -77,8 +75,6 @@ def test_parse_row_rejects_missing_required_values(row, field):
         adapter.parse_row(row, 0, None)
 
 
-
-
 def test_retrieval_family_is_omitted_not_zeroed():
     adapter = get_adapter("itfaq")
     assert DataDependency.GOLD_DOCS not in adapter.provides
@@ -87,13 +83,9 @@ def test_retrieval_family_is_omitted_not_zeroed():
     assert not ({"em", "f1", "answer_correctness", "faithfulness"} & omitted)
 
 
-
-
 def test_full_corpus_keeps_every_doc_while_limiting_qa(itfaq_normalized):
     assert get_adapter("itfaq").subset_strategy is SubsetStrategy.FULL_CORPUS
-    compile_id = compile_store.create_compile_run(
-        itfaq_normalized, run_id="r", datasets=["itfaq"], seed=7, qa_limit=1, negatives_ratio=1.0
-    )
+    compile_id = make_compile_run(itfaq_normalized, datasets=["itfaq"], seed=7, qa_limit=1)
     itfaq_normalized.commit()
     stats = compile.build_subset(
         itfaq_normalized, compile_id, "itfaq", seed=7, qa_limit=1, negatives_ratio=1.0
@@ -108,14 +100,10 @@ def test_full_corpus_keeps_every_doc_while_limiting_qa(itfaq_normalized):
     assert not any(d["is_gold"] for d in docs)
 
 
-
-
 def test_markdown_does_not_repeat_existing_heading(itfaq_normalized):
     markdown = compile.markdown_of(itfaq_normalized, "itfaq", "doc_001")
     assert markdown.startswith("# 设备申请说明")
     assert markdown.count("# 设备申请说明") == 1
-
-
 
 
 def test_itfaq_is_not_downloadable():

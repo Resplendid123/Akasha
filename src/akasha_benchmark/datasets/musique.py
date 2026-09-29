@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any, ClassVar
@@ -24,9 +10,6 @@ HOP_PREFIXES = ("2hop", "3hop1", "3hop2", "4hop1", "4hop2", "4hop3")
 
 
 def hop_prefix(dataset_sample_id: str) -> str:
-
-
-
 
     prefix = dataset_sample_id.split("__", 1)[0]
     if prefix not in HOP_PREFIXES:
@@ -85,7 +68,6 @@ class MusiqueAdapter(DatasetAdapter):
 
         if not gold_ids:
             raise ValueError(f"{self.name}: row {row_index} has no is_supporting paragraph")
-
 
         answers: dict[str, None] = {answer: None}
         for alias in row.get("answer_aliases") or []:

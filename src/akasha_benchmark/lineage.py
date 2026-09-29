@@ -1,11 +1,8 @@
-
-
 from __future__ import annotations
 
 import hashlib
 from typing import Any
 from uuid import UUID
-
 
 
 ARTIFACTS_OF_SOURCE = """
@@ -55,7 +52,6 @@ ORDER BY e.relation
 """
 
 
-
 COMPILED_SOURCE_PAGES = """
 SELECT DISTINCT kps.source_page_id
 FROM knowledge_page_sources kps
@@ -84,8 +80,6 @@ def _rows(cursor) -> list[dict[str, Any]]:
 
 
 class LineageReader:
-
-
     def __init__(self, database_url: str) -> None:
         if not database_url:
             raise LineageUnavailable(

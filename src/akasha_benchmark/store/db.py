@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import json
@@ -13,6 +11,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DB_PATH = REPO_ROOT / "akasha_bench.db"
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+
+
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -31,10 +31,6 @@ def loads(value: str | None, default: Any = None) -> Any:
 
 
 def connect(path: Path | None = None, *, read_only: bool = False) -> sqlite3.Connection:
-
-
-
-
 
     target = path or DEFAULT_DB_PATH
     if read_only:

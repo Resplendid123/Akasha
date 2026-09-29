@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import re
@@ -71,7 +69,6 @@ def task_tree(request: Request) -> dict[str, Any]:
 def task_detail(
     request: Request, task_id: int, after_id: int = Query(0, ge=0)
 ) -> dict[str, Any]:
-
     with db(request) as connection:
         task = task_store.get_task(connection, task_id)
         if task is None:
@@ -95,7 +92,6 @@ def start_chain(request: Request, args: dict[str, Any] = Body(default={})) -> di
 def start_task(
     request: Request, stage: str, args: dict[str, Any] = Body(default={})
 ) -> dict[str, Any]:
-
     try:
         return runner_of(request).start(stage, args)
     except TaskRejected as exc:
@@ -140,6 +136,5 @@ def cleanup_inactive(request: Request) -> dict[str, Any]:
 def audit(
     request: Request, stage: str | None = None, limit: int = Query(200, ge=1, le=2000)
 ) -> list[dict[str, Any]]:
-
     with db(request) as connection:
         return task_store.audit_logs(connection, stage=stage, limit=limit)

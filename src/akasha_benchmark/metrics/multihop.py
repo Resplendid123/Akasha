@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from collections import Counter
@@ -26,7 +20,6 @@ def snippet_doc_ids(snippet: dict[str, Any], page_to_doc: dict[str, str]) -> set
 def evaluate_sample(
     snippets: Sequence[dict[str, Any]], gold: Sequence[str], page_to_doc: dict[str, str]
 ) -> dict[str, Any]:
-
     gold_set = set(gold)
     reason_counts: Counter[str] = Counter()
     reason_gold_counts: Counter[str] = Counter()
@@ -43,7 +36,6 @@ def evaluate_sample(
         docs = snippet_doc_ids(snippet, page_to_doc)
         hits = docs & gold_set
 
-
         for reason in set(reasons):
             reason_counts[reason] += 1
             reason_docs.setdefault(reason, set()).update(docs)
@@ -59,7 +51,6 @@ def evaluate_sample(
                 gold_only_from_graph |= hits
         if DIRECT_REASONS.intersection(reasons) or GRAPH_NEIGHBOR not in reasons:
             gold_from_other |= hits
-
 
     graph_exclusive_gold = gold_only_from_graph - gold_from_other
 

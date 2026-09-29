@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -31,7 +25,6 @@ def evaluate_sample(
     gold: Sequence[str],
     page_to_doc: dict[str, str],
 ) -> dict[str, float]:
-
     gold_set = set(gold)
     cited = to_doc_ids(citations, page_to_doc)
     retrieved_docs = to_doc_ids(retrieved, page_to_doc)

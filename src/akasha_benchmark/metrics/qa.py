@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import re
@@ -34,8 +32,6 @@ def token_f1(prediction: str, reference: str) -> float:
     pred_tokens = tokenize(prediction)
     ref_tokens = tokenize(reference)
 
-
-
     if not pred_tokens or not ref_tokens:
         return float(pred_tokens == ref_tokens)
 
@@ -60,10 +56,6 @@ def score_answer(prediction: str, references: Sequence[str]) -> dict[str, float]
 
 
 def answer_mode_distribution(modes: Sequence[str | None]) -> dict[str, float]:
-
-
-
-
 
     total = len(modes)
     if not total:

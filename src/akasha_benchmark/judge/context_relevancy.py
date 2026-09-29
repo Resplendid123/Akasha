@@ -1,8 +1,3 @@
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -48,7 +43,6 @@ def build_context(response: dict[str, Any]) -> tuple[str, int]:
 def parse_verdict(
     payload: dict[str, Any], expected: int
 ) -> tuple[float | None, dict[str, Any]]:
-
     passages = payload.get("passages")
     if not isinstance(passages, list):
         raise ValueError(f"expected a list under 'passages', got {type(passages).__name__}")

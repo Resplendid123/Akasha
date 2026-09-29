@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any, ClassVar
@@ -42,7 +35,6 @@ class NarrativeQAAdapter(DatasetAdapter):
         if not isinstance(document, dict) or not document.get("id"):
             raise ValueError(f"{self.name}: row {row_index} has no document.id")
         document_id = document["id"]
-
 
         native_id = str(row_index)
         return CanonicalSample(

@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,8 +17,6 @@ KIND_JUDGE = "judge"
 
 @dataclass(frozen=True)
 class MetricDefinition:
-
-
     name: str
     family: str
     requires: frozenset[DataDependency]

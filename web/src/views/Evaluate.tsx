@@ -33,11 +33,11 @@ import {
 } from '../ui'
 
 const FAMILIES = [
-  { key: 'retrieval', label: '检索质量', hint: '召回够不够，需要 gold 标注' },
-  { key: 'qa', label: '生成质量', hint: '与参考答案比字面，确定性计算' },
+  { key: 'retrieval', label: '检索质量', hint: '需要 gold 标注' },
+  { key: 'qa', label: '生成质量', hint: '与参考答案的字面相似度' },
   { key: 'attribution', label: '引用归因', hint: '引用与召回的差距' },
   { key: 'multihop', label: '多跳', hint: '图扩展的增量价值' },
-  { key: 'judge', label: 'Judge 模型', hint: '逐条调模型' },
+  { key: 'judge', label: 'Judge 模型', hint: '逐条调用模型' },
 ] as const
 
 type MetricFamily = (typeof FAMILIES)[number]['key']
@@ -587,34 +587,34 @@ function SampleResults({
       {samples.data.total === 0 ? (
         <p className="small muted">没有匹配的样本。</p>
       ) : (
-      <table>
-        <thead>
-          <tr>
-            <th>sample_id</th>
-            <th>问题</th>
-            <th>答案模式</th>
-            <th>指标</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {samples.data.samples.map((sample) => (
-            <tr key={sample.sample_id}>
-              <td className="mono small">{sample.sample_id}</td>
-              <td className="small">{sample.question}</td>
-              <td><ModeTag mode={sample.answer_mode} /></td>
-              <td>
-                <MetricTags metrics={sample.metrics} family={family} definitions={definitions} />
-              </td>
-              <td>
-                <button className="action small" onClick={() => setOpenSample(sample.sample_id)}>
-                  查看详情
-                </button>
-              </td>
+        <table>
+          <thead>
+            <tr>
+              <th>sample_id</th>
+              <th>问题</th>
+              <th>答案模式</th>
+              <th>指标</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {samples.data.samples.map((sample) => (
+              <tr key={sample.sample_id}>
+                <td className="mono small">{sample.sample_id}</td>
+                <td className="small">{sample.question}</td>
+                <td><ModeTag mode={sample.answer_mode} /></td>
+                <td>
+                  <MetricTags metrics={sample.metrics} family={family} definitions={definitions} />
+                </td>
+                <td>
+                  <button className="action small" onClick={() => setOpenSample(sample.sample_id)}>
+                    查看详情
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
       {samples.data.total > 0 && (
         <Pager

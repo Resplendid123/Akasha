@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -31,7 +29,6 @@ _HOST_URLS = {"base_url", "database_url"}
 
 
 def _prefer_ipv4(url: str) -> str:
-
 
     parts = urlsplit(url)
     if parts.hostname != "localhost":
@@ -90,7 +87,6 @@ def upsert_model_provider(
     parameters: dict[str, Any] | None = None,
     model_id: int | None = None,
 ) -> int:
-
     if purpose not in MODEL_PURPOSES:
         raise ValueError(f"purpose must be one of {MODEL_PURPOSES}")
     values = (

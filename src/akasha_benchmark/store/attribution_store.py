@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -63,7 +61,6 @@ def record_report(
     error: str | None,
     latency_ms: int | None,
 ) -> None:
-
     connection.execute(
         "UPDATE attribution_run SET report = ?, report_error = ?, report_latency_ms = ? "
         "WHERE id = ?",

@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 import base64
@@ -24,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -125,34 +111,22 @@ def _write_auth_cache(tokens: dict[str, str]) -> None:
         temporary.replace(_AUTH_CACHE_PATH)
     except OSError:
         if temporary is not None:
-            try:
+            with suppress(OSError):
                 temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _rewind_files(files: Any) -> None:
-
-
-
-
 
     values = files.values() if isinstance(files, dict) else [v for _, v in files]
     for value in values:
         handle = value[1] if isinstance(value, (tuple, list)) and len(value) > 1 else value
         seek = getattr(handle, "seek", None)
         if callable(seek):
-            try:
+            with suppress(OSError, ValueError):
                 seek(0)
-            except (OSError, ValueError):
-                pass
 
 
 def unwrap_envelope(body: Any) -> Any:
-
-
-
-
 
     if not isinstance(body, dict):
         return body
@@ -164,8 +138,6 @@ def unwrap_envelope(body: Any) -> Any:
 
 
 class AkashaError(RuntimeError):
-
-
     def __init__(self, method: str, url: str, status: int, body: str) -> None:
         super().__init__(f"{method} {url} -> HTTP {status}: {body[:500]}")
         self.method = method
@@ -219,7 +191,6 @@ class AkashaClient:
         raise_for_status: bool = True,
         retry: bool = True,
     ) -> Response:
-
         url = self.config.api(path)
         response, latency_ms = self._request_with_retry(
             method, url, json_body, files, data, retry
@@ -252,11 +223,6 @@ class AkashaClient:
         data: Any | None,
         retry: bool = True,
     ) -> tuple[httpx.Response, int]:
-
-
-
-
-
         max_retries = MAX_RETRIES if retry else 0
         attempt = 0
         while True:
@@ -345,11 +311,6 @@ class AkashaClient:
 
     def _refresh_auth(self, rejected: str | None) -> None:
 
-
-
-
-
-
         key = _auth_cache_key(self.config)
         with _AUTH_LOCK:
             current = _AUTH_TOKENS.get(key)
@@ -374,14 +335,6 @@ class AkashaClient:
     def import_page_text(
         self, filename: str, markdown: str, space_id: str
     ) -> dict[str, Any]:
-
-
-
-
-
-
-
-
         return self.post(
             "pages/import",
             files={"file": (filename, markdown.encode("utf-8"), "text/markdown")},
@@ -396,7 +349,6 @@ class AkashaClient:
     def run_pages(
         self, run_id: str, *, page: int = 1, limit: int = 100
     ) -> dict[str, Any]:
-
         return self.get(
             f"llm-wiki/admin/diagnostics/runs/{run_id}/pages?page={page}&limit={limit}"
         )
@@ -481,7 +433,6 @@ class AkashaClient:
         query_type: str = "user",
         chat_context: list[str] | None = None,
     ) -> Response:
-
         payload: dict[str, Any] = {"query": query, "spaceIds": space_ids, "type": query_type}
         if chat_context:
             payload["chatContext"] = chat_context

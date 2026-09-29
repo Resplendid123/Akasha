@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -84,10 +82,6 @@ def put_connection(request: Request, payload: dict[str, Any] = Body(...)) -> dic
 @router.post("/connection/test")
 def test_connection(request: Request) -> dict[str, Any]:
 
-
-
-
-
     config = config_of(request)
     try:
         config.require_credentials()
@@ -107,7 +101,6 @@ def test_connection(request: Request) -> dict[str, Any]:
     user = (me or {}).get("user") or {}
     workspace = (me or {}).get("workspace") or {}
     role = user.get("role")
-
 
     with db(request) as connection:
         blocked = []
@@ -170,10 +163,6 @@ def get_model_configs(request: Request) -> dict[str, Any]:
 def put_model_config(
     request: Request, feature: str, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-
-
-
-
     if feature not in FEATURES:
         raise HTTPException(422, f"未知配置项 {feature!r}；可用：{list(FEATURES)}")
     payload = {"provider": "openai-compatible", **payload}
@@ -228,8 +217,6 @@ def list_providers(request: Request, role: str | None = None) -> list[dict[str, 
 def put_provider(
     request: Request, role: str, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-
-
     if role not in config_store.MODEL_ROLES:
         raise HTTPException(422, f"role 必须是 {list(config_store.MODEL_ROLES)} 之一")
     label = str(payload.get("label") or "default").strip()
@@ -278,9 +265,6 @@ def put_provider(
 
 @router.post("/providers/{provider_id}/probe")
 def probe_provider(request: Request, provider_id: int) -> dict[str, Any]:
-
-
-
 
     with db(request) as connection:
         record = config_store.get_model_provider(connection, provider_id)

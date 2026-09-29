@@ -1,8 +1,3 @@
-
-
-
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -17,7 +12,6 @@ SUCCEEDED = "succeeded"
 FAILED = "failed"
 
 ACTIVE = (QUEUED, RUNNING)
-TERMINAL = (SUCCEEDED, FAILED)
 
 
 def create_task(connection: sqlite3.Connection, *, stage: str, params: dict[str, Any]) -> int:
@@ -31,7 +25,6 @@ def create_task(connection: sqlite3.Connection, *, stage: str, params: dict[str,
 def transition(
     connection: sqlite3.Connection, task_id: int, status: str, *, error: str | None = None
 ) -> None:
-
     from .run_store import RUN_TABLES, set_run_status
 
     connection.execute(
@@ -71,7 +64,6 @@ def update_progress(
 def set_task_chain(
     connection: sqlite3.Connection, task_id: int, *, chain: list[dict[str, Any]], chain_id: int
 ) -> None:
-
     connection.execute(
         "UPDATE task SET chain_id = ?, chain_json = ? WHERE id = ?",
         (chain_id, dumps(chain), task_id),
@@ -86,7 +78,6 @@ def task_chain(connection: sqlite3.Connection, task_id: int) -> tuple[int | None
     if row is None:
         return None, []
     return row["chain_id"], loads(row["chain_json"], []) or []
-
 
 
 _HIDDEN = ("params_json", "chain_json")
@@ -124,10 +115,6 @@ def count_inactive_tasks(connection: sqlite3.Connection) -> int:
 
 
 def task_tree(connection: sqlite3.Connection) -> dict[str, Any]:
-
-
-
-
 
     from .run_store import STAGE_INPUTS
 

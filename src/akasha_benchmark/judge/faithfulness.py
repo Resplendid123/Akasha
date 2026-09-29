@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -48,9 +39,6 @@ MAX_SNIPPETS = 20
 
 def build_context(response: dict[str, Any]) -> str:
 
-
-
-
     parts: list[str] = []
     for snippet in (response.get("snippets") or [])[:MAX_SNIPPETS]:
         title = snippet.get("title") or ""
@@ -69,9 +57,6 @@ def score_claims(claims: list[dict[str, Any]]) -> float | None:
 
 
 def parse_verdict(payload: dict[str, Any]) -> tuple[float | None, dict[str, Any]]:
-
-
-
 
     claims = payload.get("claims")
     if not isinstance(claims, list):

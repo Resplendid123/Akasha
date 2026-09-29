@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from collections import Counter
@@ -44,7 +42,6 @@ def interpret_sample_metrics(
     omitted_metrics: list[str],
     evidence_by_metric: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-
     names = requested_metric_names(configured_metrics, ks)
     names.extend(
         name
@@ -76,7 +73,6 @@ def build_metric_evidence(
     documents: dict[str, dict[str, Any]],
     verdicts: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-
     names = requested_metric_names(configured_metrics, ks)
     names.extend(
         name for name in values if name not in names and name in registry.METRIC_REGISTRY
@@ -116,7 +112,6 @@ def build_metric_evidence(
     return {
         name: _evidence_for_metric(
             name,
-            values.get(name),
             retrieved,
             citations,
             gold_documents,
@@ -132,7 +127,6 @@ def build_metric_evidence(
 
 def _evidence_for_metric(
     name: str,
-    value: float | None,
     retrieved: list[dict[str, Any]],
     citations: list[dict[str, Any]],
     gold_documents: list[dict[str, Any]],
@@ -551,10 +545,6 @@ def _status(name: str, value: float, higher_is_better: bool) -> str:
     if value >= 0.5:
         return "warning"
     return "bad"
-
-
-def _detail_value(detail: dict[str, Any], section: str, name: str) -> int:
-    return int(((detail.get(section) or {}).get(name) or 0))
 
 
 def _judge_ratio(value: float, detail: dict[str, Any], total_key: str, hit_key: str, label: str) -> str:

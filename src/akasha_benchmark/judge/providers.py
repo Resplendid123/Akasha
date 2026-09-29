@@ -1,5 +1,3 @@
-
-
 import sqlite3
 
 from ..store import config_store
@@ -9,8 +7,6 @@ from .client import JudgeConfigError, JudgeProvider
 def resolve_provider(
     connection: sqlite3.Connection, provider_id: int | None, purpose: str
 ) -> JudgeProvider:
-
-
     record = config_store.get_model_provider(connection, provider_id) if provider_id else None
     if provider_id is not None and record is None:
         raise JudgeConfigError(f"模型端点 #{provider_id} 已不存在")

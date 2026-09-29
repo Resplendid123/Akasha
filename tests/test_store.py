@@ -1,8 +1,7 @@
-
-
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -42,15 +41,24 @@ def sample_dataset(db):
     )
 
 
+def _respond(db, query_id, sample_id, **overrides) -> None:
+    fields = {
+        "dataset": "d",
+        "question": "q",
+        "http_status": 200,
+        "latency_ms": None,
+        "error": None,
+        "response": None,
+    } | overrides
+    query_store.record_response(db, query_id, sample_id=sample_id, **fields)
+
+
 def test_init_db_is_idempotent(db_path):
     init_db(db_path)
-    connection = connect(db_path)
-    try:
+    with closing(connect(db_path)) as connection:
         tables = {
             r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-    finally:
-        connection.close()
     assert {"compile_run", "query_run", "eval_run", "attribution_run", "audit_log"} <= tables
 
 
@@ -91,17 +99,7 @@ def test_pending_query_samples_drives_resume(db, query_id):
         {"sample_id": f"d:{i}", "dataset": "d", "question": f"q{i}"} for i in (1, 2)
     ]
 
-    query_store.record_response(
-        db,
-        query_id,
-        sample_id="d:1",
-        dataset="d",
-        question="q1",
-        http_status=200,
-        latency_ms=10,
-        error=None,
-        response={"answerMode": "knowledge"},
-    )
+    _respond(db, query_id, "d:1", question="q1", latency_ms=10, response={"answerMode": "knowledge"})
     pending = query_store.pending_query_samples(db, query_id)
     assert [p["sample_id"] for p in pending] == ["d:2"]
 
@@ -182,17 +180,7 @@ def test_clear_eval_cascades_metrics_only_for_selected_dataset(db, eval_id):
 )
 def test_response_mode_is_derived_from_current_body(db, query_id, body, mode):
     for response in ({"answerMode": "fallback"}, body):
-        query_store.record_response(
-            db,
-            query_id,
-            sample_id="a",
-            dataset="d",
-            question="q",
-            http_status=200,
-            latency_ms=0,
-            error=None,
-            response=response,
-        )
+        _respond(db, query_id, "a", latency_ms=0, response=response)
     row = query_store.response_of(db, query_id, "a")
     assert row["response"] == body
     assert row["answer_mode"] == mode
@@ -201,20 +189,29 @@ def test_response_mode_is_derived_from_current_body(db, query_id, body, mode):
 
 def test_delete_failed_responses_keeps_successes(db, query_id):
     for sample_id, status in (("a", 200), ("b", 500), ("c", 0)):
-        query_store.record_response(
-            db,
-            query_id,
-            sample_id=sample_id,
-            dataset="d",
-            question="q",
-            http_status=status,
-            latency_ms=None,
-            error=None,
-            response=None,
+        _respond(db, query_id, sample_id, http_status=status)
+
+    assert query_store.delete_retryable_responses(db, query_id) == 2
+    assert [r["sample_id"] for r in query_store.responses_of(db, query_id)] == ["a"]
+
+
+def test_generation_unavailable_answer_is_retryable_despite_http_200(db, query_id):
+    for sample_id, answer in (
+        ("good", "A real answer"),
+        ("empty-en", query_store.ANSWER_GENERATION_UNAVAILABLE),
+        ("empty-zh", query_store.ANSWER_GENERATION_UNAVAILABLE_ZH),
+    ):
+        _respond(
+            db, query_id, sample_id,
+            latency_ms=1, response={"answerMode": "knowledge", "answer": answer},
         )
 
-    assert query_store.delete_failed_responses(db, query_id) == 2
-    assert [r["sample_id"] for r in query_store.responses_of(db, query_id)] == ["a"]
+    stats = query_store.query_stats(db, query_id)["d"]
+    assert stats["responses"] == 3
+    assert stats["failures"] == 2
+    assert query_store.retryable_response_count(db, query_id) == 2
+    assert query_store.delete_retryable_responses(db, query_id) == 2
+    assert [row["sample_id"] for row in query_store.responses_of(db, query_id)] == ["good"]
 
 
 def test_compile_ready_requires_quality_gate(db, compile_id):

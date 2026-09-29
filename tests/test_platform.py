@@ -1,10 +1,8 @@
-
-
 from __future__ import annotations
 
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,6 +20,7 @@ from akasha_benchmark.store import (
     task_store,
 )
 from akasha_platform.main import create_app
+from conftest import make_compile_run
 from akasha_benchmark.metrics.interpretation import build_metric_evidence
 from akasha_platform.settings import Settings
 from akasha_platform.tasks import TaskRejected, TaskRunner
@@ -103,19 +102,6 @@ class _AkashaStub:
         pass
 
 
-def _compile_run(connection, **overrides) -> int:
-    params = {
-        "run_id": "r",
-        "datasets": [],
-        "seed": 1,
-        "qa_limit": 1,
-        "negatives_ratio": 1.0,
-    }
-    return compile_store.create_compile_run(connection, **(params | overrides))
-
-
-
-
 def _register(monkeypatch, name: str, run) -> None:
     monkeypatch.setitem(
         STAGES, name, StageSpec(label=name, run=run, params={"marker": str})
@@ -125,11 +111,8 @@ def _register(monkeypatch, name: str, run) -> None:
 def _wait(settings, task_id: int, statuses: set[str], timeout: float = 5.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        connection = connect(settings.db_path, read_only=True)
-        try:
+        with closing(connect(settings.db_path, read_only=True)) as connection:
             task = task_store.get_task(connection, task_id)
-        finally:
-            connection.close()
         if task and task["status"] in statuses:
             return task
         time.sleep(0.02)
@@ -137,7 +120,6 @@ def _wait(settings, task_id: int, statuses: set[str], timeout: float = 5.0) -> d
 
 
 def test_task_succeeds_and_logs_are_kept_after_cleanup(settings, monkeypatch):
-
     def stage(ctx):
         ctx.log("干了点事")
         ctx.progress(1, 1, "完成")
@@ -149,12 +131,9 @@ def test_task_succeeds_and_logs_are_kept_after_cleanup(settings, monkeypatch):
     assert finished["status"] == task_store.SUCCEEDED
 
     runner.cleanup(int(task["id"]))
-    connection = connect(settings.db_path, read_only=True)
-    try:
+    with closing(connect(settings.db_path, read_only=True)) as connection:
         assert task_store.get_task(connection, int(task["id"])) is None
         messages = [entry["message"] for entry in task_store.audit_logs(connection)]
-    finally:
-        connection.close()
     assert any("干了点事" in message for message in messages)
 
 
@@ -170,7 +149,7 @@ def test_failure_is_recorded_on_the_task(settings, monkeypatch):
 
 
 def test_failed_query_can_create_retry_task_without_original_task(settings, db, monkeypatch):
-    compile_id = _compile_run(db, run_id="retry-query-compile")
+    compile_id = make_compile_run(db, run_id="retry-query-compile")
     query_id = query_store.create_query_run(
         db, name="retry-query", compile_id=compile_id,
         concurrency=3, model_configs={},
@@ -376,22 +355,14 @@ def test_unknown_stage_and_bad_params_are_rejected(settings):
 
 
 def test_recover_marks_orphaned_tasks_paused(settings):
-    connection = connect(settings.db_path)
-    try:
+    with closing(connect(settings.db_path)) as connection:
         task_id = task_store.create_task(connection, stage="compile", params={})
         task_store.transition(connection, task_id, task_store.RUNNING)
         connection.commit()
-    finally:
-        connection.close()
 
     assert TaskRunner(settings).recover() == 1
-    connection = connect(settings.db_path, read_only=True)
-    try:
+    with closing(connect(settings.db_path, read_only=True)) as connection:
         assert task_store.get_task(connection, task_id)["status"] == task_store.PAUSED
-    finally:
-        connection.close()
-
-
 
 
 def test_health(client):
@@ -443,23 +414,15 @@ def test_provider_api_key_never_leaves_the_backend(client):
         "/api/providers/judge",
         json={"label": "d", "base_url": "https://x/v1", "model": "m2", "api_key": ""},
     )
-    connection = connect(client.app.state.settings.db_path, read_only=True)
-    try:
+    with closing(connect(client.app.state.settings.db_path, read_only=True)) as connection:
         from akasha_benchmark.store import config_store
 
         stored = config_store.list_model_providers(connection, "judge")[0]
-    finally:
-        connection.close()
     assert stored["api_key"] == "secret"
     assert stored["model"] == "m2"
 
 
 def test_provider_probe_reports_failure_as_data(client, monkeypatch):
-
-
-
-
-
     from akasha_benchmark.judge.client import JudgeReply
 
     client.put(
@@ -513,8 +476,7 @@ def test_provider_probe_returns_the_reply(client, monkeypatch):
 def test_provider_probe_reports_missing_key(client):
     from akasha_benchmark.store import config_store
 
-    connection = connect(client.app.state.settings.db_path)
-    try:
+    with closing(connect(client.app.state.settings.db_path)) as connection:
         provider_id = config_store.upsert_model_provider(
             connection,
             purpose="judge",
@@ -524,8 +486,6 @@ def test_provider_probe_reports_missing_key(client):
             api_key="",
         )
         connection.commit()
-    finally:
-        connection.close()
 
     payload = client.post(f"/api/providers/{provider_id}/probe").json()
     assert payload["ok"] is False
@@ -547,8 +507,7 @@ def test_provider_does_not_expose_or_use_concurrency(client):
 
     from akasha_benchmark.judge.providers import resolve_provider
 
-    connection = connect(client.app.state.settings.db_path)
-    try:
+    with closing(connect(client.app.state.settings.db_path)) as connection:
         provider_id = config_store.upsert_model_provider(
             connection,
             purpose="judge",
@@ -559,8 +518,6 @@ def test_provider_does_not_expose_or_use_concurrency(client):
         )
         connection.commit()
         resolved = resolve_provider(connection, provider_id, "judge")
-    finally:
-        connection.close()
     assert not hasattr(resolved, "concurrency")
 
 
@@ -592,11 +549,8 @@ def test_akasha_models_are_independent_and_hide_keys(client):
             "api_key": "",
         },
     )
-    connection = connect(client.app.state.settings.db_path, read_only=True)
-    try:
+    with closing(connect(client.app.state.settings.db_path, read_only=True)) as connection:
         stored = config_store.get_model_provider(connection, created["id"])
-    finally:
-        connection.close()
     assert stored["model"] == "answer-model-2"
     assert stored["api_key"] == "secret"
 
@@ -782,15 +736,12 @@ def test_config_import_rejects_bad_role(client):
 
 
 def test_connection_test_flags_compiles_in_another_workspace(client, db_path, monkeypatch):
-    connection = connect(db_path)
-    try:
-        compile_id = _compile_run(connection, run_id="r1")
+    with closing(connect(db_path)) as connection:
+        compile_id = make_compile_run(connection, run_id="r1")
         compile_store.update_compile_run(
             connection, compile_id, space_id="s1", workspace_id="w-original"
         )
         connection.commit()
-    finally:
-        connection.close()
     client.put("/api/connection", json={"base_url": "http://x", "email": "e@x", "password": "p"})
 
     from akasha_platform.api import config as config_api
@@ -1024,7 +975,7 @@ def test_missing_records_return_404(client):
 
 
 def test_compile_query_and_eval_records_are_searchable(client, normalized):
-    compile_id = _compile_run(
+    compile_id = make_compile_run(
         normalized, run_id="searchable", datasets=["hotpotqa"], qa_limit=2
     )
     compile_store.replace_compile_subset(
@@ -1164,7 +1115,7 @@ def test_compile_tree_uses_constant_queries_and_no_postgres(client, normalized, 
     from akasha_platform.api import runs as runs_api
 
     for index in range(4):
-        compile_id = _compile_run(normalized, run_id=f"tree-{index}")
+        compile_id = make_compile_run(normalized, run_id=f"tree-{index}")
         query_id = query_store.create_query_run(
             normalized,
             name=f"tree-query-{index}",
@@ -1221,18 +1172,16 @@ def test_compile_cleanup_cancels_remote_run_and_keeps_space(client, db_path, mon
     class FakeAkasha(_AkashaStub):
         def run_diagnostics(self, space_ids, *, limit=50):
             return {"items": [{"runId": "run-1", "status": "compiling"}]}
+
         def cancel_compile_run(self, run_id, reason):
             calls.append(run_id)
             return {"disposition": "cancelled", "runId": run_id, "status": "cancelled", "removedJobCount": 2}
 
     monkeypatch.setattr("akasha_platform.api.runs.AkashaClient", FakeAkasha)
-    connection = connect(db_path)
-    try:
-        compile_id = _compile_run(connection)
+    with closing(connect(db_path)) as connection:
+        compile_id = make_compile_run(connection)
         compile_store.update_compile_run(connection, compile_id, space_id="space-1")
         connection.commit()
-    finally:
-        connection.close()
 
     body = client.delete(f"/api/compiles/{compile_id}").json()
     assert body["deleted"] == 1
@@ -1244,15 +1193,12 @@ def test_compile_cleanup_cancels_remote_run_and_keeps_space(client, db_path, mon
 
 
 def test_cleanup_refused_while_a_task_writes_the_record(client, db_path):
-    connection = connect(db_path)
-    try:
-        compile_id = _compile_run(connection)
+    with closing(connect(db_path)) as connection:
+        compile_id = make_compile_run(connection)
         task_id = task_store.create_task(connection, stage="compile", params={})
         task_store.transition(connection, task_id, task_store.RUNNING)
         task_store.set_task_target(connection, task_id, "compile", compile_id)
         connection.commit()
-    finally:
-        connection.close()
     assert client.delete(f"/api/compiles/{compile_id}").status_code == 409
 
 

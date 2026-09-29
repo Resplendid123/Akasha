@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import threading
@@ -35,17 +33,12 @@ class TaskRejected(RuntimeError):
 
 
 class TaskRunner:
-
-
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._pauses: dict[int, threading.Event] = {}
         self._lock = threading.Lock()
 
     def recover(self) -> int:
-
-
-
 
         connection = connect(self.settings.db_path)
         try:
@@ -104,9 +97,6 @@ class TaskRunner:
 
     def start_chain(self, args: dict[str, Any]) -> dict[str, Any]:
 
-
-
-
         connection = connect(self.settings.db_path)
         try:
             try:
@@ -137,9 +127,9 @@ class TaskRunner:
             query_run = query_store.get_query_run(connection, query_id)
             if query_run is None:
                 raise TaskRejected(f"查询 #{query_id} 不存在")
-            failures = query_store.failed_response_count(connection, query_id)
+            failures = query_store.retryable_response_count(connection, query_id)
             if failures == 0:
-                raise TaskRejected(f"查询 #{query_id} 没有失败响应")
+                raise TaskRejected(f"查询 #{query_id} 没有可重试的失败或空回答响应")
             datasets = sorted(
                 {row["dataset"] for row in query_store.query_samples(connection, query_id)}
             )
@@ -363,9 +353,6 @@ class TaskRunner:
 
     def _verify(self, connection, task_id: int, stage: str) -> None:
 
-
-
-
         chain_id, _ = task_store.task_chain(connection, task_id)
         check = chain.VERIFY.get(stage)
         if chain_id is None or check is None:
@@ -444,7 +431,6 @@ class TaskRunner:
     def _run(
         self, task_id: int, stage: str, params: dict[str, Any], event: threading.Event
     ) -> None:
-
         connection = connect(self.settings.db_path)
         try:
             task = task_store.get_task(connection, task_id)

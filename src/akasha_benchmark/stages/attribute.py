@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 import hashlib
@@ -27,7 +21,6 @@ def _lineage_of(
     page_by_doc: dict[str, str],
     question: str,
 ) -> list[dict[str, Any]] | None:
-
     if reader is None:
         return None
     entries: list[dict[str, Any]] = []
@@ -153,7 +146,6 @@ def _analyze(
     corpus_maps: dict[str, dict[str, dict[str, Any]]] = {}
     source_metadata: dict[str, dict[str, Any]] = {}
     if any(row["dataset"] == "musique" for row in samples):
-
         try:
             resolved = resolve("musique")
             corpus = load_corpus("musique", resolved.corpus_path)
@@ -211,10 +203,10 @@ def _analyze(
             sample["detail"].get("question") or "",
         )
         response_row = query_store.response_of(ctx.db, query_id, row["sample_id"])
-        evidence_chain = attribution.analyze_evidence_chain(
-            sample, (response_row or {}).get("response")
-        )
+        response = (response_row or {}).get("response")
+        evidence_chain = attribution.analyze_evidence_chain(sample, response)
         compiled_answers = attribution.analyze_compiled_answers(sample, lineage)
+        reference_grounding = attribution.analyze_reference_grounding(sample, response)
         question = str(sample["detail"].get("question") or "")
         query_hash = "sha256:" + hashlib.sha256(
             question.encode("utf-8")
@@ -225,6 +217,7 @@ def _analyze(
             evidence_chain,
             query_audits.get(query_hash),
             compiled_answers,
+            reference_grounding,
         )
         return {"row": row, "ruling": ruling}
 
@@ -252,7 +245,6 @@ def _write_report(
     eval_run: dict[str, Any],
     provider: Any,
 ) -> None:
-
     current = attribution_store.get_attribution_run(ctx.db, attribution_id) or {}
     if current.get("report"):
         ctx.log("续跑：整体评测分析报告已存在，跳过模型调用")

@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 from __future__ import annotations
 
 from typing import Any
@@ -32,7 +25,6 @@ DEFAULT_PAGE = 20
 MAX_PAGE = 200
 
 
-
 @router.get("/compiles")
 def list_compiles(request: Request) -> dict[str, Any]:
 
@@ -50,10 +42,6 @@ def compile_docs(
     limit: int = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-
-
-
-
     with db(request) as connection:
         if compile_store.get_compile_run(connection, compile_id) is None:
             raise HTTPException(404, f"编译 #{compile_id} 不存在")
@@ -111,7 +99,6 @@ def delete_compile(request: Request, compile_id: int) -> dict[str, Any]:
     }
 
 
-
 @router.get("/queries/{query_id}/responses")
 def query_responses(
     request: Request,
@@ -122,11 +109,6 @@ def query_responses(
     limit: int = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-
-
-
-
-
     with db(request) as connection:
         if query_store.get_query_run(connection, query_id) is None:
             raise HTTPException(404, f"查询 #{query_id} 不存在")

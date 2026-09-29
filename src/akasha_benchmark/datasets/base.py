@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -15,8 +8,6 @@ from .models import CanonicalSample, DataDependency, SubsetStrategy
 
 
 class DatasetAdapter(ABC):
-
-
     name: ClassVar[str]
     qa_filename: ClassVar[str]
     corpus_filename: ClassVar[str]

@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 import uuid
@@ -24,6 +16,8 @@ from . import compile
 
 
 DATASETS = ("hotpotqa", "2wikimultihopqa", "musique")
+
+
 def _check_query(connection, query_id: int) -> None:
 
     run = query_store.get_query_run(connection, query_id)
@@ -35,9 +29,9 @@ def _check_query(connection, query_id: int) -> None:
     }
     if {r["sample_id"] for r in responses} != expected:
         raise RuntimeError("查询响应没有覆盖全部样本")
-    failed = [r["sample_id"] for r in responses if not 200 <= r["http_status"] < 300]
+    failed = [r["sample_id"] for r in responses if query_store.response_is_retryable(r)]
     if failed:
-        raise RuntimeError(f"{len(failed)} 条查询失败：{failed[:3]}")
+        raise RuntimeError(f"{len(failed)} 条查询响应未通过质量阀门：{failed[:3]}")
     unmapped = [
         r["sample_id"]
         for r in responses
@@ -75,7 +69,6 @@ def _check_attribute(connection, attribution_id: int) -> None:
     }
     if actual != expected:
         raise RuntimeError("归因没有覆盖评测的全部样本")
-
 
 
 VERIFY = {

@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -7,6 +5,29 @@ from typing import Any
 
 from .db import dumps, loads, utc_now
 from .run_store import STATUS_RUNNING, get_run
+
+
+ANSWER_GENERATION_UNAVAILABLE = (
+    "Relevant knowledge was retrieved, but the answer model did not produce a response. "
+    "Try again later or ask an administrator to check the AI model configuration."
+)
+ANSWER_GENERATION_UNAVAILABLE_ZH = (
+    "已检索到相关知识，但回答模型当前未能生成内容。请稍后重试，"
+    "或联系管理员检查 AI 模型配置。"
+)
+GENERATION_UNAVAILABLE_ANSWERS = {
+    ANSWER_GENERATION_UNAVAILABLE,
+    ANSWER_GENERATION_UNAVAILABLE_ZH,
+}
+
+
+def response_is_retryable(row: dict[str, Any]) -> bool:
+    status = int(row.get("http_status") or 0)
+    if not 200 <= status < 300:
+        return True
+    response = row.get("response")
+    answer = response.get("answer") if isinstance(response, dict) else None
+    return isinstance(answer, str) and answer.strip() in GENERATION_UNAVAILABLE_ANSWERS
 
 
 def create_query_run(
@@ -62,7 +83,6 @@ def delete_query_run(connection: sqlite3.Connection, query_id: int) -> int:
 def freeze_query_samples(
     connection: sqlite3.Connection, query_id: int, samples: list[dict[str, Any]]
 ) -> None:
-
     connection.executemany(
         "INSERT OR IGNORE INTO query_sample (query_id, sample_id) VALUES (?, ?)",
         [(query_id, s["sample_id"]) for s in samples],
@@ -172,7 +192,6 @@ def response_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, dict[str, int], list[dict[str, Any]]]:
-
     where = ["query_id = ?"]
     params: list[Any] = [query_id]
     if dataset:
@@ -233,34 +252,38 @@ def response_of(
     return _response(row) if row else None
 
 
-def delete_failed_responses(connection: sqlite3.Connection, query_id: int) -> int:
+def retryable_responses(connection: sqlite3.Connection, query_id: int) -> list[dict[str, Any]]:
+    return [row for row in responses_of(connection, query_id) if response_is_retryable(row)]
 
-    return connection.execute(
-        "DELETE FROM query_response WHERE query_id = ? "
-        "AND (http_status < 200 OR http_status >= 300)",
-        (query_id,),
+
+def retryable_response_count(connection: sqlite3.Connection, query_id: int) -> int:
+    return len(retryable_responses(connection, query_id))
+
+
+def delete_retryable_responses(connection: sqlite3.Connection, query_id: int) -> int:
+    rows = retryable_responses(connection, query_id)
+    if not rows:
+        return 0
+    return connection.executemany(
+        "DELETE FROM query_response WHERE query_id = ? AND sample_id = ?",
+        [(query_id, row["sample_id"]) for row in rows],
     ).rowcount
-
-
-def failed_response_count(connection: sqlite3.Connection, query_id: int) -> int:
-    row = connection.execute(
-        "SELECT COUNT(*) AS n FROM query_response WHERE query_id=? "
-        "AND (http_status < 200 OR http_status >= 300)",
-        (query_id,),
-    ).fetchone()
-    return int(row["n"] if row else 0)
 
 
 def query_stats(connection: sqlite3.Connection, query_id: int) -> dict[str, Any]:
     rows = connection.execute(
         """
         SELECT dataset, COUNT(*) AS responses,
-               SUM(CASE WHEN http_status BETWEEN 200 AND 299 THEN 0 ELSE 1 END) AS failures,
+               SUM(CASE
+                   WHEN http_status NOT BETWEEN 200 AND 299 THEN 1
+                   WHEN TRIM(COALESCE(json_extract(response_json, '$.answer'), '')) IN (?, ?) THEN 1
+                   ELSE 0
+               END) AS failures,
                AVG(latency_ms) AS latency_mean,
                MAX(latency_ms) AS latency_max
         FROM query_response WHERE query_id = ? GROUP BY dataset ORDER BY dataset
         """,
-        (query_id,),
+        (ANSWER_GENERATION_UNAVAILABLE, ANSWER_GENERATION_UNAVAILABLE_ZH, query_id),
     )
     return {row["dataset"]: dict(row) for row in rows}
 

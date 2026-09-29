@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -17,12 +10,7 @@ class Paused(BaseException):
     pass
 
 
-
-
-
 class TaskContext:
-
-
     def __init__(
         self,
         *,
@@ -95,8 +83,6 @@ class TaskContext:
 
 
 class Stage(Protocol):
-
-
     def __call__(self, ctx: TaskContext) -> None: ...
 
 

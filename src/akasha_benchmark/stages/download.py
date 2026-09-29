@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 import json
@@ -31,7 +25,6 @@ REMOTE_NAMES = {
 }
 
 MAX_ATTEMPTS = 3
-
 
 
 _ROW_CACHE: dict[tuple[str, int, int], tuple[int | None, str | None]] = {}
@@ -118,10 +111,6 @@ def _fetch(local: str, endpoint: str, expected: int | None, dest: Path) -> str:
 
 
 def run(ctx: TaskContext) -> None:
-
-
-
-
 
     selected = list(ctx.params.get("datasets") or DATASET_NAMES)
     unknown = sorted(set(selected) - set(DATASET_NAMES))

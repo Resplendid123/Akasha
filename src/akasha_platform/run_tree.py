@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -54,11 +52,18 @@ def build_compile_tree(connection: sqlite3.Connection) -> list[dict[str, Any]]:
             for row in connection.execute(
                 """
                 SELECT qr.query_id, qr.dataset, COUNT(*) AS responses,
-                       SUM(NOT (qr.http_status BETWEEN 200 AND 299)) AS failures,
+                       SUM(
+                           NOT (qr.http_status BETWEEN 200 AND 299)
+                           OR TRIM(COALESCE(json_extract(qr.response_json, '$.answer'), '')) IN (?, ?)
+                       ) AS failures,
                        AVG(qr.latency_ms) AS latency_mean, MAX(qr.latency_ms) AS latency_max
                 FROM query_response qr
                 GROUP BY qr.query_id, qr.dataset
-                """
+                """,
+                (
+                    query_store.ANSWER_GENERATION_UNAVAILABLE,
+                    query_store.ANSWER_GENERATION_UNAVAILABLE_ZH,
+                ),
             )
         ],
         "query_id",
@@ -148,8 +153,9 @@ def _compile_view(
     for (sample_compile_id, dataset), count in compile_samples.items():
         if sample_compile_id == compile_id:
             stats.setdefault(dataset, {"dataset": dataset})["samples"] = count
-    total = sum(int(item.get("docs") or 0) for item in stats.values())
-    missing = total - sum(int(item.get("imported") or 0) for item in stats.values())
+    missing = sum(
+        int(item.get("docs") or 0) - int(item.get("imported") or 0) for item in stats.values()
+    )
     return {
         **_public_run(row),
         "model_label": _remote_model_labels(
@@ -160,7 +166,7 @@ def _compile_view(
         "stats": stats,
         "quality": loads(row["quality_json"]),
         "pace": loads(row["pace_json"]),
-        "readiness": compile_store.compile_readiness(row, total=total, missing=missing),
+        "readiness": compile_store.compile_readiness(row, missing=missing),
         "compiled_pages": _compiled_pages(row, stats),
         "compiled_pages_error": None,
         "queries": [

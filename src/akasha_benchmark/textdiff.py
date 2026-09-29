@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import re
@@ -24,10 +22,6 @@ def content_words(text: str) -> list[str]:
 
 def diff_vocabulary(source_text: str, compiled_text: str) -> dict[str, Any]:
 
-
-
-
-
     source_words = content_words(source_text)
     compiled_words = content_words(compiled_text)
     source_set, compiled_set = set(source_words), set(compiled_words)
@@ -49,10 +43,6 @@ def diff_vocabulary(source_text: str, compiled_text: str) -> dict[str, Any]:
 
 def question_terms_lost(question: str, diff: dict[str, Any]) -> list[str]:
 
-
-
-
-
     dropped = set(diff.get("dropped") or [])
     return sorted({w for w in content_words(question) if w in dropped})
 
@@ -60,10 +50,6 @@ def question_terms_lost(question: str, diff: dict[str, Any]) -> list[str]:
 def build(
     lineage: dict[str, Any], question: str = "", *, top_terms: int = 40
 ) -> dict[str, Any]:
-
-
-
-
     source_text = "\n\n".join(c["text"] or "" for c in lineage.get("source_chunks") or [])
     compiled_text = "\n\n".join(c["text"] or "" for c in lineage.get("chunks") or [])
     diff = diff_vocabulary(source_text, compiled_text)

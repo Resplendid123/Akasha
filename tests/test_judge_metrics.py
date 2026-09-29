@@ -1,9 +1,3 @@
-
-
-
-
-
-
 from __future__ import annotations
 
 import pytest
@@ -36,8 +30,6 @@ def test_answer_correctness_needs_reference_answers():
         assert registry.get_metric(name).requires == frozenset()
 
 
-
-
 def test_answer_relevancy_generated_question_embedding_helpers():
     assert answer_relevancy.build_prompt("") is None
     built = answer_relevancy.build_prompt("Paris is the capital of France.")
@@ -48,8 +40,6 @@ def test_answer_relevancy_generated_question_embedding_helpers():
         answer_relevancy.parse_generated_question({"question": ""})
     assert answer_relevancy.cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
     assert answer_relevancy.cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
-
-
 
 
 def test_context_relevancy_is_the_useful_share():
@@ -67,8 +57,6 @@ def test_context_relevancy_is_the_useful_share():
 
 
 def test_context_relevancy_rejects_missing_verdicts():
-
-
     with pytest.raises(ValueError, match="expected 3 verdicts"):
         context_relevancy.parse_verdict(
             {"passages": [{"index": 1, "verdict": "useful"}]}, expected=3
@@ -91,8 +79,6 @@ def test_context_relevancy_skips_when_nothing_retrieved():
     assert context_relevancy.build_prompt("q", {}) is None
 
 
-
-
 @pytest.mark.parametrize(
     ("verdict", "expected"),
     [("correct", 1.0), ("partial", 0.5), ("incorrect", 0.0), ("no_answer", None)],
@@ -112,8 +98,6 @@ def test_answer_correctness_skips_without_reference():
     assert answer_correctness.build_prompt("q", "a", "") is None
     assert answer_correctness.build_prompt("q", "", "ref") is None
     assert answer_correctness.build_prompt("q", "a", "ref") is not None
-
-
 
 
 def test_verdicts_are_stored_per_metric(db, eval_id):

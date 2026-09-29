@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -234,7 +232,6 @@ def sample_eval_page(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[int, dict[str, int], list[dict[str, Any]]]:
-
     where = ["eval_id = ?"]
     params: list[Any] = [eval_id]
     if dataset:
@@ -348,7 +345,6 @@ def samples_ranked_by(
     ascending: bool = True,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-
     sql = """
         SELECT sm.sample_id, se.dataset, sm.value, se.answer_mode, se.answer
         FROM sample_metric sm
@@ -401,7 +397,6 @@ def record_judge_verdict(
 def judged_sample_ids(
     connection: sqlite3.Connection, eval_id: int, metric: str | None = None
 ) -> set[str]:
-
     sql = "SELECT sample_id FROM judge_verdict WHERE eval_id = ?"
     params: list[Any] = [eval_id]
     if metric is not None:
@@ -413,7 +408,6 @@ def judged_sample_ids(
 def completed_judge_sample_ids(
     connection: sqlite3.Connection, eval_id: int, metric: str
 ) -> set[str]:
-
     return {
         row["sample_id"]
         for row in connection.execute(
@@ -427,7 +421,6 @@ def completed_judge_sample_ids(
 def judge_verdicts(
     connection: sqlite3.Connection, eval_id: int, *, include_detail: bool = True
 ) -> list[dict[str, Any]]:
-
     return [
         {
             **{k: v for k, v in dict(row).items() if k != "detail_json"},
@@ -442,7 +435,6 @@ def judge_verdicts(
 def judge_means_by_dataset(
     connection: sqlite3.Connection, eval_id: int, metric: str | None = None
 ) -> list[tuple[str, float, int]]:
-
     sql = """
         SELECT se.dataset, AVG(jv.score) AS mean, COUNT(*) AS n
         FROM judge_verdict jv
@@ -462,7 +454,6 @@ def judge_means_by_dataset(
 def judge_summary(
     connection: sqlite3.Connection, eval_id: int, metric: str | None = None
 ) -> dict[str, Any]:
-
     scope = "" if metric is None else " AND metric = ?"
     extra: list[Any] = [] if metric is None else [metric]
     row = connection.execute(

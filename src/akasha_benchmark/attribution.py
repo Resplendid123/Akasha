@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import json
@@ -26,7 +24,21 @@ CAUSE_UNKNOWN = "unknown"
 EVIDENCE_CHAIN_SUPPORTED_OVERLAP = 0.8
 EVIDENCE_CHAIN_PARTIAL_OVERLAP = 0.35
 COMPILED_ANSWER_TOKEN_RECALL = 0.8
+REFERENCE_WINDOW_FACTOR = 2
 REFERENCE_STOPWORDS = {"a", "an", "and", "in", "of", "on", "the", "to"}
+TITLE_ABBREVIATIONS = {
+    "gen": "general",
+    "lt": "lieutenant",
+    "col": "colonel",
+    "sgt": "sergeant",
+    "capt": "captain",
+    "pres": "president",
+    "gov": "governor",
+    "sen": "senator",
+    "rep": "representative",
+    "mt": "mount",
+    "st": "saint",
+}
 
 
 def _normalized_tokens(text: str) -> list[str]:
@@ -34,7 +46,7 @@ def _normalized_tokens(text: str) -> list[str]:
     normalized = re.sub(r"[\'’]s\b", "", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"(?<=s)[\'’](?=\W|$)", "", normalized, flags=re.IGNORECASE)
     normalized = normalized.replace("’", "'")
-    return qa.tokenize(normalized)
+    return [TITLE_ABBREVIATIONS.get(token, token) for token in qa.tokenize(normalized)]
 
 
 def _contains_tokens(haystack: list[str], needle: list[str]) -> bool:
@@ -116,7 +128,6 @@ def _matching_evidence(
 def analyze_evidence_chain(
     sample: dict[str, Any], response: dict[str, Any] | None
 ) -> dict[str, Any]:
-
     detail = sample.get("detail") or {}
     metadata = detail.get("metadata") or {}
     decomposition = metadata.get("question_decomposition") or []
@@ -257,19 +268,66 @@ def analyze_compiled_answers(
     }
 
 
+def _usable_references(references: list[str]) -> list[list[str]]:
+
+    usable: list[list[str]] = []
+    for reference in references:
+        tokens = _normalized_tokens(reference)
+        if not tokens or (len(tokens) == 1 and tokens[0] in REFERENCE_STOPWORDS):
+            continue
+        usable.append(tokens)
+    return usable
+
+
+def _reference_covered(answer_tokens: list[str], reference_tokens: list[str]) -> bool:
+
+    if _contains_tokens(answer_tokens, reference_tokens):
+        return True
+
+    window = len(reference_tokens) * REFERENCE_WINDOW_FACTOR
+    needed = set(reference_tokens)
+    positions = [
+        index for index, token in enumerate(answer_tokens) if token in needed
+    ]
+    return any(
+        needed <= set(answer_tokens[start : start + window])
+        for start in positions
+    )
+
+
 def _contains_reference(answer: str, references: list[str]) -> bool:
 
     answer_tokens = _normalized_tokens(answer)
-    for reference in references:
-        reference_tokens = _normalized_tokens(reference)
-        if not reference_tokens or (
-            len(reference_tokens) == 1 and reference_tokens[0] in REFERENCE_STOPWORDS
-        ):
-            continue
-        overlap = len(set(answer_tokens) & set(reference_tokens)) / len(set(reference_tokens))
-        if overlap >= 0.8:
-            return True
-    return False
+    return any(
+        _reference_covered(answer_tokens, tokens)
+        for tokens in _usable_references(references)
+    )
+
+
+def analyze_reference_grounding(
+    sample: dict[str, Any], response: dict[str, Any] | None
+) -> dict[str, Any]:
+    references = [
+        str(value) for value in (sample.get("detail") or {}).get("reference_answers") or []
+    ]
+    evidence = _response_evidence(response)
+    usable = _usable_references(references)
+    if not usable or not evidence:
+        return {"status": "unavailable", "grounded": None}
+    context_tokens = _normalized_tokens(
+        "\n".join(value for row in evidence for value in (row["title"], row["text"]) if value)
+    )
+    matched = [
+        " ".join(tokens)
+        for tokens in usable
+        if _reference_covered(context_tokens, tokens)
+    ]
+    return {
+        "status": "grounded" if matched else "missing",
+        "grounded": bool(matched),
+        "matched_references": matched,
+        "reference_count": len(usable),
+    }
 
 
 def _at_max_k(metrics: dict[str, float], prefix: str) -> float | None:
@@ -282,18 +340,23 @@ def _at_max_k(metrics: dict[str, float], prefix: str) -> float | None:
     return metrics[keys[0]] if keys else None
 
 
+def _at_min_k(metrics: dict[str, float], prefix: str) -> float | None:
+
+    keys = sorted(
+        (k for k in metrics if k.startswith(prefix)),
+        key=lambda k: int(k.split("@", 1)[1]),
+    )
+    return metrics[keys[0]] if keys else None
+
+
 def classify(
     sample: dict[str, Any],
     lineage: list[dict[str, Any]] | None,
     evidence_chain: dict[str, Any] | None = None,
     query_audit: dict[str, Any] | None = None,
     compiled_answers: dict[str, Any] | None = None,
+    reference_grounding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-
-
-
-
-
     detail = sample.get("detail") or {}
     metrics: dict[str, float] = {}
     for section in ("qa", "retrieval", "attribution", "multihop"):
@@ -307,11 +370,15 @@ def classify(
     metrics.update(sample.get("metrics") or {})
     answer_mode = sample.get("answer_mode")
     hit = _at_max_k(metrics, "hit@")
+    top_hit = _at_min_k(metrics, "hit@")
     recall = _at_max_k(metrics, "recall@")
     coverage = _at_max_k(metrics, "full_coverage@")
+    gold_count = len(detail.get("gold_doc_ids") or [])
     uncited_gold = float(metrics.get("uncited_gold_count", 0.0) or 0.0)
+    all_gold_uncited = gold_count > 0 and uncited_gold >= gold_count
     graph_exclusive = float(metrics.get("graph_exclusive_gold_share", 0.0) or 0.0) > 0
     has_retrieval = hit is not None and hit > 0
+    decision_reason = str((query_audit or {}).get("decisionReason") or "")
     reference_contained = _contains_reference(
         str(sample.get("answer") or ""),
         [str(value) for value in detail.get("reference_answers") or []],
@@ -327,16 +394,21 @@ def classify(
         "answer_mode": answer_mode,
         "has_retrieval": has_retrieval,
         "hit": hit,
+        "top_hit": top_hit,
         "recall": recall,
         "full_coverage": coverage,
         "uncited_gold_count": uncited_gold,
+        "all_gold_uncited": all_gold_uncited,
         "question_terms_lost": lost_terms,
         "graph_exclusive_gold_share": metrics.get("graph_exclusive_gold_share"),
         "reference_answer_contained": reference_contained,
         "answer_correct": answer_correct,
-        "gold_count": len(detail.get("gold_doc_ids") or []),
+        "gold_count": gold_count,
         "lineage_available": lineage is not None,
+        "audit_decision_reason": decision_reason or None,
     }
+    if reference_grounding is not None:
+        evidence["reference_grounding"] = reference_grounding
     if evidence_chain is not None:
         evidence["evidence_chain"] = evidence_chain
     if query_audit is not None:
@@ -359,52 +431,80 @@ def classify(
         evidence["compiled_answers"] = compiled_answers
 
     chain = evidence.get("evidence_chain") or {}
+    chain_broken = chain.get("status") in {"incomplete", "partial"}
     compilation_lost_answer = bool(
         (compiled_answers or {}).get("compiled_missing_count", 0)
     )
-    if answer_mode == "general":
-        if answer_correct:
-            cause = CAUSE_GENERATION_FALLBACK
-        elif compilation_lost_answer:
-            cause = CAUSE_COMPILED_ANSWER_MISSING
-        elif not has_retrieval:
-            cause = CAUSE_GENERATION_FALLBACK
-        elif chain.get("status") in {"incomplete", "partial"}:
-            cause = CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
-        elif recall is not None and recall >= 1.0:
-            cause = CAUSE_GENERATION_IGNORED_RETRIEVAL
-        elif recall is not None and recall < 1.0:
-            cause = CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
-        else:
-            cause = CAUSE_UNKNOWN
-    elif answer_mode == "knowledge" and answer_correct:
-        cause = CAUSE_ANSWER_CORRECT
-    elif compilation_lost_answer:
-        cause = CAUSE_COMPILED_ANSWER_MISSING
-    elif evidence_chain is not None and answer_mode == "knowledge":
-        answer_text = str(sample.get("answer") or "").strip().lower()
-        if not answer_text or "did not produce a response" in answer_text:
-            cause = CAUSE_GENERATION_EMPTY
-        elif evidence_chain.get("status") in {"incomplete", "partial"}:
-            cause = CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
-        elif uncited_gold > 0:
-            cause = CAUSE_ANSWER_INCORRECT
-        else:
-            cause = CAUSE_ANSWER_INCORRECT
-    elif uncited_gold > 0:
-        cause = CAUSE_CITATION_DROPPED
-    elif hit is not None and hit == 0 and lost_terms:
-        cause = CAUSE_COMPILED_AWAY
-    elif hit is not None and hit == 0:
-        cause = CAUSE_RETRIEVAL_MISS
-    elif coverage is not None and coverage < 1.0 and not graph_exclusive:
-        cause = CAUSE_GRAPH_EDGE_MISSING
-    elif answer_mode == "knowledge":
-        cause = CAUSE_ANSWER_INCORRECT
-    else:
-        cause = CAUSE_UNKNOWN
+    answer_text = str(sample.get("answer") or "").strip().lower()
+    generation_empty = (
+        decision_reason == "generation_empty"
+        or not answer_text
+        or "did not produce a response" in answer_text
+    )
+    reference_in_context = (reference_grounding or {}).get("grounded")
+    retrieval_missed = hit is not None and hit == 0
+    coverage_incomplete = coverage is not None and coverage < 1.0
 
+    cause = _primary_cause(
+        answer_mode=answer_mode,
+        answer_correct=answer_correct,
+        generation_empty=generation_empty,
+        compilation_lost_answer=compilation_lost_answer,
+        has_retrieval=has_retrieval,
+        chain_broken=chain_broken,
+        recall=recall,
+        reference_in_context=reference_in_context,
+        retrieval_missed=retrieval_missed,
+        lost_terms=bool(lost_terms),
+        coverage_incomplete=coverage_incomplete,
+        graph_exclusive=graph_exclusive,
+        all_gold_uncited=all_gold_uncited,
+    )
     return {"root_cause": cause, "evidence": evidence}
+
+
+def _primary_cause(
+    *,
+    answer_mode: str | None,
+    answer_correct: bool,
+    generation_empty: bool,
+    compilation_lost_answer: bool,
+    has_retrieval: bool,
+    chain_broken: bool,
+    recall: float | None,
+    reference_in_context: bool | None,
+    retrieval_missed: bool,
+    lost_terms: bool,
+    coverage_incomplete: bool,
+    graph_exclusive: bool,
+    all_gold_uncited: bool,
+) -> str:
+    if generation_empty and not answer_correct:
+        return CAUSE_GENERATION_EMPTY
+    if answer_correct:
+        return CAUSE_GENERATION_FALLBACK if answer_mode == "general" else CAUSE_ANSWER_CORRECT
+    if compilation_lost_answer:
+        return CAUSE_COMPILED_ANSWER_MISSING
+    if answer_mode == "general":
+        if not has_retrieval:
+            return CAUSE_GENERATION_FALLBACK
+        if chain_broken or (recall is not None and recall < 1.0):
+            return CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
+
+        if reference_in_context is False:
+            return CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
+        return CAUSE_GENERATION_IGNORED_RETRIEVAL if recall is not None else CAUSE_UNKNOWN
+    if chain_broken:
+        return CAUSE_RETRIEVAL_EVIDENCE_INCOMPLETE
+    if all_gold_uncited:
+        return CAUSE_CITATION_DROPPED
+    if retrieval_missed:
+        return CAUSE_COMPILED_AWAY if lost_terms else CAUSE_RETRIEVAL_MISS
+    if coverage_incomplete and not graph_exclusive:
+        return CAUSE_GRAPH_EDGE_MISSING
+    if answer_mode == "knowledge":
+        return CAUSE_ANSWER_INCORRECT
+    return CAUSE_UNKNOWN
 
 
 SYSTEM_PROMPT = """你是一名 RAG 评测分析师。你分析的是一次完整评测，
@@ -434,7 +534,6 @@ def build_report_prompt(
     dataset_summaries: list[dict[str, Any]],
     general_samples: list[dict[str, Any]],
 ) -> tuple[str, str]:
-
     definitions: dict[str, dict[str, Any]] = {}
     for row in metric_summaries:
         name = str(row["metric"])

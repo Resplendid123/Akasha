@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 from __future__ import annotations
 
 import sqlite3
@@ -67,8 +58,6 @@ def resolve_metrics(selected: list[str] | None) -> list[str]:
 
 
 def _keep(selected: frozenset[str]):
-
-
     def keep(name: str) -> bool:
         try:
             return registry.get_metric(name).name in selected
@@ -92,7 +81,6 @@ def evaluate_dataset(
     progress_total: int | None = None,
     report_progress: bool = False,
 ) -> dict[str, Any]:
-
     adapter = get_adapter(dataset)
     provides = adapter.provides
     has_gold = DataDependency.GOLD_DOCS in provides
@@ -154,7 +142,6 @@ def evaluate_dataset(
             metrics.update(detail["retrieval"])
             metrics.update(_scalars(detail["attribution"]))
             metrics.update(_scalars(detail["multihop"]))
-
 
         metrics = {name: value for name, value in metrics.items() if keep(name)}
         entry = {
@@ -218,11 +205,6 @@ def evaluate_dataset(
 def _judge_task(
     metric: str, question: str, answer: str, reference: str, body: dict[str, Any]
 ) -> tuple[tuple[str, str], Any] | None:
-
-
-
-
-
     if metric == "faithfulness":
         prompt = faithfulness.build_prompt(question, answer, body)
         return (prompt, faithfulness.parse_verdict) if prompt else None
@@ -289,7 +271,6 @@ def _answer_relevancy_task(
 def _record_reply(
     ctx: TaskContext, eval_id: int, metric: str, row: dict[str, Any], parse: Any, reply: Any
 ) -> None:
-
     if reply.failure_kind:
         eval_store.record_judge_verdict(
             ctx.db,
@@ -360,7 +341,6 @@ def _judge(
     metrics: list[str],
     concurrency: int,
 ) -> None:
-
     for metric in metrics:
         eval_store.restore_judge_metrics(ctx.db, eval_id, metric)
     ctx.db.commit()
