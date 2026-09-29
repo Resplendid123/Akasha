@@ -22,10 +22,13 @@
   - [Why Choose Akasha](#why-choose-akasha)
   - [Key Features](#key-features)
   - [Core Concepts](#core-concepts)
+    - [Product Method Overview](#product-method-overview)
+    - [Technical Processing Flow](#technical-processing-flow)
     - [Knowledge Compilation](#knowledge-compilation)
     - [Source-Grounded Knowledge](#source-grounded-knowledge)
     - [Relationship-Aware Knowledge](#relationship-aware-knowledge)
     - [Human and Agent Access](#human-and-agent-access)
+  - [Benchmark Results](#benchmark-results)
   - [Roadmap / Vision](#roadmap--vision)
     - [Organizational Memory Beyond Pages](#organizational-memory-beyond-pages)
     - [Compounding Agent Experience](#compounding-agent-experience)
@@ -88,6 +91,18 @@ Akasha combines the familiarity of a collaborative Wiki with an AI-ready knowled
 
 ## Core Concepts
 
+### Product Method Overview
+
+<p align="center">
+  <img src="resources/akasha-method-overview-en.png" alt="Akasha product method from collaborative content to traceable organizational knowledge" width="1200" />
+</p>
+
+### Technical Processing Flow
+
+<p align="center">
+  <img src="resources/akasha-technical-method-visual.png" alt="Akasha technical pipeline from offline knowledge compilation to online retrieval and question answering" width="1400" />
+</p>
+
 ### Knowledge Compilation
 
 Akasha keeps original Wiki pages and imported content as the source layer, then builds a structured knowledge layer from them.
@@ -136,6 +151,21 @@ Akasha is designed for both people and agents.
 People use the Wiki interface to create, edit, organize, and discuss knowledge. Agents connect through MCP to search knowledge and perform permitted operations on pages, spaces, comments, attachments, and workspace information.
 
 Both access paths use workspace and resource-level authorization. Agent requests are authenticated with API keys, and supported knowledge queries and operations are recorded for auditing.
+
+## Benchmark Results
+
+Akasha is evaluated on three public multi-hop question-answering datasets. `R@5` measures whether the relevant evidence is retrieved in the top five results, while `F1` measures answer overlap with the reference answer.
+
+| Dataset | R@5 | F1 |
+| :-- | --: | --: |
+| MuSiQue | **87.17** | 56.57 |
+| 2WikiMultiHopQA | 90.50 | 59.66 |
+| HotpotQA | **99.00** | 56.19 |
+| **Average** | **92.22** | 57.47 |
+
+In the comparison currently recorded by the benchmark suite, Akasha achieves the highest average `R@5`, including the highest retrieval recall on MuSiQue and HotpotQA. Its answer `F1` is not yet the highest, making answer synthesis a clear area for further improvement.
+
+See the [complete benchmark comparison and local evaluation toolkit](benchmark/README.md#多跳问答基准综合对比) for baselines, per-dataset results, and instructions for running the evaluation pipeline.
 
 ## Roadmap / Vision
 
