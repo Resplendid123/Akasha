@@ -14,18 +14,6 @@ export type QueryAuditRetrievalDiagnostics = {
   rankedCandidateCount: number;
   authorizedChunkCount: number;
   filteredChunkCount: number;
-  graph?: {
-    candidateCount: number;
-    gatedOutCount: number;
-    selectedCount: number;
-    expandedSeedCount: number;
-    edgeCounts: {
-      semantic: number;
-      link: number;
-      'shared-source': number;
-    };
-    pageCountsByHop: Record<number, number>;
-  };
 };
 
 type CommonAuditMetadata = Omit<
@@ -44,7 +32,6 @@ type CommonAuditMetadata = Omit<
     | 'rankedCandidateCount'
     | 'authorizedChunkCount'
     | 'filteredChunkCount'
-    | 'graph'
     | 'finalChunkIds'
     | 'finalSourcePageIds'
     | 'rankReasonsByChunk'
@@ -83,7 +70,6 @@ export function buildKnowledgeQueryAuditMetadata(input: {
     rankedCandidateCount: diagnostics?.rankedCandidateCount ?? 0,
     authorizedChunkCount: diagnostics?.authorizedChunkCount ?? 0,
     filteredChunkCount: diagnostics?.filteredChunkCount ?? 0,
-    ...(diagnostics?.graph ? { graph: diagnostics.graph } : {}),
     ...(input.retrieval
       ? {
           retrieval: input.retrieval,

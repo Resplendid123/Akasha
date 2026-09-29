@@ -128,14 +128,12 @@ describe('KnowledgeCitationResolverService', () => {
             page: capsule('kp-chaterm', 'Chaterm'),
             sourcePageIds: ['source-date'],
             rankReasons: [],
-            origin: 'direct' as const,
           },
           {
             chunk: chunk('chunk-kms', 'kp-kms'),
             page: capsule('kp-kms', 'KMS_Blog'),
             sourcePageIds: ['source-kms'],
             rankReasons: [],
-            origin: 'direct' as const,
           },
         ],
       }),
@@ -194,7 +192,9 @@ describe('KnowledgeCitationResolverService', () => {
     };
     const service = new KnowledgeCitationResolverService(
       capsuleRepo as unknown as KnowledgeCapsuleRepo,
-      { filterReadableSources: jest.fn() } as unknown as KnowledgeSourceAuthorizationService,
+      {
+        filterReadableSources: jest.fn(),
+      } as unknown as KnowledgeSourceAuthorizationService,
       pageRepo as unknown as PageRepo,
     );
 
@@ -206,21 +206,18 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-a', 'A_Page'),
           sourcePageIds: ['source-a'],
           rankReasons: ['semantic'],
-          origin: 'direct' as const,
         },
         {
           chunk: chunk('chunk-b', 'kp-b'),
           page: capsule('kp-b', 'B_Page'),
           sourcePageIds: ['source-b'],
-          rankReasons: ['semantic', 'graph-neighbor'],
-          origin: 'graph' as const,
+          rankReasons: ['semantic'],
         },
         {
           chunk: chunk('chunk-c', 'kp-c'),
           page: capsule('kp-c', 'C_Page'),
           sourcePageIds: ['source-c'],
           rankReasons: ['lexical'],
-          origin: 'direct' as const,
         },
       ],
     });
@@ -235,7 +232,7 @@ describe('KnowledgeCitationResolverService', () => {
         entry.citations.map((citation) => citation.sourcePageId),
       ),
     ).toEqual(['source-a', 'source-b', 'source-c']);
-    expect(resolved[1].retrievalReasons).toEqual(['semantic', 'graph-neighbor']);
+    expect(resolved[1].retrievalReasons).toEqual(['semantic']);
   });
 
   it('returns source windows only when source range and quote hash validate against readable page text', async () => {
@@ -306,7 +303,6 @@ describe('KnowledgeCitationResolverService', () => {
             page: capsule('kp-1', 'Readable summary'),
             sourcePageIds: ['source-readable', 'source-readable-invalid'],
             rankReasons: ['lexical', 'sidecar-prefiltered'],
-            origin: 'direct' as const,
           },
         ],
       }),
@@ -403,7 +399,6 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-image', 'Dashboard'),
           sourcePageIds: ['source-image'],
           rankReasons: ['semantic'],
-          origin: 'direct' as const,
         },
       ],
     });
@@ -494,7 +489,6 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-dms', 'DMS 定制查询SQL返回接口'),
           sourcePageIds: ['source-dms'],
           rankReasons: ['semantic', 'sidecar-prefiltered'],
-          origin: 'direct' as const,
         },
       ],
     } as never);
@@ -615,7 +609,6 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-table', 'Service inventory'),
           sourcePageIds: ['source-table'],
           rankReasons: ['semantic'],
-          origin: 'direct' as const,
         },
         ...relevantRows.map((_, index) => ({
           chunk: {
@@ -625,7 +618,6 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-table', 'Service inventory'),
           sourcePageIds: ['source-table'],
           rankReasons: ['lexical' as const, 'sidecar-prefiltered' as const],
-          origin: 'direct' as const,
         })),
         {
           chunk: {
@@ -635,7 +627,6 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-table', 'Service inventory'),
           sourcePageIds: ['source-table'],
           rankReasons: ['semantic'],
-          origin: 'direct' as const,
         },
       ],
     });
@@ -698,7 +689,6 @@ describe('KnowledgeCitationResolverService', () => {
           page: capsule('kp-generic', '查询条件'),
           sourcePageIds: ['source-generic'],
           rankReasons: ['semantic', 'sidecar-prefiltered'],
-          origin: 'direct' as const,
         },
       ],
     });

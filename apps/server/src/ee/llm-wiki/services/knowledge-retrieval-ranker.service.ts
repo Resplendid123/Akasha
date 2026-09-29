@@ -21,7 +21,6 @@ export type KnowledgeRetrievalRankReason =
   | 'semantic'
   | 'lexical'
   | 'exact-title'
-  | 'graph-neighbor'
   | 'sidecar-prefiltered'
   | 'final-authorization-fallback';
 
@@ -284,7 +283,6 @@ function rankReasons(
   for (const signal of ['exact-title', 'semantic', 'lexical'] as const) {
     if (signals.includes(signal)) reasons.push(signal);
   }
-  if (signals.includes('graph')) reasons.push('graph-neighbor');
   reasons.push('sidecar-prefiltered');
   return reasons;
 }

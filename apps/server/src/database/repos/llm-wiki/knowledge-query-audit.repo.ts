@@ -38,18 +38,6 @@ export type KnowledgeQueryAuditMetadata = {
   rankedCandidateCount: number;
   authorizedChunkCount: number;
   filteredChunkCount: number;
-  graph?: {
-    candidateCount: number;
-    gatedOutCount: number;
-    selectedCount: number;
-    expandedSeedCount: number;
-    edgeCounts: {
-      semantic: number;
-      link: number;
-      'shared-source': number;
-    };
-    pageCountsByHop: Record<string, number>;
-  };
   finalChunkIds?: string[];
   finalSourcePageIds?: string[];
   trustedCitationIds?: string[];
@@ -79,7 +67,7 @@ export type KnowledgeQueryAuditMetadata = {
       score: number;
       scoreType: 'semantic_distance' | 'lexical' | 'exact_title';
       reasons: string[];
-      stage: 'direct' | 'graph';
+      stage: 'direct';
       authorizationMode: 'policy' | 'fallback';
     }>;
     dropped: Array<{

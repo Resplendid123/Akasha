@@ -344,8 +344,6 @@ describe('IsElfLlmWikiController', () => {
         .mockResolvedValue([
           { chunkId: 'chunk-hit', sourcePageIds: ['page-1'] },
         ]),
-      findGraphFrontierSourceIds: jest.fn().mockResolvedValue([]),
-      findGraphTraversalEdges: jest.fn().mockResolvedValue([]),
       findChunkAttachmentsByChunkIds: jest.fn().mockResolvedValue([
         {
           chunkId: 'chunk-hit',
@@ -432,7 +430,9 @@ describe('IsElfLlmWikiController', () => {
       {
         generateAttachmentToken: jest
           .fn()
-          .mockImplementation(async ({ attachmentId }: any) => `jwt-${attachmentId}`),
+          .mockImplementation(
+            async ({ attachmentId }: any) => `jwt-${attachmentId}`,
+          ),
       } as any,
       { getAppUrl: () => 'https://akasha.example.com' } as any,
       capsuleRepo as any,

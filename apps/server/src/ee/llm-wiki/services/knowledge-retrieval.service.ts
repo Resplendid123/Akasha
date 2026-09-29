@@ -3,9 +3,6 @@ import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import {
   KnowledgeCapsuleRepo,
   KnowledgeChunkCandidate,
-  KnowledgeGraphEdgeType,
-  KnowledgeGraphTraversalEdge,
-  KnowledgeGraphTraversalSeed,
   KnowledgeRetrievalSignal,
 } from '@akasha/db/repos/llm-wiki/knowledge-capsule.repo';
 import { KnowledgeChunk, KnowledgePage } from '@akasha/db/types/entity.types';
@@ -28,16 +25,13 @@ import {
 export const KNOWLEDGE_COMPLETENESS_NOTICE =
   'Some knowledge may be unavailable because access is permission-scoped.';
 
-/** Whether a chunk entered the result via direct recall or graph expansion. */
-export type KnowledgeRetrievalOrigin = 'direct' | 'graph';
-
 export type KnowledgeRetrievalCandidate = {
   pageId: string;
   chunkId: string;
   score: number;
   scoreType: 'semantic_distance' | 'lexical' | 'exact_title';
   reasons: KnowledgeRetrievalRankReason[];
-  stage: 'direct' | 'graph';
+  stage: 'direct';
   authorizationMode: 'policy' | 'fallback';
 };
 
@@ -62,9 +56,6 @@ export type KnowledgeRetrievalResult = {
     page: KnowledgePage;
     sourcePageIds: string[];
     rankReasons: KnowledgeRetrievalRankReason[];
-    // Recorded before direct/graph merge so downstream consumers never have to
-    // infer the source from rankReasons text (§7.1).
-    origin: KnowledgeRetrievalOrigin;
     parentSection?: KnowledgeParentSection;
   }>;
   capsules: KnowledgePage[];
@@ -99,14 +90,6 @@ export type KnowledgeRetrievalDiagnostics = {
   rankedCandidateCount: number;
   authorizedChunkCount: number;
   filteredChunkCount: number;
-  graph: {
-    candidateCount: number;
-    gatedOutCount: number;
-    selectedCount: number;
-    expandedSeedCount: number;
-    edgeCounts: Record<KnowledgeGraphEdgeType, number>;
-    pageCountsByHop: Record<number, number>;
-  };
 };
 
 @Injectable()
@@ -302,13 +285,8 @@ export class KnowledgeRetrievalService {
     let selectedRecall = policyRecall;
     let accessPolicyFallbackUsed = false;
 
-    const rankRecallCandidates = (
-      recallResult: typeof selectedRecall,
-      graph?: {
-        dense: KnowledgeChunkCandidate[];
-        lexical: KnowledgeChunkCandidate[];
-      },
-    ) => fuseRecall(this.ranker, recallResult, candidateLimit, graph);
+    const rankRecallCandidates = (recallResult: typeof selectedRecall) =>
+      fuseRecall(this.ranker, recallResult, candidateLimit);
     const filterRelevantCandidates = (
       candidates: ReturnType<typeof rankRecallCandidates>,
     ) =>
@@ -462,9 +440,6 @@ export class KnowledgeRetrievalService {
     );
     const readableSourceSet = new Set(readableSourcePageIds);
 
-    const directChunkIds = new Set(
-      selectedRecall.flat(2).map((candidate) => candidate.chunk.id),
-    );
     const authorizeRanked = (
       candidates: typeof rankedCandidates,
       sources: Map<string, string[]>,
@@ -483,11 +458,6 @@ export class KnowledgeRetrievalService {
             page: candidate.page,
             sourcePageIds,
             rankReasons: candidate.rankReasons,
-            origin:
-              candidate.signals.includes('graph') &&
-              !directChunkIds.has(candidate.chunk.id)
-                ? 'graph'
-                : 'direct',
             ...(candidate.parentSection
               ? { parentSection: candidate.parentSection }
               : {}),
@@ -507,146 +477,19 @@ export class KnowledgeRetrievalService {
     const relevantChunkIds = new Set(
       rankedCandidates.map((candidate) => candidate.chunk.id),
     );
-    const seedWeightByPageId = new Map<string, number>();
-    for (const candidate of rankedCandidates) {
-      const pageId = candidate.page.id;
-      seedWeightByPageId.set(
-        pageId,
-        Math.max(seedWeightByPageId.get(pageId) ?? 0, candidate.score),
-      );
-    }
-    const graphExpansion = await measureAiChatPhase(
-      input.debugTiming,
-      'retrieval.graph_expansion',
-      () =>
-        this.expandGraph({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          supplementalUserId: input.supplementalUserId,
-          readableSpaceIds,
-          principals,
-          seeds: unique(authorizedChunks.map((candidate) => candidate.page.id))
-            .map((knowledgePageId) => ({
-              knowledgePageId,
-              weight: seedWeightByPageId.get(knowledgePageId) ?? 0,
-            }))
-            .sort(
-              (left, right) =>
-                right.weight - left.weight ||
-                left.knowledgePageId.localeCompare(right.knowledgePageId),
-            ),
-          candidateLimit,
-          query: input.query,
-          ...(queryEmbedding ? { queryEmbedding } : {}),
-          authorizationMode: accessPolicyFallbackUsed
-            ? 'final-authorization-fallback'
-            : 'policy',
-          authCache,
-          ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
-        }),
-      (result) => ({
-        graphSeedsExpanded: result.seedsExpanded,
-        graphWindowPageCount: result.windowPageIds.length,
-        graphCandidateCount: graphCandidateIds(result).size,
-      }),
-    );
-    const graphCandidateCount = graphCandidateIds(graphExpansion).size;
 
-    let selectedChunks = authorizedChunks.slice(0, candidateLimit);
-    let gatedGraphCandidateCount = 0;
-    if (graphCandidateCount > 0) {
-      const fusedStartedAt = performance.now();
-      let fusedCandidates = filterRelevantCandidates(
-        rankRecallCandidates(selectedRecall, {
-          dense: graphExpansion.dense,
-          lexical: graphExpansion.lexical,
-        }),
-      );
-      if (accessPolicyFallbackUsed) {
-        fusedCandidates = fusedCandidates.map((candidate) => ({
-          ...candidate,
-          rankReasons: [
-            ...candidate.rankReasons.filter(
-              (reason) => reason !== 'sidecar-prefiltered',
-            ),
-            'final-authorization-fallback' as const,
-          ],
-        }));
-      }
-      for (const candidate of fusedCandidates) {
-        relevantChunkIds.add(candidate.chunk.id);
-      }
-      gatedGraphCandidateCount =
-        graphCandidateCount -
-        fusedCandidates.filter((candidate) =>
-          candidate.signals.includes('graph'),
-        ).length;
-      input.debugTiming?.record(
-        'retrieval.rank_candidates',
-        performance.now() - fusedStartedAt,
-        {
-          rankedCandidateCount: fusedCandidates.length,
-          pass: 'graph-fused',
-        },
-      );
-
-      const fusedSourceRows = await measureAiChatPhase(
-        input.debugTiming,
-        'retrieval.load_graph_chunk_sources',
-        () =>
-          this.capsuleRepo.findChunkSourcePageIdsByChunkIds({
-            workspaceId: input.workspaceId,
-            chunkIds: fusedCandidates.map((candidate) => candidate.chunk.id),
-          }),
-        (result) => ({ sourceRowCount: result.length }),
-      );
-      const fusedSourcesByChunkId = new Map(
-        fusedSourceRows.map((row) => [row.chunkId, row.sourcePageIds]),
-      );
-      const fusedReadableSourcePageIds = await measureAiChatPhase(
-        input.debugTiming,
-        'retrieval.authorize_graph_sources',
-        () =>
-          this.sourceAuthorization.filterReadableSources({
-            workspaceId: input.workspaceId,
-            userId: input.userId,
-            supplementalUserId: input.supplementalUserId,
-            sourcePageIds: unique(
-              fusedSourceRows.flatMap((row) => row.sourcePageIds),
-            ),
-            cache: authCache,
-          }),
-        (result) => ({ readableSourceCount: result.length }),
-      );
-      const authorizedFusedChunks = authorizeRanked(
-        fusedCandidates,
-        fusedSourcesByChunkId,
-        new Set(fusedReadableSourcePageIds),
-      );
-      for (const candidate of authorizedFusedChunks) {
-        authorizedChunkIds.add(candidate.chunk.id);
-      }
-      selectedChunks = selectBoundedGraphCandidates({
-        fused: authorizedFusedChunks,
-        directBaseline: authorizedChunks,
-        limit: candidateLimit,
-      });
-    }
+    const selectedChunks = authorizedChunks.slice(0, candidateLimit);
     const finalAuthorizedSourceCount = unique(
       selectedChunks.flatMap((candidate) => candidate.sourcePageIds),
     ).length;
-    // Direct hits that survived blending, in their final rank order. Graph-only
-    // chunks never contribute attachments (§7.1 / §1.2).
-    const directHitChunkIds = selectedChunks
-      .filter((candidate) => candidate.origin === 'direct')
-      .map((candidate) => candidate.chunk.id);
+    const directHitChunkIds = selectedChunks.map(
+      (candidate) => candidate.chunk.id,
+    );
 
     const observationCandidates = toRawRetrievalCandidates({
       policyRecall,
       fallbackRecall,
       topK: candidateLimit,
-      graph: graphExpansion,
-      graphAuthorizationMode: accessPolicyFallbackUsed ? 'fallback' : 'policy',
     });
     const retrievalObservationDrops = buildRetrievalDrops({
       candidates: observationCandidates,
@@ -692,231 +535,13 @@ export class KnowledgeRetrievalService {
         titleCandidateCount: uniqueCandidateCount(titleCandidates),
         evidenceCandidateCount,
         memoryCandidateCount,
-        rankedCandidateCount: rankedCandidates.length + graphCandidateCount,
+        rankedCandidateCount: rankedCandidates.length,
         authorizedChunkCount: selectedChunks.length,
-        filteredChunkCount:
-          rankedCandidates.length + graphCandidateCount - selectedChunks.length,
-        graph: {
-          candidateCount: graphCandidateCount,
-          gatedOutCount: gatedGraphCandidateCount,
-          selectedCount: selectedChunks.filter(
-            (candidate) => candidate.origin === 'graph',
-          ).length,
-          expandedSeedCount: graphExpansion.seedsExpanded,
-          edgeCounts: graphExpansion.edgesByType,
-          pageCountsByHop: graphExpansion.pagesByHop,
-        },
+        filteredChunkCount: rankedCandidates.length - selectedChunks.length,
       },
     };
   }
-
-  private async expandGraph(input: {
-    workspaceId: string;
-    userId: string;
-    supplementalUserId?: string;
-    readableSpaceIds: string[];
-    principals: Array<{
-      principalType: 'user' | 'group';
-      principalId: string;
-    }>;
-    seeds: KnowledgeGraphTraversalSeed[];
-    candidateLimit: number;
-    query: string;
-    queryEmbedding?: {
-      vector: number[];
-      profile: string;
-      model: string;
-      dimensions: number;
-    };
-    authorizationMode: 'policy' | 'final-authorization-fallback';
-    authCache: KnowledgeAuthorizationCache;
-    labelNames?: string[];
-  }): Promise<GraphExpansionResult> {
-    const empty: GraphExpansionResult = {
-      dense: [],
-      lexical: [],
-      windowPageIds: [],
-      seedsExpanded: 0,
-      seedsSkippedByThreshold: 0,
-      edgesScanned: 0,
-      edgesAuthorized: 0,
-      edgesByType: { semantic: 0, link: 0, 'shared-source': 0 },
-      pagesByHop: {},
-    };
-    if (input.seeds.length === 0 || input.candidateLimit <= 1) return empty;
-
-    const topWeight = input.seeds[0]?.weight ?? 0;
-    const weightThreshold = topWeight * GRAPH_SEED_WEIGHT_RATIO;
-    const eligibleSeeds = input.seeds
-      .filter((seed) => seed.weight >= weightThreshold)
-      .slice(0, GRAPH_SEED_LIMIT);
-    if (eligibleSeeds.length === 0) return empty;
-    const seedsSkippedByThreshold = input.seeds.length - eligibleSeeds.length;
-
-    const visited = new Set(input.seeds.map((seed) => seed.knowledgePageId));
-    const hopByPageId = new Map<string, number>();
-    const typeWeightByPageId = new Map<string, number>();
-    const edgesByType: Record<KnowledgeGraphEdgeType, number> = {
-      semantic: 0,
-      link: 0,
-      'shared-source': 0,
-    };
-    let frontier = eligibleSeeds;
-    let edgesScanned = 0;
-    let edgesAuthorized = 0;
-    const edgeLimit = Math.max(input.candidateLimit * 20, 100);
-
-    for (let hop = 1; hop <= 1 && frontier.length > 0; hop += 1) {
-      const frontierPageIds = frontier.map((seed) => seed.knowledgePageId);
-      const frontierSourceIds =
-        await this.capsuleRepo.findGraphFrontierSourceIds({
-          workspaceId: input.workspaceId,
-          spaceIds: input.readableSpaceIds,
-          knowledgePageIds: frontierPageIds,
-        });
-      edgesScanned += frontierSourceIds.length;
-      if (frontierSourceIds.length === 0) break;
-      const readableSourcePageIds =
-        await this.sourceAuthorization.filterReadableSources({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          supplementalUserId: input.supplementalUserId,
-          sourcePageIds: frontierSourceIds,
-          cache: input.authCache,
-        });
-      const edges = await this.capsuleRepo.findGraphTraversalEdges({
-        workspaceId: input.workspaceId,
-        spaceIds: input.readableSpaceIds,
-        seeds: frontier,
-        readableSourcePageIds,
-        limit: edgeLimit,
-      });
-      if (edges.length === 0) break;
-      edgesAuthorized += edges.length;
-
-      const frontierSet = new Set(frontierPageIds);
-      const nextFrontier = new Map<string, number>();
-      for (const edge of edges) {
-        edgesByType[edge.type] += 1;
-        if (edge.sourcePageIds.length === 0) continue;
-        for (const [currentPageId, neighborPageId] of edgeDirections(edge)) {
-          if (!frontierSet.has(currentPageId) || visited.has(neighborPageId)) {
-            continue;
-          }
-          nextFrontier.set(
-            neighborPageId,
-            Math.max(nextFrontier.get(neighborPageId) ?? 0, edge.weight),
-          );
-          hopByPageId.set(neighborPageId, hop);
-          typeWeightByPageId.set(
-            neighborPageId,
-            Math.max(typeWeightByPageId.get(neighborPageId) ?? 0, edge.weight),
-          );
-        }
-      }
-      frontier = [...nextFrontier].map(([knowledgePageId, weight]) => ({
-        knowledgePageId,
-        weight,
-      }));
-      for (const seed of frontier) visited.add(seed.knowledgePageId);
-    }
-
-    const pagesByHop: Record<number, number> = {};
-    for (const hop of hopByPageId.values()) {
-      pagesByHop[hop] = (pagesByHop[hop] ?? 0) + 1;
-    }
-    const windowPageIds = [...hopByPageId.keys()]
-      .sort((left, right) => {
-        const hopDifference =
-          (hopByPageId.get(left) ?? 3) - (hopByPageId.get(right) ?? 3);
-        if (hopDifference !== 0) return hopDifference;
-        const weightDifference =
-          (typeWeightByPageId.get(right) ?? 0) -
-          (typeWeightByPageId.get(left) ?? 0);
-        return weightDifference || left.localeCompare(right);
-      })
-      .slice(0, graphWindowPageLimit(input.candidateLimit));
-    if (windowPageIds.length === 0) {
-      return {
-        ...empty,
-        seedsExpanded: eligibleSeeds.length,
-        seedsSkippedByThreshold,
-        edgesScanned,
-        edgesAuthorized,
-        edgesByType,
-      };
-    }
-
-    const windowScope = {
-      workspaceId: input.workspaceId,
-      spaceIds: input.readableSpaceIds,
-      principals: input.principals,
-      knowledgePageIds: windowPageIds,
-      authorizationMode: input.authorizationMode,
-      limit: Math.max(input.candidateLimit * 2, input.candidateLimit),
-      ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
-    };
-    const [denseWindow, lexicalWindow] = await Promise.all([
-      input.queryEmbedding
-        ? this.capsuleRepo.findDenseChunkCandidates({
-            ...windowScope,
-            embedding: input.queryEmbedding,
-          })
-        : Promise.resolve([]),
-      this.capsuleRepo.findLexicalChunkCandidates({
-        ...windowScope,
-        query: input.query,
-      }),
-    ]);
-
-    const withGraphSignal = (candidate: KnowledgeChunkCandidate) => ({
-      ...candidate,
-      signals: unique([
-        ...candidate.signals,
-        'graph',
-      ]) as KnowledgeRetrievalSignal[],
-    });
-
-    return {
-      dense: denseWindow.map(withGraphSignal),
-      lexical: lexicalWindow.map(withGraphSignal),
-      windowPageIds,
-      seedsExpanded: eligibleSeeds.length,
-      seedsSkippedByThreshold,
-      edgesScanned,
-      edgesAuthorized,
-      edgesByType,
-      pagesByHop,
-    };
-  }
 }
-
-function graphCandidateIds(graph: {
-  dense: KnowledgeChunkCandidate[];
-  lexical: KnowledgeChunkCandidate[];
-}): Set<string> {
-  return new Set(
-    [...graph.dense, ...graph.lexical].map((candidate) => candidate.chunk.id),
-  );
-}
-
-const GRAPH_SEED_LIMIT = 3;
-const GRAPH_SEED_WEIGHT_RATIO = 0.5;
-function graphWindowPageLimit(candidateLimit: number): number {
-  return Math.max(candidateLimit * 4, 32);
-}
-
-type GraphExpansionResult = {
-  dense: KnowledgeChunkCandidate[];
-  lexical: KnowledgeChunkCandidate[];
-  windowPageIds: string[];
-  seedsExpanded: number;
-  seedsSkippedByThreshold: number;
-  edgesScanned: number;
-  edgesAuthorized: number;
-  edgesByType: Record<KnowledgeGraphEdgeType, number>;
-  pagesByHop: Record<number, number>;
-};
 
 function emptyResult(input: {
   scope: KnowledgeRetrievalScope;
@@ -954,14 +579,6 @@ function emptyResult(input: {
       rankedCandidateCount: 0,
       authorizedChunkCount: 0,
       filteredChunkCount: 0,
-      graph: {
-        candidateCount: 0,
-        gatedOutCount: 0,
-        selectedCount: 0,
-        expandedSeedCount: 0,
-        edgeCounts: { semantic: 0, link: 0, 'shared-source': 0 },
-        pageCountsByHop: {},
-      },
       ...input.diagnostics,
     },
   };
@@ -971,11 +588,6 @@ function toRawRetrievalCandidates(input: {
   policyRecall: RecallShape;
   fallbackRecall?: RecallShape | null;
   topK: number;
-  graph?: {
-    dense: KnowledgeChunkCandidate[];
-    lexical: KnowledgeChunkCandidate[];
-  };
-  graphAuthorizationMode?: 'policy' | 'fallback';
 }): KnowledgeRetrievalCandidate[] {
   const recallLists = (
     recall: RecallShape,
@@ -1004,33 +616,11 @@ function toRawRetrievalCandidates(input: {
       })),
     );
   };
-  const candidates = [
+  return [
     ...recallLists(input.policyRecall, 'policy'),
     ...(input.fallbackRecall
       ? recallLists(input.fallbackRecall, 'fallback')
       : []),
-  ];
-  if (!input.graph) return candidates;
-  const graphLists: Array<{
-    signal: 'semantic' | 'lexical' | 'exact-title';
-    candidates: KnowledgeChunkCandidate[];
-  }> = [
-    { signal: 'semantic', candidates: input.graph.dense },
-    { signal: 'lexical', candidates: input.graph.lexical },
-  ];
-  return [
-    ...candidates,
-    ...graphLists.flatMap(({ signal, candidates: list }) =>
-      list.slice(0, input.topK).map((candidate) => ({
-        pageId: candidate.page.id,
-        chunkId: candidate.chunk.id,
-        score: rawCandidateScore(candidate, signal),
-        scoreType: rawCandidateScoreType(signal),
-        reasons: rankReasonsForRawCandidate(candidate, signal),
-        stage: 'graph' as const,
-        authorizationMode: input.graphAuthorizationMode ?? 'policy',
-      })),
-    ),
   ];
 }
 
@@ -1072,9 +662,7 @@ function rankReasonsForRawCandidate(
   candidate: KnowledgeChunkCandidate,
   signal: 'semantic' | 'lexical' | 'exact-title',
 ): KnowledgeRetrievalRankReason[] {
-  const reasons = new Set<KnowledgeRetrievalRankReason>([signal]);
-  if (candidate.signals.includes('graph')) reasons.add('graph-neighbor');
-  return [...reasons];
+  return [signal];
 }
 
 function buildRetrievalDrops(input: {
@@ -1121,13 +709,6 @@ function fuseRecall(
     ],
   ],
   limit: number,
-  graph: {
-    dense: KnowledgeChunkCandidate[];
-    lexical: KnowledgeChunkCandidate[];
-  } = {
-    dense: [],
-    lexical: [],
-  },
 ) {
   const [evidenceRecall, memoryRecall] = recall;
   const [evidenceDense, evidenceLexical, evidenceTitle] = evidenceRecall;
@@ -1140,53 +721,9 @@ function fuseRecall(
       { signal: 'semantic', candidates: memoryDense, weight: 1 },
       { signal: 'lexical', candidates: memoryLexical, weight: 0.8 },
       { signal: 'exact-title', candidates: memoryTitle, weight: 1.2 },
-      { signal: 'semantic', candidates: graph.dense, weight: 0.85 },
-      { signal: 'lexical', candidates: graph.lexical, weight: 0.15 },
     ],
     limit,
   });
-}
-
-function selectBoundedGraphCandidates(input: {
-  fused: KnowledgeRetrievalResult['chunks'];
-  directBaseline: KnowledgeRetrievalResult['chunks'];
-  limit: number;
-}): KnowledgeRetrievalResult['chunks'] {
-  if (input.limit <= 0) return [];
-  if (input.directBaseline.length === 0)
-    return input.fused.slice(0, input.limit);
-
-  const selected: KnowledgeRetrievalResult['chunks'] = [];
-  const selectedChunkIds = new Set<string>();
-  const graphLimit = Math.floor(input.limit / 4);
-  let graphCount = 0;
-  const take = (candidate: KnowledgeRetrievalResult['chunks'][number]) => {
-    if (
-      selected.length >= input.limit ||
-      selectedChunkIds.has(candidate.chunk.id) ||
-      (candidate.origin === 'graph' && graphCount >= graphLimit)
-    ) {
-      return;
-    }
-    selected.push(candidate);
-    selectedChunkIds.add(candidate.chunk.id);
-    if (candidate.origin === 'graph') graphCount += 1;
-  };
-
-  const exactTitleDirect = input.directBaseline.find((candidate) =>
-    candidate.rankReasons.includes('exact-title'),
-  );
-  if (exactTitleDirect) {
-    take(
-      input.fused.find(
-        (candidate) => candidate.chunk.id === exactTitleDirect.chunk.id,
-      ) ?? exactTitleDirect,
-    );
-  }
-
-  for (const candidate of input.fused) take(candidate);
-  for (const candidate of input.directBaseline) take(candidate);
-  return selected;
 }
 
 function candidateSourceIds(
@@ -1248,25 +785,4 @@ function uniqueCandidateCount(
   candidates: Array<{ chunk: { id: string } }>,
 ): number {
   return new Set(candidates.map((candidate) => candidate.chunk.id)).size;
-}
-
-function edgeDirections(
-  edge: KnowledgeGraphTraversalEdge,
-): Array<[string, string]> {
-  return [
-    [edge.fromKnowledgePageId, edge.toKnowledgePageId],
-    [edge.toKnowledgePageId, edge.fromKnowledgePageId],
-  ];
-}
-
-function allSourcesReadable(
-  sourcePageIds: string[],
-  readableSourcePageIds: Set<string>,
-): boolean {
-  return (
-    sourcePageIds.length > 0 &&
-    sourcePageIds.every((sourcePageId) =>
-      readableSourcePageIds.has(sourcePageId),
-    )
-  );
 }

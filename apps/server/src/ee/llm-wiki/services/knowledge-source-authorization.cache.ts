@@ -9,7 +9,7 @@ import { User } from '@akasha/db/types/entity.types';
  * any time, so a longer-lived cache would open an authorization-staleness window.
  *
  * Within one request the same pages/spaces are authorized several times (main
- * retrieval, two-hop graph expansion, capsule citations, explicit context). This
+ * retrieval, capsule citations, explicit context). This
  * cache removes those repeated lookups while preserving the exact fail-closed
  * semantics of KnowledgeSourceAuthorizationService.
  */

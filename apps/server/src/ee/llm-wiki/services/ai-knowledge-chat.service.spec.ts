@@ -22,7 +22,6 @@ describe('AiKnowledgeChatService', () => {
             page: capsule('kp-1', 'Chaterm'),
             sourcePageIds: ['page-1'],
             rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
-            origin: 'direct',
           },
         ],
         capsules: [],
@@ -268,7 +267,6 @@ describe('AiKnowledgeChatService', () => {
           page: capsule('kp-1', 'Chaterm'),
           sourcePageIds: ['page-1'],
           rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
-          origin: 'direct',
         },
       ],
     });

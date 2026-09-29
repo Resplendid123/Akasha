@@ -583,18 +583,6 @@ export class AiChatService {
       rankedCandidateCount: number;
       authorizedChunkCount: number;
       filteredChunkCount: number;
-      graph?: {
-        candidateCount: number;
-        gatedOutCount: number;
-        selectedCount: number;
-        expandedSeedCount: number;
-        edgeCounts: {
-          semantic: number;
-          link: number;
-          'shared-source': number;
-        };
-        pageCountsByHop: Record<number, number>;
-      };
     };
     retrieval?: AiKnowledgeChatResult['retrieval'];
     context?: AiKnowledgeChatResult['context'];

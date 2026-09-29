@@ -66,11 +66,7 @@ export type KnowledgeGraphCandidates = {
   graphEdges: KnowledgeGraphEdge[];
   graphEdgeSources: KnowledgeGraphEdgeSource[];
 };
-export type KnowledgeRetrievalSignal =
-  | 'semantic'
-  | 'lexical'
-  | 'exact-title'
-  | 'graph';
+export type KnowledgeRetrievalSignal = 'semantic' | 'lexical' | 'exact-title';
 export type KnowledgeChunkCandidate = {
   chunk: KnowledgeChunk;
   page: KnowledgePage;
@@ -100,31 +96,6 @@ export type KnowledgeChunkSourceRef = {
   contentHash: string;
   sourceRange: unknown;
   quoteHash: string | null;
-};
-
-export type KnowledgeGraphEdgeType = 'semantic' | 'link' | 'shared-source';
-
-export const KNOWLEDGE_GRAPH_EDGE_TYPE_WEIGHT: Record<
-  KnowledgeGraphEdgeType,
-  number
-> = {
-  semantic: 1.0,
-  link: 0.7,
-  'shared-source': 0.2,
-};
-
-export type KnowledgeGraphTraversalEdge = {
-  id: string;
-  fromKnowledgePageId: string;
-  toKnowledgePageId: string;
-  type: KnowledgeGraphEdgeType;
-  weight: number;
-  sourcePageIds: string[];
-};
-
-export type KnowledgeGraphTraversalSeed = {
-  knowledgePageId: string;
-  weight: number;
 };
 
 export type CompilerCatalogCandidateRow = {
@@ -726,15 +697,12 @@ export class KnowledgeCapsuleRepo {
         dimensions: number;
       };
       limit: number;
-      knowledgePageIds?: string[];
     },
     trx?: KyselyTransaction,
   ): Promise<KnowledgeChunkCandidate[]> {
     if (!hasCandidateScope(input) || input.embedding.vector.length === 0) {
       return [];
     }
-    if (input.knowledgePageIds && input.knowledgePageIds.length === 0)
-      return [];
     if (
       !Number.isInteger(input.embedding.dimensions) ||
       input.embedding.dimensions <= 0 ||
@@ -773,13 +741,6 @@ export class KnowledgeCapsuleRepo {
           input.retrievalChannel,
         );
       }
-      if (input.knowledgePageIds) {
-        query = query.where(
-          'knowledgeChunks.knowledgePageId',
-          'in',
-          input.knowledgePageIds,
-        );
-      }
       const rows = await this.applyAuthorizedChunkScope(query, input)
         .orderBy(distance, 'asc')
         .limit(input.limit)
@@ -814,13 +775,10 @@ export class KnowledgeCapsuleRepo {
     input: AuthorizedCandidateInput & {
       query: string;
       limit: number;
-      knowledgePageIds?: string[];
     },
     trx?: KyselyTransaction,
   ): Promise<KnowledgeChunkCandidate[]> {
     if (!hasCandidateScope(input) || input.query.trim().length === 0) return [];
-    if (input.knowledgePageIds && input.knowledgePageIds.length === 0)
-      return [];
 
     const db = dbOrTx(this.db, trx);
     const tsQuery = sql`websearch_to_tsquery('simple', ${input.query.trim()})`;
@@ -837,13 +795,6 @@ export class KnowledgeCapsuleRepo {
         'knowledgeChunks.retrievalChannel',
         '=',
         input.retrievalChannel,
-      );
-    }
-    if (input.knowledgePageIds) {
-      query = query.where(
-        'knowledgeChunks.knowledgePageId',
-        'in',
-        input.knowledgePageIds,
       );
     }
     const rows = await this.applyAuthorizedChunkScope(query, input)
@@ -905,305 +856,6 @@ export class KnowledgeCapsuleRepo {
       input,
       trx,
     );
-  }
-
-  async findGraphFrontierSourceIds(
-    input: {
-      workspaceId: string;
-      spaceIds: string[];
-      knowledgePageIds: string[];
-    },
-    trx?: KyselyTransaction,
-  ): Promise<string[]> {
-    if (input.spaceIds.length === 0 || input.knowledgePageIds.length === 0) {
-      return [];
-    }
-
-    const db = dbOrTx(this.db, trx);
-    const frontier = input.knowledgePageIds;
-    const spaceIds = input.spaceIds;
-    const rows = await db
-      .selectFrom('knowledgeGraphEdgeSources')
-      .select('sourcePageId')
-      .where('workspaceId', '=', input.workspaceId)
-      .where('graphEdgeId', 'in', (eb) =>
-        eb
-          .selectFrom('knowledgeGraphEdges')
-          .select('id')
-          .where('workspaceId', '=', input.workspaceId)
-          .where('spaceId', 'in', spaceIds)
-          .where('staleAt', 'is', null)
-          .where((inner) =>
-            inner.or([
-              inner('fromKnowledgePageId', 'in', frontier),
-              inner('toKnowledgePageId', 'in', frontier),
-            ]),
-          ),
-      )
-      .union((eb) =>
-        eb
-          .selectFrom('knowledgeLinkSources')
-          .select('sourcePageId')
-          .where('workspaceId', '=', input.workspaceId)
-          .where('linkId', 'in', (inner) =>
-            inner
-              .selectFrom('knowledgeLinks')
-              .select('id')
-              .where('workspaceId', '=', input.workspaceId)
-              .where('spaceId', 'in', spaceIds)
-              .where('staleAt', 'is', null)
-              .where((link) =>
-                link.or([
-                  link('fromKnowledgePageId', 'in', frontier),
-                  link('toKnowledgePageId', 'in', frontier),
-                ]),
-              ),
-          ),
-      )
-      .union((eb) =>
-        eb
-          .selectFrom('knowledgePageSources')
-          .select('sourcePageId')
-          .where('workspaceId', '=', input.workspaceId)
-          .where('knowledgePageId', 'in', frontier),
-      )
-      .execute();
-
-    return unique(rows.map((row) => row.sourcePageId));
-  }
-
-  async findGraphTraversalEdges(
-    input: {
-      workspaceId: string;
-      spaceIds: string[];
-      seeds: KnowledgeGraphTraversalSeed[];
-      readableSourcePageIds: string[];
-      limit: number;
-    },
-    trx?: KyselyTransaction,
-  ): Promise<KnowledgeGraphTraversalEdge[]> {
-    if (
-      input.spaceIds.length === 0 ||
-      input.seeds.length === 0 ||
-      input.limit <= 0
-    ) {
-      return [];
-    }
-    if (input.readableSourcePageIds.length === 0) return [];
-
-    const db = dbOrTx(this.db, trx);
-    const seedIds = input.seeds.map((seed) => seed.knowledgePageId);
-    const seedWeights = input.seeds.map((seed) => seed.weight);
-    const readableSources = input.readableSourcePageIds;
-    const spaceIds = input.spaceIds;
-    const sharedSourceCap = Math.max(1, Math.floor(input.limit / 4));
-    const reservePerType = Math.max(1, Math.floor(input.limit / 4));
-    const weightOf = KNOWLEDGE_GRAPH_EDGE_TYPE_WEIGHT;
-
-    const rows = await sql<{
-      id: string;
-      fromKnowledgePageId: string;
-      toKnowledgePageId: string;
-      type: KnowledgeGraphEdgeType;
-      sourcePageIds: string[];
-    }>`
-      WITH seed AS (
-        SELECT *
-        FROM unnest(
-          ${sql.val(seedIds)}::uuid[],
-          ${sql.val(seedWeights)}::double precision[]
-        ) AS s(knowledge_page_id, weight)
-      ),
-      readable_source AS (
-        SELECT unnest(${sql.val(readableSources)}::uuid[]) AS source_page_id
-      ),
-      link_edge AS (
-        SELECT
-          l.id::text AS id,
-          l.from_knowledge_page_id,
-          l.to_knowledge_page_id,
-          'link' AS type,
-          ${weightOf.link}::double precision AS type_weight,
-          ARRAY(
-            SELECT DISTINCT ls.source_page_id
-            FROM knowledge_link_sources AS ls
-            WHERE ls.workspace_id = l.workspace_id
-              AND ls.link_id = l.id
-            ORDER BY ls.source_page_id
-          ) AS source_page_ids
-        FROM knowledge_links AS l
-        INNER JOIN knowledge_pages AS from_page
-          ON from_page.id = l.from_knowledge_page_id
-        INNER JOIN knowledge_pages AS to_page
-          ON to_page.id = l.to_knowledge_page_id
-        WHERE l.workspace_id = ${input.workspaceId}
-          AND l.space_id IN (${sql.join(spaceIds)})
-          AND l.link_type != 'catalog_entry'
-          AND l.to_knowledge_page_id IS NOT NULL
-          AND l.is_dangling = false
-          AND l.stale_at IS NULL
-          AND from_page.stale_at IS NULL
-          AND to_page.stale_at IS NULL
-          AND from_page.space_id = l.space_id
-          AND to_page.space_id = l.space_id
-          AND (
-            l.from_knowledge_page_id IN (SELECT knowledge_page_id FROM seed)
-            OR l.to_knowledge_page_id IN (SELECT knowledge_page_id FROM seed)
-          )
-          AND EXISTS (
-            SELECT 1 FROM knowledge_link_sources AS ls
-            WHERE ls.workspace_id = l.workspace_id AND ls.link_id = l.id
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM knowledge_link_sources AS ls
-            WHERE ls.workspace_id = l.workspace_id
-              AND ls.link_id = l.id
-              AND ls.source_page_id NOT IN (
-                SELECT source_page_id FROM readable_source
-              )
-          )
-      ),
-      semantic_edge AS (
-        SELECT
-          e.id::text AS id,
-          e.from_knowledge_page_id,
-          e.to_knowledge_page_id,
-          'semantic' AS type,
-          ${weightOf.semantic}::double precision AS type_weight,
-          ARRAY(
-            SELECT DISTINCT es.source_page_id
-            FROM knowledge_graph_edge_sources AS es
-            WHERE es.workspace_id = e.workspace_id
-              AND es.graph_edge_id = e.id
-            ORDER BY es.source_page_id
-          ) AS source_page_ids
-        FROM knowledge_graph_edges AS e
-        INNER JOIN knowledge_pages AS from_page
-          ON from_page.id = e.from_knowledge_page_id
-        INNER JOIN knowledge_pages AS to_page
-          ON to_page.id = e.to_knowledge_page_id
-        WHERE e.workspace_id = ${input.workspaceId}
-          AND e.space_id IN (${sql.join(spaceIds)})
-          AND e.relation != 'catalog_entry'
-          AND e.is_dangling = false
-          AND e.to_knowledge_page_id IS NOT NULL
-          AND e.stale_at IS NULL
-          AND from_page.stale_at IS NULL
-          AND to_page.stale_at IS NULL
-          AND from_page.space_id = e.space_id
-          AND to_page.space_id = e.space_id
-          AND (
-            e.from_knowledge_page_id IN (SELECT knowledge_page_id FROM seed)
-            OR e.to_knowledge_page_id IN (SELECT knowledge_page_id FROM seed)
-          )
-          AND EXISTS (
-            SELECT 1 FROM knowledge_graph_edge_sources AS es
-            WHERE es.workspace_id = e.workspace_id AND es.graph_edge_id = e.id
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM knowledge_graph_edge_sources AS es
-            WHERE es.workspace_id = e.workspace_id
-              AND es.graph_edge_id = e.id
-              AND es.source_page_id NOT IN (
-                SELECT source_page_id FROM readable_source
-              )
-          )
-      ),
-      shared_source_pair AS (
-        SELECT
-          least(seed_source.knowledge_page_id, neighbor_source.knowledge_page_id)
-            AS from_knowledge_page_id,
-          greatest(seed_source.knowledge_page_id, neighbor_source.knowledge_page_id)
-            AS to_knowledge_page_id,
-          array_agg(DISTINCT seed_source.source_page_id
-            ORDER BY seed_source.source_page_id) AS source_page_ids,
-          bool_and(
-            seed_source.source_page_id IN (
-              SELECT source_page_id FROM readable_source
-            )
-          ) AS all_sources_readable
-        FROM knowledge_page_sources AS seed_source
-        INNER JOIN knowledge_page_sources AS neighbor_source
-          ON neighbor_source.workspace_id = seed_source.workspace_id
-          AND neighbor_source.source_page_id = seed_source.source_page_id
-          AND neighbor_source.knowledge_page_id != seed_source.knowledge_page_id
-        INNER JOIN knowledge_pages AS from_page
-          ON from_page.id = seed_source.knowledge_page_id
-        INNER JOIN knowledge_pages AS to_page
-          ON to_page.id = neighbor_source.knowledge_page_id
-        WHERE seed_source.workspace_id = ${input.workspaceId}
-          AND seed_source.knowledge_page_id IN (
-            SELECT knowledge_page_id FROM seed
-          )
-          AND from_page.stale_at IS NULL
-          AND to_page.stale_at IS NULL
-          AND from_page.space_id IN (${sql.join(spaceIds)})
-          AND to_page.space_id = from_page.space_id
-        GROUP BY 1, 2
-      ),
-      shared_source_edge AS (
-        SELECT
-          'derived-shared:' || from_knowledge_page_id || ':' || to_knowledge_page_id
-            AS id,
-          from_knowledge_page_id,
-          to_knowledge_page_id,
-          'shared-source' AS type,
-          ${weightOf['shared-source']}::double precision AS type_weight,
-          source_page_ids
-        FROM shared_source_pair
-        WHERE all_sources_readable
-          AND array_length(source_page_ids, 1) > 0
-      ),
-      candidate AS (
-        SELECT * FROM link_edge
-        UNION ALL
-        SELECT * FROM semantic_edge
-        UNION ALL
-        SELECT * FROM shared_source_edge
-      ),
-      weighted AS (
-        SELECT
-          c.*,
-          COALESCE((
-            SELECT max(s.weight) FROM seed AS s
-            WHERE s.knowledge_page_id = c.from_knowledge_page_id
-              OR s.knowledge_page_id = c.to_knowledge_page_id
-          ), 0) AS seed_weight
-        FROM candidate AS c
-      ),
-      ranked AS (
-        SELECT
-          w.*,
-          row_number() OVER (
-            PARTITION BY w.type
-            ORDER BY w.seed_weight DESC, w.type_weight DESC, w.id ASC
-          ) AS type_rank
-        FROM weighted AS w
-      )
-      SELECT
-        id,
-        from_knowledge_page_id AS "fromKnowledgePageId",
-        to_knowledge_page_id AS "toKnowledgePageId",
-        type,
-        source_page_ids AS "sourcePageIds"
-      FROM ranked
-      WHERE type != 'shared-source' OR type_rank <= ${sharedSourceCap}
-      ORDER BY
-        (type IN ('semantic', 'link') AND type_rank <= ${reservePerType}) DESC,
-        seed_weight DESC,
-        type_weight DESC,
-        id ASC
-      LIMIT ${input.limit}
-    `.execute(db);
-
-    return rows.rows.map((row) => ({
-      id: row.id,
-      fromKnowledgePageId: row.fromKnowledgePageId,
-      toKnowledgePageId: row.toKnowledgePageId,
-      type: row.type,
-      weight: KNOWLEDGE_GRAPH_EDGE_TYPE_WEIGHT[row.type],
-      sourcePageIds: row.sourcePageIds ?? [],
-    }));
   }
 
   async findPagesByIds(
