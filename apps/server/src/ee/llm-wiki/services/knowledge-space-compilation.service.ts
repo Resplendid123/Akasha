@@ -36,7 +36,10 @@ import {
   buildEffectiveKnowledgeHash,
   ReadyKnowledgeImage,
 } from './knowledge-effective-hash';
-import { knowledgeImageJobOptions } from './knowledge-worker-settings';
+import {
+  knowledgeImageJobOptions,
+  KNOWLEDGE_WORKER_SETTINGS,
+} from './knowledge-worker-settings';
 import { KnowledgeSourceRetirementService } from './knowledge-source-retirement.service';
 import { KnowledgeImageUnderstandingProvider } from './knowledge-image-understanding-provider.service';
 
@@ -50,6 +53,8 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     private readonly spaceQueue: Queue,
     @InjectQueue(QueueName.KNOWLEDGE_IMAGE_QUEUE)
     private readonly imageQueue: Queue,
+    @InjectQueue(QueueName.KNOWLEDGE_MERGE_QUEUE)
+    private readonly mergeQueue: Queue,
     private readonly runRepo: KnowledgeSpaceCompilationRepo,
     private readonly compilationRepo: KnowledgeCompilationRepo,
     private readonly imageExtractionRepo: KnowledgeImageExtractionRepo,
@@ -536,8 +541,41 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       await this.promoteDuePageSchedules();
       await this.dispatchPendingSpaceJobs();
       await this.dispatchPendingRunImages();
+      await this.dispatchPendingPageMerges();
     } finally {
       this.dispatching = false;
+    }
+  }
+
+  private async dispatchPendingPageMerges(): Promise<void> {
+    if (!this.executionRepo) return;
+    await this.executionRepo.reservePageMergesFairly({ runLimit: 100 });
+    const merges = await this.executionRepo.findUndispatchedPageMerges();
+    for (const merge of merges) {
+      try {
+        await this.mergeQueue.add(
+          QueueJob.KNOWLEDGE_MERGE_PAGE,
+          {
+            workspaceId: merge.workspaceId,
+            spaceId: merge.spaceId,
+            spaceRunId: merge.runId,
+            runPageId: merge.runPageId,
+            sourcePageId: merge.sourcePageId,
+            knowledgeGeneration: merge.knowledgeGeneration,
+          },
+          { jobId: merge.mergeJobId! },
+        );
+        await this.executionRepo.markPageMergeDispatched({
+          runPageId: merge.runPageId,
+          runId: merge.runId,
+          knowledgeGeneration: merge.knowledgeGeneration,
+          mergeJobId: merge.mergeJobId!,
+        });
+      } catch {
+        this.logger.warn(
+          `Knowledge page merge outbox dispatch will retry RunPage ${merge.runPageId}.`,
+        );
+      }
     }
   }
 
@@ -572,7 +610,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
       const jobName =
         slice.jobPhase === 'text'
           ? QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT
-          : QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES;
+          : QueueJob.KNOWLEDGE_FINALIZE_SPACE;
       try {
         await this.spaceQueue!.add(
           jobName,
@@ -600,7 +638,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
 
   private async dispatchPendingRunImages(): Promise<void> {
     await this.runRepo.reserveRunImagesFairly({
-      maxOutstandingPerRun: 5,
+      maxOutstandingPerRun: KNOWLEDGE_WORKER_SETTINGS.imageMaxOutstandingPerRun,
       runLimit: 100,
     });
     const images = await this.runRepo.findUndispatchedRunImages();
@@ -639,7 +677,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     let cleanupErrorCount = 0;
     for (const jobId of [...new Set(jobIds)]) {
       let found = false;
-      for (const queue of [this.spaceQueue, this.imageQueue]) {
+      for (const queue of [this.spaceQueue, this.imageQueue, this.mergeQueue]) {
         try {
           const job = await queue.getJob(jobId);
           if (!job) continue;
@@ -690,15 +728,12 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
 
 function knowledgeSpaceJobPriority(slice: {
   trigger?: string;
-  jobPhase: 'text' | 'image_merge';
+  jobPhase: 'text' | 'finalize';
 }): number {
-  if (
-    slice.trigger === KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER &&
-    slice.jobPhase === 'text'
-  ) {
+  if (slice.trigger === KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER) {
     return 0;
   }
-  return slice.jobPhase === 'image_merge' ? 1 : 5;
+  return slice.jobPhase === 'finalize' ? 1 : 5;
 }
 
 /**

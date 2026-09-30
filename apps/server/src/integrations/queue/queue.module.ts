@@ -4,6 +4,7 @@ import { EnvironmentService } from '../environment/environment.service';
 import { createRetryStrategy, parseRedisUrl } from '../../common/helpers';
 import { QueueName } from './constants';
 import { GeneralQueueProcessor } from './processors/general-queue.processor';
+import { MERGE_ATTEMPT_BUDGET } from '@akasha/db/repos/llm-wiki/knowledge-compilation-budgets';
 
 export const SPACE_QUEUE_DEFAULT_JOB_OPTIONS = {
   attempts: 3,
@@ -16,6 +17,13 @@ export const IMAGE_QUEUE_DEFAULT_JOB_OPTIONS = {
   removeOnComplete: { age: 3_600, count: 100_000 },
   removeOnFail: { age: 86_400, count: 10_000 },
   attempts: 1,
+};
+
+export const MERGE_QUEUE_DEFAULT_JOB_OPTIONS = {
+  attempts: MERGE_ATTEMPT_BUDGET,
+  backoff: { type: 'exponential' as const, delay: 31_000 },
+  removeOnComplete: { age: 3_600, count: 100_000 },
+  removeOnFail: { age: 86_400, count: 10_000 },
 };
 
 @Global()
@@ -89,6 +97,10 @@ export const IMAGE_QUEUE_DEFAULT_JOB_OPTIONS = {
     BullModule.registerQueue({
       name: QueueName.KNOWLEDGE_IMAGE_QUEUE,
       defaultJobOptions: IMAGE_QUEUE_DEFAULT_JOB_OPTIONS,
+    }),
+    BullModule.registerQueue({
+      name: QueueName.KNOWLEDGE_MERGE_QUEUE,
+      defaultJobOptions: MERGE_QUEUE_DEFAULT_JOB_OPTIONS,
     }),
     BullModule.registerQueue({
       name: QueueName.HISTORY_QUEUE,

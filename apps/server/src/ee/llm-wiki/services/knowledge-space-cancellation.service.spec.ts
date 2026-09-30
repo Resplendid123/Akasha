@@ -107,12 +107,14 @@ describe('KnowledgeSpaceCompilationService cancellation', () => {
 function createFixture(cancelResult: object) {
   const spaceQueue = { getJob: jest.fn(), add: jest.fn() };
   const imageQueue = { getJob: jest.fn(), add: jest.fn() };
+  const mergeQueue = { getJob: jest.fn(), add: jest.fn() };
   const repo = {
     cancelRun: jest.fn().mockResolvedValue(cancelResult),
   };
   const service = new KnowledgeSpaceCompilationService(
     spaceQueue as unknown as Queue,
     imageQueue as unknown as Queue,
+    mergeQueue as unknown as Queue,
     repo as unknown as KnowledgeSpaceCompilationRepo,
     undefined as never,
     undefined as never,

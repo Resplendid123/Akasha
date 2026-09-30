@@ -5,8 +5,87 @@ import {
   classifyRunQueueState,
   sanitizeRunPageErrorDetail,
 } from './knowledge-diagnostics.service';
+import { QueueJob } from '../../../integrations/queue/constants';
 
 describe('scalable Knowledge Run diagnostics', () => {
+  it('counts Text and Finalize by actual job name, including the previous Text ACK', async () => {
+    const counts = { waiting: 1, active: 1, completed: 1 };
+    const spaceQueue = {
+      getJobCounts: jest.fn().mockResolvedValue(counts),
+      getJobs: jest.fn(async ([state]: string[]) => [
+        {
+          name:
+            state === 'waiting'
+              ? QueueJob.KNOWLEDGE_FINALIZE_SPACE
+              : QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT,
+          // Deliberately not used: the Run may have advanced before the Text ACK.
+          data: { phase: 'finalize' },
+          timestamp: 100,
+          processedOn: state === 'waiting' ? undefined : 200,
+          finishedOn: state === 'completed' ? 400 : undefined,
+        },
+      ]),
+    };
+    const imageQueue = { getJobCounts: jest.fn().mockResolvedValue({}) };
+    const mergeQueue = {
+      getJobCounts: jest.fn().mockResolvedValue({ active: 2 }),
+    };
+    const service = new KnowledgeDiagnosticsService(
+      {} as never,
+      imageQueue as never,
+      spaceQueue as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      mergeQueue as never,
+    );
+    const summary = await service.getRunDiagnosticsSummary({
+      workspaceId: 'ws',
+      spaceIds: [],
+      enforceSpaceScope: true,
+      canViewGlobalQueues: true,
+    });
+    expect(summary.queues).toMatchObject({
+      merge: { active: 2 },
+      spaceByJobKind: {
+        text: { active: 1, completed: 1, waiting: 0, queueWaitMsP95: 100 },
+        finalize: { waiting: 1, active: 0 },
+        sampledJobs: 3,
+        truncated: false,
+      },
+    });
+  });
+
+  it('marks bounded queue samples as truncated instead of reporting them as exact counts', async () => {
+    const queue = {
+      getJobCounts: jest.fn().mockResolvedValue({ waiting: 1001 }),
+      getJobs: jest
+        .fn()
+        .mockResolvedValue([
+          { name: QueueJob.KNOWLEDGE_FINALIZE_SPACE, timestamp: Date.now() },
+        ]),
+    };
+    const service = new KnowledgeDiagnosticsService(
+      {} as never,
+      queue as never,
+      queue as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const summary = await service.getRunDiagnosticsSummary({
+      workspaceId: 'ws',
+      spaceIds: [],
+      enforceSpaceScope: true,
+      canViewGlobalQueues: true,
+    });
+    expect(summary.queues?.spaceByJobKind).toMatchObject({
+      truncated: true,
+      sampleLimitPerState: 1000,
+      finalize: { waiting: 1 },
+    });
+    expect(queue.getJobs).toHaveBeenCalledWith(['waiting'], 0, 999);
+  });
   it('marks BullMQ worker capacity as an estimate and keeps unsupported Redis unknown', () => {
     expect(
       buildWorkerCapacityEstimate(

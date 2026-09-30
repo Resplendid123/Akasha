@@ -189,6 +189,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       failed_image_count integer not null default 0, skipped_image_count integer not null default 0,
       image_status varchar not null default 'not_required',
       image_job_id varchar, merge_status varchar not null default 'not_required', merge_job_id varchar,
+      merge_execution_token varchar, merge_processing_expires_at timestamptz,
+      merge_worker_id varchar, merge_heartbeat_at timestamptz,
       target_effective_knowledge_hash varchar, merged_effective_knowledge_hash varchar,
       status varchar not null, attempt_count integer not null default 0,
       merge_attempt_count integer not null default 0,

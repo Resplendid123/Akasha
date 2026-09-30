@@ -4,6 +4,8 @@ export interface KnowledgeWorkerSettings {
   databaseMaxPool: number;
   spaceConcurrency: number;
   imageConcurrency: number;
+  mergeConcurrency: number;
+  imageMaxOutstandingPerRun: number;
   leaseMaxPages: number;
   leaseMaxMs: number;
   heartbeatMs: number;
@@ -18,7 +20,7 @@ export function parseKnowledgeWorkerSettings(
     databaseMaxPool: integerSetting(
       environment,
       'DATABASE_MAX_POOL',
-      25,
+      40,
       1,
       100,
     ),
@@ -32,9 +34,16 @@ export function parseKnowledgeWorkerSettings(
     imageConcurrency: integerSetting(
       environment,
       'KNOWLEDGE_IMAGE_CONCURRENCY',
-      5,
+      8,
       1,
       10,
+    ),
+    imageMaxOutstandingPerRun: integerSetting(
+      environment,
+      'KNOWLEDGE_IMAGE_MAX_OUTSTANDING_PER_RUN',
+      8,
+      1,
+      50,
     ),
     leaseMaxPages: integerSetting(
       environment,
@@ -73,21 +82,31 @@ export function parseKnowledgeWorkerSettings(
     ),
   };
 
-  if (settings.heartbeatMs >= settings.executionLeaseTtlMs) {
+  // Text and Page Merge workers share the same KNOWLEDGE_SPACE_CONCURRENCY
+  // configuration value, but each holds its own worker slots.
+  const withMerge = {
+    ...settings,
+    mergeConcurrency: settings.spaceConcurrency,
+  };
+
+  if (withMerge.heartbeatMs >= withMerge.executionLeaseTtlMs) {
     throw new Error(
       'KNOWLEDGE_SPACE_HEARTBEAT_MS must be less than KNOWLEDGE_SPACE_LEASE_TTL_MS',
     );
   }
   if (
-    settings.databaseMaxPool <
-    settings.spaceConcurrency + settings.imageConcurrency + 10
+    withMerge.databaseMaxPool <
+    withMerge.spaceConcurrency +
+      withMerge.imageConcurrency +
+      withMerge.mergeConcurrency +
+      10
   ) {
     throw new Error(
-      'DATABASE_MAX_POOL must be at least KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10',
+      'DATABASE_MAX_POOL must be at least 2 * KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10',
     );
   }
 
-  return Object.freeze(settings);
+  return Object.freeze(withMerge);
 }
 
 export const KNOWLEDGE_WORKER_SETTINGS = parseKnowledgeWorkerSettings(
@@ -103,6 +122,13 @@ export const KNOWLEDGE_SPACE_WORKER_OPTIONS = Object.freeze({
 
 export const KNOWLEDGE_IMAGE_WORKER_OPTIONS = Object.freeze({
   concurrency: KNOWLEDGE_WORKER_SETTINGS.imageConcurrency,
+  lockDuration: KNOWLEDGE_WORKER_SETTINGS.queueLockDurationMs,
+  stalledInterval: 30_000,
+  maxStalledCount: 2,
+});
+
+export const KNOWLEDGE_MERGE_WORKER_OPTIONS = Object.freeze({
+  concurrency: KNOWLEDGE_WORKER_SETTINGS.mergeConcurrency,
   lockDuration: KNOWLEDGE_WORKER_SETTINGS.queueLockDurationMs,
   stalledInterval: 30_000,
   maxStalledCount: 2,

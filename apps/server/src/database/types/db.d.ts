@@ -703,8 +703,15 @@ export interface KnowledgeSpaceCompileRunPages {
   jobId: string | null;
   mergeAttemptCount: Generated<number>;
   mergedEffectiveKnowledgeHash: string | null;
+  mergeDispatchedAt: Timestamp | null;
+  mergeExecutionToken: string | null;
+  mergeFailureClass: string | null;
+  mergeHeartbeatAt: Timestamp | null;
   mergeJobId: string | null;
+  mergeProcessingExpiresAt: Timestamp | null;
+  mergeRedisRecoveryCount: Generated<number>;
   mergeStatus: Generated<string>;
+  mergeWorkerId: string | null;
   qualityStatus: Generated<string>;
   queuedAt: Timestamp | null;
   reused: Generated<boolean>;

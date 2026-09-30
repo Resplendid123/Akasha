@@ -93,11 +93,15 @@ async function main() {
   const imageQueue = new Queue(QueueName.KNOWLEDGE_IMAGE_QUEUE, {
     connection: redisConfig,
   });
+  const mergeQueue = new Queue(QueueName.KNOWLEDGE_MERGE_QUEUE, {
+    connection: redisConfig,
+  });
   try {
     const runRepo = new KnowledgeSpaceCompilationRepo(db);
     const compilation = new KnowledgeSpaceCompilationService(
       spaceQueue,
       imageQueue,
+      mergeQueue,
       runRepo,
       new KnowledgeCompilationRepo(db),
       new KnowledgeImageExtractionRepo(db),
@@ -127,6 +131,7 @@ async function main() {
   } finally {
     await spaceQueue.close();
     await imageQueue.close();
+    await mergeQueue.close();
     await db.destroy();
     await sql.end({ timeout: 5 });
   }
