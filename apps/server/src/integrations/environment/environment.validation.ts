@@ -264,16 +264,22 @@ export function validate(config: Record<string, any>) {
     process.exit(1);
   }
 
-  const databaseMaxPool = validatedConfig.DATABASE_MAX_POOL ?? 25;
+  const databaseMaxPool = validatedConfig.DATABASE_MAX_POOL ?? 40;
   const spaceConcurrency = validatedConfig.KNOWLEDGE_SPACE_CONCURRENCY ?? 10;
-  const imageConcurrency = validatedConfig.KNOWLEDGE_IMAGE_CONCURRENCY ?? 5;
-  if (databaseMaxPool < spaceConcurrency + imageConcurrency + 10) {
+  const imageConcurrency = validatedConfig.KNOWLEDGE_IMAGE_CONCURRENCY ?? 8;
+  // Text and Page Merge workers each hold KNOWLEDGE_SPACE_CONCURRENCY slots.
+  const mergeConcurrency = spaceConcurrency;
+  if (
+    databaseMaxPool <
+    spaceConcurrency + imageConcurrency + mergeConcurrency + 10
+  ) {
     bootstrapLogger.error({
       context: CONTEXT,
-      msg: 'DATABASE_MAX_POOL must be at least KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10.',
+      msg: 'DATABASE_MAX_POOL must be at least 2 * KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10.',
       databaseMaxPool,
       spaceConcurrency,
       imageConcurrency,
+      mergeConcurrency,
     });
     process.exit(1);
   }

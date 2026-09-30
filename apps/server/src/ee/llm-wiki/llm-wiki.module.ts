@@ -20,6 +20,7 @@ import { KnowledgeCitationImageRepo } from '../../database/repos/llm-wiki/knowle
 import { ConfiguredKnowledgeAnswerProvider } from './services/knowledge-answer-provider.service';
 import { KnowledgeTextProcessor } from './processors/knowledge-text.processor';
 import { KnowledgeImageProcessor } from './processors/knowledge-image.processor';
+import { KnowledgePageMergeProcessor } from './processors/knowledge-page-merge.processor';
 import {
   KNOWLEDGE_ANSWER_PROVIDER,
   KNOWLEDGE_COMPILER_ADAPTER,
@@ -49,6 +50,7 @@ import { KnowledgeSpaceRunnerService } from './services/knowledge-space-runner.s
 import { KnowledgeSpaceProcessor } from './processors/knowledge-space.processor';
 import { KnowledgeRunReaperService } from './services/knowledge-run-reaper.service';
 import { KnowledgeImageReaperService } from './services/knowledge-image-reaper.service';
+import { KnowledgePageMergeReaperService } from './services/knowledge-page-merge-reaper.service';
 import { KnowledgeQualityService } from './services/knowledge-quality.service';
 import { AiModelConfigModule } from './services/ai-model-config.module';
 import { ApiKeyModule } from '../api-key/api-key.module';
@@ -103,6 +105,7 @@ import { SsoModule } from '../sso/sso.module';
     KnowledgeSpaceRunnerService,
     KnowledgeRunReaperService,
     KnowledgeImageReaperService,
+    KnowledgePageMergeReaperService,
     KnowledgeTextJobHandler,
     KnowledgeLinkResolverService,
     KnowledgeSpaceFinalizerService,
@@ -132,6 +135,7 @@ import { SsoModule } from '../sso/sso.module';
     KnowledgeTextProcessor,
     KnowledgeImageProcessor,
     KnowledgeSpaceProcessor,
+    KnowledgePageMergeProcessor,
     KnowledgeMcpToolExtension,
     IsElfAgentAuthGuard,
   ],

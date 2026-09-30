@@ -74,16 +74,15 @@ describe('KnowledgeSpaceCompilationService', () => {
     });
   });
 
-  it('gives image merge slices priority over newly queued text slices', async () => {
+  it('dispatches a finalizing slice as an explicit Finalize job', async () => {
     const fixture = createService({
       undispatchedSpaceJobs: [
         {
           ...spaceSlice(),
-          runId: 'run-image-merge',
-          jobPhase: 'image_merge',
+          runId: 'run-finalize',
+          jobPhase: 'finalize',
           spaceJobSequence: 3,
-          spaceJobId:
-            'knowledge-space-image-merge__run-image-merge__image_merge__3',
+          spaceJobId: 'knowledge-space-finalize__run-finalize__finalize__3',
         },
       ],
     });
@@ -91,30 +90,36 @@ describe('KnowledgeSpaceCompilationService', () => {
     await fixture.service.dispatchPending();
 
     expect(fixture.spaceQueue.add).toHaveBeenCalledWith(
-      QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES,
-      expect.objectContaining({ phase: 'image_merge' }),
-      expect.objectContaining({ priority: 1 }),
+      QueueJob.KNOWLEDGE_FINALIZE_SPACE,
+      expect.objectContaining({ phase: 'finalize' }),
+      expect.objectContaining({ jobId: expect.any(String), priority: 1 }),
     );
   });
 
-  it('dispatches manual page publish slices ahead of regular text work', async () => {
-    const fixture = createService({
-      undispatchedSpaceJobs: [
-        {
-          ...spaceSlice(),
-          trigger: KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER,
-        },
-      ],
-    });
+  it.each(['text', 'finalize'] as const)(
+    'dispatches manual page publish %s slices ahead of regular work',
+    async (jobPhase) => {
+      const fixture = createService({
+        undispatchedSpaceJobs: [
+          {
+            ...spaceSlice(),
+            jobPhase,
+            trigger: KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER,
+          },
+        ],
+      });
 
-    await fixture.service.dispatchPending();
+      await fixture.service.dispatchPending();
 
-    expect(fixture.spaceQueue.add).toHaveBeenCalledWith(
-      QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT,
-      expect.objectContaining({ phase: 'text' }),
-      expect.objectContaining({ priority: 0 }),
-    );
-  });
+      expect(fixture.spaceQueue.add).toHaveBeenCalledWith(
+        jobPhase === 'text'
+          ? QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT
+          : QueueJob.KNOWLEDGE_FINALIZE_SPACE,
+        expect.objectContaining({ phase: jobPhase }),
+        expect.objectContaining({ priority: 0 }),
+      );
+    },
+  );
 
   it('requests an immediate page-scoped publish and promotes an existing waiting job', async () => {
     const changePriority = jest.fn().mockResolvedValue(undefined);
@@ -516,6 +521,7 @@ function createService(
   };
   const spaceQueue = { add: jest.fn(), getJob: jest.fn() };
   const imageQueue = { add: jest.fn(), getJob: jest.fn() };
+  const mergeQueue = { add: jest.fn(), getJob: jest.fn() };
   const compilationRepo = {
     findSpaceReuseCandidates: jest
       .fn()
@@ -532,6 +538,9 @@ function createService(
       .mockResolvedValue(overrides.exportedSources ?? []),
   };
   const executionRepo = {
+    reservePageMergesFairly: jest.fn().mockResolvedValue([]),
+    findUndispatchedPageMerges: jest.fn().mockResolvedValue([]),
+    markPageMergeDispatched: jest.fn().mockResolvedValue(true),
     findLeasedRun: jest.fn().mockResolvedValue({
       id: 'current-run',
       workspaceId: 'workspace-1',
@@ -573,6 +582,7 @@ function createService(
   const service = new KnowledgeSpaceCompilationService(
     spaceQueue as unknown as Queue,
     imageQueue as unknown as Queue,
+    mergeQueue as unknown as Queue,
     repo as unknown as KnowledgeSpaceCompilationRepo,
     compilationRepo as unknown as KnowledgeCompilationRepo,
     imageExtractionRepo as unknown as KnowledgeImageExtractionRepo,

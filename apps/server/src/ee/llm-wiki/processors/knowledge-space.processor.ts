@@ -31,17 +31,19 @@ export class KnowledgeSpaceProcessor
     if (
       ![
         QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT,
-        QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES,
+        QueueJob.KNOWLEDGE_FINALIZE_SPACE,
       ].includes(job.name as QueueJob)
     ) {
       throw new Error(`Unsupported Knowledge Space job ${job.name}.`);
     }
     const data = job.data as IKnowledgeSpaceJob;
-    const runLease =
-      job.name === QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES
-        ? this.runner.runImageMergeLease.bind(this.runner)
-        : this.runner.runTextLease.bind(this.runner);
-    return runLease(
+    const finalize = job.name === QueueJob.KNOWLEDGE_FINALIZE_SPACE;
+    if (data.phase !== (finalize ? 'finalize' : 'text'))
+      throw new Error('Knowledge Space job phase does not match its name.');
+    const run = finalize
+      ? this.runner.runFinalizeLease.bind(this.runner)
+      : this.runner.runTextLease.bind(this.runner);
+    return run(
       {
         ...data,
         spaceJobId: String(job.id),
@@ -56,6 +58,9 @@ export class KnowledgeSpaceProcessor
       event: 'knowledge_space_job_active',
       ...jobIdentity(job),
       workerId: this.workerId,
+      queueWaitMs: job.processedOn
+        ? Math.max(0, job.processedOn - job.timestamp)
+        : null,
     });
   }
 
@@ -118,6 +123,10 @@ export class KnowledgeSpaceProcessor
       event: 'knowledge_space_job_completed',
       ...jobIdentity(job),
       workerId: this.workerId,
+      durationMs:
+        job.finishedOn && job.processedOn
+          ? Math.max(0, job.finishedOn - job.processedOn)
+          : null,
     });
   }
 
@@ -136,6 +145,8 @@ function jobIdentity(job: Job) {
   return {
     jobId: String(job.id),
     jobName: job.name,
+    jobKind:
+      job.name === QueueJob.KNOWLEDGE_FINALIZE_SPACE ? 'finalize' : 'text',
     runId: data.spaceRunId,
     phase: data.phase,
     spaceJobSequence: data.spaceJobSequence,

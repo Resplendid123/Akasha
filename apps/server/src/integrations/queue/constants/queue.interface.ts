@@ -125,7 +125,7 @@ export interface IKnowledgeSpaceJob {
   spaceId: string;
   spaceRunId: string;
   knowledgeGeneration: number;
-  phase: 'text' | 'image_merge';
+  phase: 'text' | 'finalize';
   spaceJobSequence: number;
 }
 
@@ -134,6 +134,15 @@ export interface IKnowledgeCompileImageJob {
   spaceId: string;
   spaceRunId: string;
   runImageId: string;
+  knowledgeGeneration: number;
+}
+
+export interface IKnowledgeMergePageJob {
+  workspaceId: string;
+  spaceId: string;
+  spaceRunId: string;
+  runPageId: string;
+  sourcePageId: string;
   knowledgeGeneration: number;
 }
 
@@ -161,4 +170,3 @@ export interface IKnowledgeRetireSourcesJob {
   workspaceId: string;
   sourcePageIds: string[];
 }
-

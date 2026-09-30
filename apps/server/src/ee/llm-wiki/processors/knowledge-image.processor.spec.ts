@@ -9,13 +9,13 @@ import { KnowledgeSpaceCompilationService } from '../services/knowledge-space-co
 import { KnowledgeImageProcessor } from './knowledge-image.processor';
 
 describe('KnowledgeImageProcessor', () => {
-  it('runs the dedicated image queue with concurrency 5', () => {
+  it('runs the dedicated image queue with concurrency 8', () => {
     expect(
       Reflect.getMetadata(PROCESSOR_METADATA, KnowledgeImageProcessor),
     ).toEqual({ name: QueueName.KNOWLEDGE_IMAGE_QUEUE });
     expect(
       Reflect.getMetadata(WORKER_METADATA, KnowledgeImageProcessor),
-    ).toEqual(expect.objectContaining({ concurrency: 5 }));
+    ).toEqual(expect.objectContaining({ concurrency: 8 }));
   });
 
   it('claims and compiles exactly one frozen RunImage', async () => {

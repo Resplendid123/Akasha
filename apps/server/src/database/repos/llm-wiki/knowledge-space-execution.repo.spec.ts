@@ -7,8 +7,7 @@ import {
 describe('knowledge space execution contract', () => {
   it.each([
     ['text', 'text'],
-    ['image_merge', 'image_merge'],
-    ['finalizing', 'text'],
+    ['finalizing', 'finalize'],
   ] as const)(
     'maps business phase %s to physical phase %s',
     (phase, jobPhase) => {
@@ -20,10 +19,15 @@ describe('knowledge space execution contract', () => {
     expect(buildSpaceJobId('run-1', 'text', 3)).toBe(
       'knowledge-space-text__run-1__text__3',
     );
-    expect(buildSpaceJobId('run-1', 'image_merge', 4)).toBe(
-      'knowledge-space-image-merge__run-1__image_merge__4',
+    expect(buildSpaceJobId('run-1', 'finalize', 4)).toBe(
+      'knowledge-space-finalize__run-1__finalize__4',
     );
     expect(buildSpaceJobId('run-1', 'text', 3)).not.toContain(':');
+  });
+
+  it('never dispatches image or merge business phases onto the Space queue', () => {
+    expect(() => runPhaseToJobPhase('images')).toThrow();
+    expect(() => runPhaseToJobPhase('image_merge')).toThrow();
   });
 
   it('requires a complete lease identity at compile time and runtime', () => {

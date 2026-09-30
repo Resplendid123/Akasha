@@ -22,6 +22,7 @@ describe('queue injection boundaries', () => {
       KnowledgeSpaceCompilationService,
       [
         QueueName.KNOWLEDGE_IMAGE_QUEUE,
+        QueueName.KNOWLEDGE_MERGE_QUEUE,
         QueueName.KNOWLEDGE_SPACE_QUEUE,
       ],
     ],

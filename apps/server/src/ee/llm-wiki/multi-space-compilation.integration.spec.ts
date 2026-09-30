@@ -70,7 +70,7 @@ describe('multi-Space compilation architecture', () => {
     await service.dispatchPending();
 
     expect(runRepo.reserveRunImagesFairly).toHaveBeenCalledWith({
-      maxOutstandingPerRun: 5,
+      maxOutstandingPerRun: 8,
       runLimit: 100,
     });
     expect(imageQueue.add).toHaveBeenCalledTimes(2);
@@ -90,9 +90,9 @@ describe('multi-Space compilation architecture', () => {
 
   it('scales estimated capacity with replicas while keeping PostgreSQL authoritative', () => {
     expect(KNOWLEDGE_SPACE_WORKER_OPTIONS.concurrency).toBe(10);
-    expect(KNOWLEDGE_IMAGE_WORKER_OPTIONS.concurrency).toBe(5);
+    expect(KNOWLEDGE_IMAGE_WORKER_OPTIONS.concurrency).toBe(8);
     expect(KNOWLEDGE_WORKER_SETTINGS.databaseMaxPool).toBeGreaterThanOrEqual(
-      KNOWLEDGE_SPACE_WORKER_OPTIONS.concurrency +
+      2 * KNOWLEDGE_SPACE_WORKER_OPTIONS.concurrency +
         KNOWLEDGE_IMAGE_WORKER_OPTIONS.concurrency +
         10,
     );
@@ -129,17 +129,19 @@ describe('multi-Space compilation architecture', () => {
 function createService(runRepo: ReturnType<typeof createRunRepo>) {
   const spaceQueue = { add: jest.fn() };
   const imageQueue = { add: jest.fn() };
+  const mergeQueue = { add: jest.fn() };
   const service = new KnowledgeSpaceCompilationService(
     spaceQueue as never,
     imageQueue as never,
+    mergeQueue as never,
     runRepo as never,
     {} as never,
     {} as never,
     {} as never,
     {} as never,
-    {} as never,
+    undefined as never,
   );
-  return { service, spaceQueue, imageQueue };
+  return { service, spaceQueue, imageQueue, mergeQueue };
 }
 
 function createRunRepo() {

@@ -54,7 +54,7 @@ export class EnvironmentService {
 
   getDatabaseMaxPool(): number {
     return Number(
-      this.configService.get<string | number>('DATABASE_MAX_POOL', 25),
+      this.configService.get<string | number>('DATABASE_MAX_POOL', 40),
     );
   }
 
@@ -370,7 +370,7 @@ export class EnvironmentService {
 
   getKnowledgeImageConcurrency(): number {
     return Number(
-      this.configService.get<string | number>('KNOWLEDGE_IMAGE_CONCURRENCY', 5),
+      this.configService.get<string | number>('KNOWLEDGE_IMAGE_CONCURRENCY', 8),
     );
   }
 

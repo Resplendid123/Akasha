@@ -2,6 +2,7 @@ const ENV_KEYS = [
   'DATABASE_MAX_POOL',
   'KNOWLEDGE_SPACE_CONCURRENCY',
   'KNOWLEDGE_IMAGE_CONCURRENCY',
+  'KNOWLEDGE_IMAGE_MAX_OUTSTANDING_PER_RUN',
   'KNOWLEDGE_SPACE_SLICE_MAX_PAGES',
   'KNOWLEDGE_SPACE_SLICE_MAX_MS',
   'KNOWLEDGE_SPACE_HEARTBEAT_MS',
@@ -24,9 +25,11 @@ describe('knowledge worker settings', () => {
     const module = loadSettings();
 
     expect(module.KNOWLEDGE_WORKER_SETTINGS).toEqual({
-      databaseMaxPool: 25,
+      databaseMaxPool: 40,
       spaceConcurrency: 10,
-      imageConcurrency: 5,
+      imageConcurrency: 8,
+      mergeConcurrency: 10,
+      imageMaxOutstandingPerRun: 8,
       leaseMaxPages: 5,
       leaseMaxMs: 300_000,
       heartbeatMs: 30_000,
@@ -41,7 +44,13 @@ describe('knowledge worker settings', () => {
       maxStalledCount: 2,
     });
     expect(module.KNOWLEDGE_IMAGE_WORKER_OPTIONS).toEqual({
-      concurrency: 5,
+      concurrency: 8,
+      lockDuration: 600_000,
+      stalledInterval: 30_000,
+      maxStalledCount: 2,
+    });
+    expect(module.KNOWLEDGE_MERGE_WORKER_OPTIONS).toEqual({
+      concurrency: 10,
       lockDuration: 600_000,
       stalledInterval: 30_000,
       maxStalledCount: 2,
@@ -53,9 +62,10 @@ describe('knowledge worker settings', () => {
 
   it('reads non-default values before decorators import the module', () => {
     Object.assign(process.env, {
-      DATABASE_MAX_POOL: '22',
+      DATABASE_MAX_POOL: '30',
       KNOWLEDGE_SPACE_CONCURRENCY: '7',
       KNOWLEDGE_IMAGE_CONCURRENCY: '5',
+      KNOWLEDGE_IMAGE_MAX_OUTSTANDING_PER_RUN: '6',
       KNOWLEDGE_SPACE_SLICE_MAX_PAGES: '9',
       KNOWLEDGE_SPACE_SLICE_MAX_MS: '420000',
       KNOWLEDGE_SPACE_HEARTBEAT_MS: '20000',
@@ -64,9 +74,11 @@ describe('knowledge worker settings', () => {
     });
 
     expect(loadSettings().KNOWLEDGE_WORKER_SETTINGS).toEqual({
-      databaseMaxPool: 22,
+      databaseMaxPool: 30,
       spaceConcurrency: 7,
       imageConcurrency: 5,
+      mergeConcurrency: 7,
+      imageMaxOutstandingPerRun: 6,
       leaseMaxPages: 9,
       leaseMaxMs: 420_000,
       heartbeatMs: 20_000,
@@ -81,6 +93,8 @@ describe('knowledge worker settings', () => {
     ['KNOWLEDGE_SPACE_CONCURRENCY', '1.5'],
     ['KNOWLEDGE_IMAGE_CONCURRENCY', '0'],
     ['KNOWLEDGE_IMAGE_CONCURRENCY', '11'],
+    ['KNOWLEDGE_IMAGE_MAX_OUTSTANDING_PER_RUN', '0'],
+    ['KNOWLEDGE_IMAGE_MAX_OUTSTANDING_PER_RUN', '51'],
     ['KNOWLEDGE_SPACE_SLICE_MAX_PAGES', '51'],
     ['KNOWLEDGE_SPACE_SLICE_MAX_MS', '59999'],
     ['KNOWLEDGE_SPACE_HEARTBEAT_MS', '60001'],
@@ -100,12 +114,12 @@ describe('knowledge worker settings', () => {
   });
 
   it('rejects worker concurrency that exceeds the local connection budget', () => {
-    process.env.DATABASE_MAX_POOL = '20';
+    process.env.DATABASE_MAX_POOL = '30';
     process.env.KNOWLEDGE_SPACE_CONCURRENCY = '10';
-    process.env.KNOWLEDGE_IMAGE_CONCURRENCY = '5';
+    process.env.KNOWLEDGE_IMAGE_CONCURRENCY = '8';
 
     expect(() => loadSettings()).toThrow(
-      'DATABASE_MAX_POOL must be at least KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10',
+      'DATABASE_MAX_POOL must be at least 2 * KNOWLEDGE_SPACE_CONCURRENCY + KNOWLEDGE_IMAGE_CONCURRENCY + 10',
     );
   });
 

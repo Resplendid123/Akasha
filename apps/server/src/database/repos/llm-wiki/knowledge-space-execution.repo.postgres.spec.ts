@@ -163,7 +163,13 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
       where id = 'run-finish'
     `.execute(db);
 
-    const finished = await executionRepo.finishRun(lease, 'succeeded');
+    const finalize = await claimedLease(
+      compilationRepo,
+      executionRepo,
+      'run-finish',
+      'finish-finalize-token',
+    );
+    const finished = await executionRepo.finishRun(finalize, 'succeeded');
     expect(finished?.run.status).toBe('succeeded');
     expect(finished?.followUp).toEqual(
       expect.objectContaining({
@@ -376,7 +382,14 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
       },
     ]);
 
-    const finished = await executionRepo.finishRun(lease, 'succeeded');
+    await executionRepo.advanceTextBarrier(lease);
+    const finalize = await claimedLease(
+      compilationRepo,
+      executionRepo,
+      'run-text-changed',
+      'changed-finalize-token',
+    );
+    const finished = await executionRepo.finishRun(finalize, 'succeeded');
     expect(finished?.followUp).toMatchObject({
       trigger: 'follow_up',
       targetSourcePageIds: ['changed-page'],
@@ -519,17 +532,13 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
         'sha256:image-page-a', 'succeeded', 'succeeded', 'pending', 0
       )
     `.execute(db);
-    const lease = await claimedLease(
-      compilationRepo,
+    const fence = await claimMergeForRun(
+      db,
       executionRepo,
       'run-image-changed',
-      'image-changed-token',
     );
-    await executionRepo.claimNextMergePage(lease);
-    await executionRepo.failMergePage(lease, {
-      sourcePageId: 'image-page-a',
-      sourceVersion: 'v1',
-      sourceContentHash: 'sha256:image-page-a',
+    await executionRepo.finishPageMerge(fence, {
+      status: 'failed',
       retryable: false,
       errorCode: 'image_snapshot_changed',
     });
@@ -548,7 +557,13 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
         followUpTargetSourcePageIds: ['image-page-a'],
       },
     ]);
-    const finished = await executionRepo.finishRun(lease, 'partial');
+    const finalize = await claimedLease(
+      compilationRepo,
+      executionRepo,
+      'run-image-changed',
+      'image-changed-finalize',
+    );
+    const finished = await executionRepo.finishRun(finalize, 'partial');
     expect(finished?.followUp).toMatchObject({
       trigger: 'follow_up',
       targetSourcePageIds: ['image-page-a'],
@@ -570,7 +585,14 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
       'force-token',
     );
 
-    const finished = await executionRepo.finishRun(lease, 'succeeded');
+    await executionRepo.advanceTextBarrier(lease);
+    const finalize = await claimedLease(
+      compilationRepo,
+      executionRepo,
+      'run-force',
+      'force-finalize-token',
+    );
+    const finished = await executionRepo.finishRun(finalize, 'succeeded');
 
     expect(finished?.run).toMatchObject({
       mode: 'force_rebuild',
@@ -803,73 +825,58 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
     `.execute(db);
     expect(advancedRun.rows[0]).toEqual({
       phase: 'image_merge',
-      status: 'queued',
+      status: 'compiling',
     });
   });
 
-  it('publishes merge pages in snapshot order and advances the final barrier once', async () => {
-    const lease = await claimedLease(
-      compilationRepo,
-      executionRepo,
-      'run-merge',
-      'merge-token',
-    );
-    const pages = await executionRepo.claimNextMergePage(lease);
-    expect(pages.map((page) => page.sourcePageId)).toEqual(['merge-page-1']);
-    expect(pages[0].images.map((image) => image.attachmentId)).toEqual([
+  it('publishes independent merge pages in snapshot order and queues one Finalize', async () => {
+    const first = await claimMergeForRun(db, executionRepo, 'run-merge');
+    expect(first.sourcePageId).toBe('merge-page-1');
+    expect(first.images.map((image) => image.attachmentId)).toEqual([
       'merge-attachment-0',
       'merge-attachment-1',
     ]);
-
-    await db.transaction().execute((trx) =>
-      executionRepo.completeMergePagePublicationInTransaction(
-        lease,
-        {
-          sourcePageId: 'merge-page-1',
-          sourceVersion: 'v1',
-          sourceContentHash: 'sha256:merge-page-1',
-          effectiveKnowledgeHash: 'sha256:effective-1',
-        },
-        trx as never,
-      ),
-    );
-    const afterFirst = await executionRepo.findLeasedRun(lease);
-    expect(afterFirst?.phase).toBe('image_merge');
-    await expect(executionRepo.claimNextMergePage(lease)).resolves.toEqual([
-      expect.objectContaining({ sourcePageId: 'merge-page-2' }),
-    ]);
-    await expect(
-      db.transaction().execute((trx) =>
-        executionRepo.completeMergePagePublicationInTransaction(
-          lease,
-          {
-            sourcePageId: 'merge-page-1',
-            sourceVersion: 'v1',
-            sourceContentHash: 'sha256:merge-page-1',
-            effectiveKnowledgeHash: 'sha256:duplicate',
-          },
+    await db
+      .transaction()
+      .execute((trx) =>
+        executionRepo.completePageMerge(
+          first,
+          { effectiveKnowledgeHash: 'effective-1' },
           trx as never,
         ),
-      ),
+      );
+    const second = await claimMergeForRun(db, executionRepo, 'run-merge');
+    expect(second.sourcePageId).toBe('merge-page-2');
+    await expect(
+      db
+        .transaction()
+        .execute((trx) =>
+          executionRepo.completePageMerge(
+            first,
+            { effectiveKnowledgeHash: 'duplicate' },
+            trx as never,
+          ),
+        ),
     ).resolves.toBe(false);
-
-    await db.transaction().execute((trx) =>
-      executionRepo.completeMergePagePublicationInTransaction(
-        lease,
-        {
-          sourcePageId: 'merge-page-2',
-          sourceVersion: 'v1',
-          sourceContentHash: 'sha256:merge-page-2',
-          effectiveKnowledgeHash: 'sha256:effective-2',
-        },
-        trx as never,
-      ),
+    await db
+      .transaction()
+      .execute((trx) =>
+        executionRepo.completePageMerge(
+          second,
+          { effectiveKnowledgeHash: 'effective-2' },
+          trx as never,
+        ),
+      );
+    const finalize = await claimedLease(
+      compilationRepo,
+      executionRepo,
+      'run-merge',
+      'finalize-merge',
     );
-    const afterSecond = await executionRepo.findLeasedRun(lease);
-    expect(afterSecond?.phase).toBe('finalizing');
-    await expect(executionRepo.advanceMergeBarrier(lease)).resolves.toEqual({
-      barrierComplete: true,
-    });
+    expect(finalize.jobPhase).toBe('finalize');
+    await expect(
+      compilationRepo.reserveNextSpaceJob({ runId: 'run-merge' }),
+    ).resolves.toBeUndefined();
   });
 
   it('schedules image work for a text-phase Run sitting between leases', async () => {
@@ -1033,126 +1040,74 @@ describePostgres('KnowledgeSpaceExecutionRepo PostgreSQL fencing', () => {
     );
   });
 
-  it('reclaims a retryable merge failure and closes only once the budget is spent', async () => {
-    const lease = await claimedLease(
+  it('keeps the single Merge slot through all three attempts and reports partial', async () => {
+    const first = await claimMergeForRun(db, executionRepo, 'run-msettle');
+    await db
+      .transaction()
+      .execute((trx) =>
+        executionRepo.completePageMerge(
+          first,
+          { effectiveKnowledgeHash: 'effective-ok' },
+          trx as never,
+        ),
+      );
+    await sql`update knowledge_space_compile_run_pages set merge_attempt_count = 0 where id = 'run-page-msettle-retry'`.execute(
+      db,
+    );
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const fence = await claimMergeForRun(db, executionRepo, 'run-msettle');
+      expect(fence.mergeAttemptCount).toBe(attempt);
+      expect(
+        await executionRepo.finishPageMerge(fence, {
+          status: 'failed',
+          retryable: true,
+          errorCode: 'provider_unavailable',
+        }),
+      ).toEqual({ terminal: attempt === 3 });
+      expect((await pageColumns(db, fence.runPageId)).mergeStatus).toBe(
+        attempt === 3 ? 'failed' : 'queued',
+      );
+      if (attempt < 3)
+        expect(
+          (await executionRepo.reservePageMergesFairly()).filter(
+            (item) => item.runId === 'run-msettle',
+          ),
+        ).toHaveLength(0);
+    }
+    const finalize = await claimedLease(
       compilationRepo,
       executionRepo,
       'run-msettle',
-      'msettle-token',
+      'finalize-partial',
     );
-
-    // A retryable failure with attempts left is not terminal yet: it keeps its
-    // prior quality (not partial_image) and does not exhaust its budget.
-    const settlement = await executionRepo.failMergePage(lease, {
-      sourcePageId: 'msettle-page-retry',
-      sourceVersion: 'v1',
-      sourceContentHash: 'sha256:msettle-page-retry',
-      retryable: true,
-      errorCode: 'provider_unavailable',
-    });
-    expect(settlement).toEqual({ barrierComplete: false });
-    await expect(pageColumns(db, 'run-page-msettle-retry')).resolves.toEqual(
-      expect.objectContaining({
-        mergeStatus: 'failed',
-        errorCode: 'provider_unavailable',
-        mergeAttemptCount: 1,
-        qualityStatus: 'degraded',
-      }),
-    );
-
-    // A sibling page finishing must not close the barrier while a reclaimable
-    // failure is still outstanding.
-    await expect(
-      executionRepo.completeMergePagePublication(lease, {
-        sourcePageId: 'msettle-page-ok',
-        sourceVersion: 'v1',
-        sourceContentHash: 'sha256:msettle-page-ok',
-        effectiveKnowledgeHash: 'sha256:msettle-page-ok-with-images',
-      }),
-    ).resolves.toEqual({ barrierComplete: false });
-    await expect(executionRepo.findLeasedRun(lease)).resolves.toEqual(
-      expect.objectContaining({ phase: 'image_merge' }),
-    );
-
-    // The barrier reclaims the retryable failure for another attempt.
-    await expect(executionRepo.advanceMergeBarrier(lease)).resolves.toEqual({
-      barrierComplete: false,
-      reclaimed: true,
-    });
-    await expect(pageColumns(db, 'run-page-msettle-retry')).resolves.toEqual(
-      expect.objectContaining({
-        mergeStatus: 'pending',
-        errorCode: null,
-        mergeAttemptCount: 1,
-      }),
-    );
-
-    // Claiming the reclaimed page spends its final attempt.
-    await expect(executionRepo.claimNextMergePage(lease)).resolves.toEqual([
-      expect.objectContaining({
-        sourcePageId: 'msettle-page-retry',
-        mergeAttemptCount: 2,
-      }),
-    ]);
-
-    // The second failure exhausts the budget: now terminal, partial_image, and
-    // the barrier completes.
-    await expect(
-      executionRepo.failMergePage(lease, {
-        sourcePageId: 'msettle-page-retry',
-        sourceVersion: 'v1',
-        sourceContentHash: 'sha256:msettle-page-retry',
-        retryable: true,
-        errorCode: 'provider_unavailable',
-      }),
-    ).resolves.toEqual({ barrierComplete: true });
-    await expect(pageColumns(db, 'run-page-msettle-retry')).resolves.toEqual(
-      expect.objectContaining({
-        mergeStatus: 'failed',
-        mergeAttemptCount: 2,
-        qualityStatus: 'partial_image',
-      }),
-    );
-    await expect(executionRepo.hasPartialOutcome(lease)).resolves.toBe(true);
-    await expect(executionRepo.claimNextMergePage(lease)).resolves.toEqual([]);
-    await expect(executionRepo.findLeasedRun(lease)).resolves.toEqual(
-      expect.objectContaining({ phase: 'finalizing' }),
-    );
+    expect(
+      (await executionRepo.finishRun(finalize, 'succeeded'))?.run.status,
+    ).toBe('partial');
   });
 
-  it('ends a merge page immediately when the failure is not retryable', async () => {
-    const lease = await claimedLease(
+  it('ends a permanent merge failure immediately and derives partial in Finalize', async () => {
+    const fence = await claimMergeForRun(db, executionRepo, 'run-mspent');
+    expect(
+      await executionRepo.finishPageMerge(fence, {
+        status: 'failed',
+        retryable: false,
+        errorCode: 'input_too_large',
+      }),
+    ).toEqual({ terminal: true });
+    expect(await pageColumns(db, fence.runPageId)).toMatchObject({
+      mergeStatus: 'failed',
+      mergeAttemptCount: 3,
+      qualityStatus: 'partial_image',
+    });
+    const finalize = await claimedLease(
       compilationRepo,
       executionRepo,
       'run-mspent',
-      'mspent-token',
+      'finalize-permanent',
     );
-
-    // A non-retryable failure is terminal on the first attempt: its budget is
-    // forced to the ceiling so the barrier never reclaims it.
-    const barrier = await executionRepo.failMergePage(lease, {
-      sourcePageId: 'mspent-page',
-      sourceVersion: 'v1',
-      sourceContentHash: 'sha256:mspent-page',
-      retryable: false,
-      errorCode: 'input_too_large',
-    });
-
-    expect(barrier).toEqual({ barrierComplete: true });
-    await expect(pageColumns(db, 'run-page-mspent')).resolves.toEqual(
-      expect.objectContaining({
-        mergeStatus: 'failed',
-        mergeAttemptCount: 2,
-        qualityStatus: 'partial_image',
-      }),
-    );
-    await expect(executionRepo.hasPartialOutcome(lease)).resolves.toBe(true);
-    await expect(executionRepo.advanceMergeBarrier(lease)).resolves.toEqual({
-      barrierComplete: true,
-    });
-    await expect(executionRepo.findLeasedRun(lease)).resolves.toEqual(
-      expect.objectContaining({ phase: 'finalizing' }),
-    );
+    expect(
+      (await executionRepo.finishRun(finalize, 'succeeded'))?.run.status,
+    ).toBe('partial');
   });
 });
 
@@ -1177,6 +1132,32 @@ async function pageColumns(
      where id = ${id}
   `.execute(db);
   return result.rows[0];
+}
+
+async function claimMergeForRun(
+  db: Kysely<unknown>,
+  repo: KnowledgeSpaceExecutionRepo,
+  runId: string,
+) {
+  await repo.reservePageMergesFairly();
+  const slot = await sql<{
+    runPageId: string;
+    mergeJobId: string;
+    knowledgeGeneration: number;
+  }>`
+    select page.id as "runPageId", page.merge_job_id as "mergeJobId", run.knowledge_generation as "knowledgeGeneration"
+    from knowledge_space_compile_run_pages page join knowledge_space_compile_runs run on run.id = page.run_id
+    where page.run_id = ${runId} and page.merge_status = 'queued'
+  `.execute(db);
+  if (!slot.rows[0]) throw new Error(`No Merge slot for ${runId}`);
+  const claimed = await repo.claimPageMerge({
+    ...slot.rows[0],
+    runId,
+    workerId: 'merge-test',
+    processingExpiresAt: new Date(Date.now() + 180_000),
+  });
+  if (!claimed) throw new Error(`Cannot claim Merge for ${runId}`);
+  return claimed;
 }
 
 async function claimedLease(
@@ -1296,6 +1277,14 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       skipped_image_count integer not null default 0,
       image_status varchar not null default 'not_required',
       merge_status varchar not null default 'not_required',
+      merge_job_id varchar,
+      merge_execution_token varchar,
+      merge_dispatched_at timestamptz,
+      merge_processing_expires_at timestamptz,
+      merge_worker_id varchar,
+      merge_heartbeat_at timestamptz,
+      merge_failure_class varchar,
+      merge_redis_recovery_count integer not null default 0,
       target_effective_knowledge_hash varchar,
       merged_effective_knowledge_hash varchar,
       status varchar not null default 'pending',
@@ -1427,11 +1416,11 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
        'prompt-v1', now());
     update knowledge_space_compile_runs
       set phase='images', status='compiling', initialized_at=now(),
-          expected_page_count=1
+          expected_page_count=1, succeeded_page_count=1
       where id='run-images';
     update knowledge_space_compile_runs
-      set phase='image_merge', status='queued', initialized_at=now(),
-          expected_page_count=2
+      set phase='image_merge', status='compiling', initialized_at=now(),
+          expected_page_count=2, succeeded_page_count=2
       where id='run-merge';
     -- Text settlement: barrier is satisfied (1 succeeded + 1 failed = 2) and
     -- the failed page still has budget, so advanceTextBarrier must hand it back

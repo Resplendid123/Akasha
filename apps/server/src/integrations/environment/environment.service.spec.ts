@@ -32,12 +32,12 @@ describe('EnvironmentService', () => {
   });
 
   it('defaults database and compilation execution limits', () => {
-    expect(service.getDatabaseMaxPool()).toBe(25);
+    expect(service.getDatabaseMaxPool()).toBe(40);
     expect(service.getDatabaseStatementTimeoutMs()).toBe(30_000);
     expect(service.getKnowledgePageDeadlineMs()).toBe(900_000);
     expect(service.getKnowledgeImageJobDeadlineMs()).toBe(180_000);
     expect(service.getKnowledgeSpaceConcurrency()).toBe(10);
-    expect(service.getKnowledgeImageConcurrency()).toBe(5);
+    expect(service.getKnowledgeImageConcurrency()).toBe(8);
     expect(service.getKnowledgeSpaceLeaseMaxPages()).toBe(5);
     expect(service.getKnowledgeSpaceLeaseMaxMs()).toBe(300_000);
     expect(service.getKnowledgeSpaceHeartbeatMs()).toBe(30_000);
