@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import queue
 import sqlite3
-import uuid
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any
 
 import httpx
 
+from .. import naming
 from ..akasha_client import AkashaClient, AkashaError
 from ..config import load_config
 from ..model_configs import drift, matches
@@ -75,7 +75,7 @@ def run(ctx: TaskContext) -> None:
     limit = int(limit) if limit else None
     config = load_config(ctx.db)
     config.require_credentials()
-    concurrency = max(1, int(params.get("concurrency") or 3))
+    concurrency = max(1, int(params.get("concurrency") or 5))
     query_id = ctx.target("query")
     resuming = query_id is not None
 
@@ -116,7 +116,12 @@ def run(ctx: TaskContext) -> None:
 
         name = (
             str(params.get("name") or "").strip()
-            or f"{compile_run['run_id']}-q-{uuid.uuid4().hex[:6]}"
+            or naming.child_name(
+                ctx.db,
+                str(compile_run["run_id"]),
+                "q",
+                naming.model_slug(ctx.db, current, "answer"),
+            )
         )
         ctx.freeze(
             name=name,

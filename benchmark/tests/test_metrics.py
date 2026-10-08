@@ -34,8 +34,23 @@ def test_retrieval_precision_and_f1_at_k_use_actual_result_count():
     gold = ["d1", "d2"]
     assert retrieval.precision_at_k(ranked, gold, 5) == pytest.approx(0.5)
     assert retrieval.recall_at_k(ranked, gold, 5) == pytest.approx(0.5)
-    assert retrieval.retrieval_f1_at_k(ranked, gold, 5) == pytest.approx(0.5)
+    assert retrieval.retrieval_f1(ranked, gold) == pytest.approx(0.5)
     assert retrieval.precision_at_k([], gold, 5) == 0.0
+
+
+def test_retrieval_f1_ignores_k_and_order():
+    gold = ["d1", "d2"]
+    early = ["d1", "d2", "x", "y", "z", "w", "v", "u"]
+    late = ["x", "y", "z", "w", "v", "u", "d1", "d2"]
+
+    assert retrieval.retrieval_f1(early, gold) == pytest.approx(0.4)
+    assert retrieval.retrieval_f1(late, gold) == pytest.approx(0.4)
+    assert retrieval.retrieval_f1(gold, gold) == pytest.approx(1.0)
+    assert retrieval.retrieval_f1([], gold) == 0.0
+
+    metrics = retrieval.evaluate_sample(early, gold, (2, 5, 10))
+    assert "retrieval_f1" in metrics
+    assert not any(name.startswith("retrieval_f1@") for name in metrics)
 
 
 def test_ndcg_rewards_earlier_gold():
@@ -71,24 +86,29 @@ def test_uncited_documents_separate_retrieval_from_citation():
     assert result["citation_recall"] == pytest.approx(0.0)
 
 
+def _snippet(page: str, origin: str, source_page: str, reasons=("semantic",)) -> dict:
+    return {
+        "id": f"chunk-{page}-{origin}",
+        "knowledgePageId": page,
+        "origin": origin,
+        "retrievalReasons": list(reasons),
+        "sourceWindows": [{"sourcePageId": source_page}],
+    }
+
+
 def test_graph_exclusive_gold_is_net_contribution():
-    page_to_doc = {"p1": "g1", "p2": "g2"}
-    snippets = [
-        {"retrievalReasons": ["semantic"], "sourceWindows": [{"sourcePageId": "p1"}]},
-        {"retrievalReasons": ["graph-neighbor"], "sourceWindows": [{"sourcePageId": "p2"}]},
-    ]
-    result = multihop.evaluate_sample(snippets, ["g1", "g2"], page_to_doc)
+    result = multihop.evaluate_sample(
+        [_snippet("kp-a", "direct", "p1"), _snippet("kp-b", "graph", "p2")],
+        ["g1", "g2"],
+        {"p1": "g1", "p2": "g2"},
+    )
     assert result["graph_exclusive_gold_share"] == pytest.approx(0.5)
 
 
-def test_direct_and_graph_hit_is_not_graph_exclusive():
+def test_same_knowledge_page_hit_both_ways_is_not_graph_exclusive():
+    """同一个 knowledge page 既被图扩展也被直接检索命中，图没有净贡献。"""
     result = multihop.evaluate_sample(
-        [
-            {
-                "retrievalReasons": ["semantic", "graph-neighbor"],
-                "sourceWindows": [{"sourcePageId": "p1"}],
-            }
-        ],
+        [_snippet("kp-1", "graph", "p1"), _snippet("kp-1", "direct", "p1")],
         ["g1"],
         {"p1": "g1"},
     )
@@ -97,26 +117,38 @@ def test_direct_and_graph_hit_is_not_graph_exclusive():
     assert "graph_neighbor_precision" in registry.METRIC_REGISTRY
 
 
+def test_other_knowledge_page_of_same_gold_still_counts_as_exclusive():
+    """同一篇 gold 原文档，图扩展带来的是另一个 knowledge page，算独占。"""
+    result = multihop.evaluate_sample(
+        [_snippet("kp-direct", "direct", "p1"), _snippet("kp-graph", "graph", "p1")],
+        ["g1"],
+        {"p1": "g1"},
+    )
+    assert result["graph_exclusive_gold_share"] == pytest.approx(1.0)
+
+
+def test_origin_decides_the_path_regardless_of_matching_reasons():
+    """reasons 全是匹配方式，图扩展的片段照样带 semantic，路径只看 origin。"""
+    result = multihop.evaluate_sample(
+        [_snippet("kp-g", "graph", "p1", reasons=("semantic", "lexical"))],
+        ["g1"],
+        {"p1": "g1"},
+    )
+    assert result["graph_exclusive_gold_share"] == pytest.approx(1.0)
+    assert result["origin_doc_counts"] == {"graph": 1}
+
+
 def test_graph_neighbor_precision_deduplicates_documents():
     page_to_doc = {"gold-page": "gold", "other-page": "other"}
     snippets = [
-        {
-            "retrievalReasons": ["graph-neighbor"],
-            "sourceWindows": [{"sourcePageId": "gold-page"}],
-        },
-        *[
-            {
-                "retrievalReasons": ["graph-neighbor"],
-                "sourceWindows": [{"sourcePageId": "other-page"}],
-            }
-            for _ in range(3)
-        ],
+        _snippet("kp-gold", "graph", "gold-page"),
+        *[_snippet(f"kp-other-{index}", "graph", "other-page") for index in range(3)],
     ]
 
     result = multihop.evaluate_sample(snippets, ["gold"], page_to_doc)
 
     assert result["graph_neighbor_precision"] == pytest.approx(0.5)
-    assert result["reason_doc_counts"]["graph-neighbor"] == 2
+    assert result["origin_doc_counts"]["graph"] == 2
 
 
 def test_answer_scoring_takes_max_over_references():
@@ -193,9 +225,11 @@ def test_every_registered_metric_has_structured_evidence_and_formula():
             "snippets": [
                 {
                     "id": "s1",
+                    "knowledgePageId": "kp-gold",
+                    "origin": "graph",
                     "title": "Gold",
                     "text": "evidence",
-                    "retrievalReasons": ["semantic", "graph-neighbor"],
+                    "retrievalReasons": ["semantic"],
                     "sourceWindows": [{"sourcePageId": "p1"}],
                 }
             ],
@@ -213,12 +247,17 @@ def test_every_registered_metric_has_structured_evidence_and_formula():
     assert all(row.get("formula") for row in evidence.values())
 
 
-def _sample(metrics: dict, mode: str = "knowledge", gold=("g1",)) -> dict:
+def _sample(
+    metrics: dict, mode: str = "knowledge", gold=("g1",), correct: bool = False
+) -> dict:
+    detail = {"gold_doc_ids": list(gold), "question": "q"}
+    if correct:
+        detail["reference_answers"] = ["Rita Moreno"]
     return {
         "answer_mode": mode,
         "metrics": metrics,
-        "answer": "x",
-        "detail": {"gold_doc_ids": list(gold), "question": "q"},
+        "answer": "The answer is Rita Moreno." if correct else "x",
+        "detail": detail,
     }
 
 
@@ -230,7 +269,7 @@ def _musique(metrics: dict, steps: list[dict], mode: str = "general") -> dict:
 
 
 def test_correct_answer_has_an_explicit_root_cause():
-    ruling = attribution.classify(_sample({"hit@5": 0.0, "em": 1.0}), [])
+    ruling = attribution.classify(_sample({"hit@5": 0.0}, correct=True), [])
     assert ruling["root_cause"] == attribution.CAUSE_ANSWER_CORRECT
 
 
@@ -243,6 +282,37 @@ def test_answer_correct_uses_reference_token_coverage():
     sample["answer"] = "This is a complete explanation."
     sample["detail"]["reference_answers"] = ["in"]
     assert attribution.classify(sample, [])["root_cause"] == attribution.CAUSE_ANSWER_INCORRECT
+
+
+@pytest.mark.parametrize(
+    "answer",
+    ["", None, attribution.query_store.ANSWER_GENERATION_UNAVAILABLE_ZH],
+)
+def test_empty_answers_use_the_same_rule_attribution(answer):
+    sample = _sample({"hit@5": 1.0}, mode="knowledge")
+    sample["answer"] = answer
+    sample["detail"]["reference_answers"] = ["expected answer"]
+
+    ruling = attribution.classify(sample, [])
+
+    assert ruling["root_cause"] == attribution.CAUSE_GENERATION_EMPTY
+
+
+def test_token_matching_survives_smart_quotes_and_hyphens():
+    steps = [{"answer": "``Hey Jude ''", "support_doc_id": "g1"}]
+    lineage = [{
+        "doc_id": "g1",
+        "source_text": "``Hey Jude '' is a Beatles song.",
+        "compiled_text": "“Hey Jude” is a Beatles song.",
+    }]
+    report = attribution.analyze_compiled_answers(_musique({}, steps), lineage)
+    assert report["steps"][0]["status"] == "preserved"
+
+    hyphen = [{"answer": "fleur - de-lis", "support_doc_id": "g1"}]
+    lineage[0]["source_text"] = "the fleur - de-lis symbol"
+    lineage[0]["compiled_text"] = "the fleur-de-lis is a symbol of New Orleans"
+    report = attribution.analyze_compiled_answers(_musique({}, hyphen), lineage)
+    assert report["steps"][0]["status"] == "preserved"
 
 
 def test_rule_attribution_ignores_judge_metrics():
@@ -264,24 +334,17 @@ def test_rule_attribution_ignores_judge_metrics():
 
 def test_answer_correct_outranks_every_failure_cause():
     for metrics, lineage, mode in (
-        ({"hit@5": 0.0, "em": 1.0}, [{"question_terms_lost": ["grammy"]}], "knowledge"),
-        ({"hit@5": 0.0, "em": 1.0, "uncited_gold_count": 1.0}, [], "knowledge"),
-        ({"hit@5": 0.0, "em": 1.0}, None, "general"),
+        ({"hit@5": 0.0}, [{"question_terms_lost": ["grammy"]}], "knowledge"),
+        ({"hit@5": 0.0, "uncited_gold_count": 1.0}, [], "knowledge"),
+        ({"hit@5": 0.0}, None, "general"),
     ):
-        ruling = attribution.classify(_sample(metrics, mode=mode), lineage)
+        ruling = attribution.classify(_sample(metrics, mode=mode, correct=True), lineage)
         expected = attribution.CAUSE_GENERATION_FALLBACK if mode == "general" else attribution.CAUSE_ANSWER_CORRECT
         assert ruling["root_cause"] == expected
 
 
 def test_correct_general_answer_is_answer_correct():
-    em_hit = attribution.classify(
-        _sample({"hit@5": 1.0, "em": 1.0}, mode="general"), None
-    )
-    assert em_hit["root_cause"] == attribution.CAUSE_GENERATION_FALLBACK
-
-    contained = _sample({"hit@5": 1.0, "em": 0.0}, mode="general")
-    contained["answer"] = "The answer is Rita Moreno."
-    contained["detail"]["reference_answers"] = ["Rita Moreno"]
+    contained = _sample({"hit@5": 1.0}, mode="general", correct=True)
     ruling = attribution.classify(contained, None)
     assert ruling["root_cause"] == attribution.CAUSE_GENERATION_FALLBACK
 
@@ -289,7 +352,6 @@ def test_correct_general_answer_is_answer_correct():
 def test_fully_supported_answer_is_correct_even_with_long_context():
     sample = _sample(
         {
-            "em": 0.0,
             "f1": 0.35,
             "faithfulness": 1.0,
             "hit@5": 1.0,
@@ -311,7 +373,7 @@ def test_fully_supported_answer_is_correct_even_with_long_context():
     "metrics,expected",
     [
         ({"faithfulness": 1.0, "hit@5": 1.0, "full_coverage@5": 1.0}, attribution.CAUSE_ANSWER_INCORRECT),
-        ({"hit@5": 0.0, "em": 0.0, "f1": 0.9}, attribution.CAUSE_RETRIEVAL_MISS),
+        ({"hit@5": 0.0, "f1": 0.9}, attribution.CAUSE_RETRIEVAL_MISS),
         ({"hit@5": 1.0, "full_coverage@5": 1.0, "f1": 0.1}, attribution.CAUSE_ANSWER_INCORRECT),
     ],
 )
@@ -602,7 +664,7 @@ def test_evidence_chain_keeps_all_matching_retrieved_evidence():
 
 
 def test_general_routing_uses_evidence_chain_before_answer_correctness():
-    sample = _sample({"hit@10": 1.0, "em": 0.0}, mode="general")
+    sample = _sample({"hit@10": 1.0}, mode="general")
     sample["dataset"] = "musique"
     sample["answer"] = "The answer is Acme."
     sample["detail"]["reference_answers"] = ["Acme"]
