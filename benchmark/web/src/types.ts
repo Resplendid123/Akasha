@@ -458,9 +458,11 @@ export interface MetricEvidenceDocument {
 export interface MetricEvidenceSnippet {
   rank: number
   id?: string | null
+  knowledge_page_id?: string
   title: string
   text: string
   retrieval_reasons: string[]
+  origin?: 'direct' | 'graph' | null
   page_ids: string[]
   doc_ids: string[]
   gold_doc_ids: string[]
@@ -491,8 +493,11 @@ export interface JudgeVerdict {
 }
 
 export interface Snippet {
+  id?: string
+  knowledgePageId?: string
   title?: string
   text?: string
+  origin?: 'direct' | 'graph'
   retrievalReasons?: string[]
   sourceWindows?: { sourcePageId?: string }[]
   score?: number
@@ -527,8 +532,28 @@ export interface QueryAuditSnapshot {
   finalAuthorizedSourceCount?: number
   packContextLength?: number
   answerContextLength?: number
+  contextBudget?: number
+  packContextBudget?: number
+  answerContextBudget?: number
+  truncatedCount?: number
+  budget?: {
+    includedItemCount?: number
+    omittedItemCount?: number
+    maxContextLength?: number
+    usedContextLength?: number
+  }
   graph?: { candidateCount?: number; selectedCount?: number; gatedOutCount?: number }
-  retrieval?: { topK?: number; threshold?: number; dropped?: Array<{ reason?: string; pageId?: string; chunkId?: string }> }
+  retrieval?: {
+    topK?: number
+    threshold?: number
+    dropped?: Array<{
+      reason?: string
+      pageId?: string
+      chunkId?: string
+      title?: string
+      text?: string
+    }>
+  }
 }
 
 export interface EvidenceChainStep {

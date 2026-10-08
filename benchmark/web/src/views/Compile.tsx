@@ -32,12 +32,10 @@ export function Compile({
   activeCompile,
   onSelect,
   onOpenQuery,
-  onOpenTasks,
 }: {
   activeCompile: number | null
   onSelect: (id: number) => void
   onOpenQuery: (id: number) => void
-  onOpenTasks: () => void
 }) {
   const compiles = useAsync(() => api.compiles(), [])
   const datasets = useAsync(() => api.datasets(), [])
@@ -62,13 +60,7 @@ export function Compile({
 
       {cleanup.error && <Failed error={cleanup.error} />}
 
-      <NewCompile
-        datasets={normalized}
-        onStarted={() => {
-          compiles.reload()
-          onOpenTasks()
-        }}
-      />
+      <NewCompile datasets={normalized} onStarted={compiles.reload} />
 
       <h3>编译记录</h3>
       {compiles.data.compiles.length === 0 && <p className="muted">还没有编译记录。</p>}
@@ -83,9 +75,8 @@ export function Compile({
               <th>质量闸门</th>
               <th className="num">语料</th>
               <th className="num">已导入</th>
-              <th className="num">编译成功</th>
+              <th className="num">成功</th>
               <th>耗时</th>
-              <th>可用于查询</th>
               <th />
             </tr>
           </thead>
@@ -117,9 +108,6 @@ export function Compile({
                       latencyMs={run.pace?.per_page_ms}
                       perLabel="篇"
                     />
-                  </td>
-                  <td>
-                    <Pass ok={run.readiness.ready} yes="就绪" no="未就绪" />
                   </td>
                   <td className="table-actions-cell">
                     <div className="table-actions">
@@ -174,6 +162,7 @@ function NewCompile({
   const [fullCorpus, setFullCorpus] = useState(true)
   const [ratio, setRatio] = useState(1)
   const [importConcurrency, setImportConcurrency] = useState(10)
+  const [scheduleAt, setScheduleAt] = useState('')
   const start = useAction<unknown>()
   const selectedQaMax = Math.max(
     0,
@@ -198,7 +187,7 @@ function NewCompile({
       </div>
 
       <div className="row" style={{ marginTop: 10 }}>
-        <Field label="run_id" hint="留空自动生成；填已有的则续跑">
+        <Field label="run_id" hint="留空自动生成；填已有续跑">
           <input value={runId} onChange={(e) => setRunId(e.target.value)} placeholder="自动" />
         </Field>
         <Field label="QA 范围">
@@ -220,7 +209,7 @@ function NewCompile({
             />
           </Field>
         )}
-        <Field label="随机种子" hint="同种子抽同一批">
+        <Field label="随机种子" hint="">
           <input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value))} />
         </Field>
         <Field label="语料范围">
@@ -252,6 +241,13 @@ function NewCompile({
             onChange={(e) => setImportConcurrency(Number(e.target.value))}
           />
         </Field>
+        <Field label="定时启动" hint="留空则立即开始">
+          <input
+            type="datetime-local"
+            value={scheduleAt}
+            onChange={(e) => setScheduleAt(e.target.value)}
+          />
+        </Field>
       </div>
 
       <div className="panel-actions">
@@ -274,6 +270,7 @@ function NewCompile({
                 import_concurrency: importConcurrency,
                 ...(fullCorpus ? {} : { negatives_ratio: ratio }),
                 ...(runId.trim() ? { run_id: runId.trim() } : {}),
+                ...(scheduleAt ? { schedule_at: scheduleAt } : {}),
               })
               onStarted()
               return task
