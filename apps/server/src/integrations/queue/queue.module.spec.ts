@@ -4,6 +4,7 @@ import { MODULE_METADATA } from '@nestjs/common/constants';
 import { QueueJob, QueueName } from './constants';
 import {
   IMAGE_QUEUE_DEFAULT_JOB_OPTIONS,
+  MERGE_QUEUE_DEFAULT_JOB_OPTIONS,
   QueueModule,
   SPACE_QUEUE_DEFAULT_JOB_OPTIONS,
 } from './queue.module';
@@ -39,14 +40,29 @@ describe('QueueModule knowledge queues', () => {
     expect(IMAGE_QUEUE_DEFAULT_JOB_OPTIONS.removeOnFail).not.toBe(true);
   });
 
+  it('registers the page merge queue with bounded retries and retention', () => {
+    expect(queueOptions(QueueName.KNOWLEDGE_MERGE_QUEUE)).toEqual(
+      expect.objectContaining({
+        name: QueueName.KNOWLEDGE_MERGE_QUEUE,
+        defaultJobOptions: MERGE_QUEUE_DEFAULT_JOB_OPTIONS,
+      }),
+    );
+    expect(MERGE_QUEUE_DEFAULT_JOB_OPTIONS).toEqual({
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 31_000 },
+      removeOnComplete: { age: 3_600, count: 100_000 },
+      removeOnFail: { age: 86_400, count: 10_000 },
+    });
+  });
+
   it('defines only fixed shared queue protocol names for new compilation jobs', () => {
     expect(QueueName.KNOWLEDGE_SPACE_QUEUE).toBe('{knowledge-space-queue}');
+    expect(QueueName.KNOWLEDGE_MERGE_QUEUE).toBe('{knowledge-merge-queue}');
     expect(QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT).toBe(
       'knowledge-compile-space-text',
     );
-    expect(QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES).toBe(
-      'knowledge-merge-space-images',
-    );
+    expect(QueueJob.KNOWLEDGE_MERGE_PAGE).toBe('knowledge-merge-page');
+    expect(QueueJob.KNOWLEDGE_FINALIZE_SPACE).toBe('knowledge-finalize-space');
     expect(QueueJob.KNOWLEDGE_COMPILE_IMAGE).toBe('knowledge-compile-image');
   });
 });

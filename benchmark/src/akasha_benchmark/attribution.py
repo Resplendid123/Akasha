@@ -7,6 +7,7 @@ from collections import Counter
 from typing import Any
 
 from .metrics import qa, registry
+from .store import query_store
 
 CAUSE_ANSWER_CORRECT = "answer_correct"
 CAUSE_ANSWER_INCORRECT = "answer_incorrect"
@@ -23,9 +24,13 @@ CAUSE_UNKNOWN = "unknown"
 
 EVIDENCE_CHAIN_SUPPORTED_OVERLAP = 0.8
 EVIDENCE_CHAIN_PARTIAL_OVERLAP = 0.35
-COMPILED_ANSWER_TOKEN_RECALL = 0.8
-REFERENCE_WINDOW_FACTOR = 2
+COMPILED_ANSWER_TOKEN_RECALL = 0.5
+REFERENCE_ANSWER_TOKEN_RECALL = 0.5
 REFERENCE_STOPWORDS = {"a", "an", "and", "in", "of", "on", "the", "to"}
+SMART_QUOTES = str.maketrans(
+    "‘’‚‛′“”„‟″",
+    "'''''" + '"""""',
+)
 TITLE_ABBREVIATIONS = {
     "gen": "general",
     "lt": "lieutenant",
@@ -42,10 +47,10 @@ TITLE_ABBREVIATIONS = {
 
 
 def _normalized_tokens(text: str) -> list[str]:
-    normalized = unicodedata.normalize("NFKC", text or "")
-    normalized = re.sub(r"[\'’]s\b", "", normalized, flags=re.IGNORECASE)
-    normalized = re.sub(r"(?<=s)[\'’](?=\W|$)", "", normalized, flags=re.IGNORECASE)
-    normalized = normalized.replace("’", "'")
+    normalized = unicodedata.normalize("NFKC", text or "").translate(SMART_QUOTES)
+    normalized = re.sub(r"'s\b", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?<=s)'(?=\W|$)", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[-–—_*`]+", " ", normalized)
     return [TITLE_ABBREVIATIONS.get(token, token) for token in qa.tokenize(normalized)]
 
 
@@ -280,19 +285,11 @@ def _usable_references(references: list[str]) -> list[list[str]]:
 
 
 def _reference_covered(answer_tokens: list[str], reference_tokens: list[str]) -> bool:
-
-    if _contains_tokens(answer_tokens, reference_tokens):
-        return True
-
-    window = len(reference_tokens) * REFERENCE_WINDOW_FACTOR
-    needed = set(reference_tokens)
-    positions = [
-        index for index, token in enumerate(answer_tokens) if token in needed
-    ]
-    return any(
-        needed <= set(answer_tokens[start : start + window])
-        for start in positions
-    )
+    if not reference_tokens:
+        return False
+    answer_set = set(answer_tokens)
+    hit = sum(1 for t in reference_tokens if t in answer_set)
+    return hit / len(reference_tokens) >= REFERENCE_ANSWER_TOKEN_RECALL
 
 
 def _contains_reference(answer: str, references: list[str]) -> bool:
@@ -389,7 +386,7 @@ def classify(
         lost_terms.extend(entry.get("question_terms_lost") or [])
     lost_terms = sorted(set(lost_terms))
 
-    answer_correct = float(metrics.get("em", 0.0)) >= 1.0 or reference_contained
+    answer_correct = reference_contained
     evidence: dict[str, Any] = {
         "answer_mode": answer_mode,
         "has_retrieval": has_retrieval,
@@ -422,6 +419,11 @@ def classify(
                 "finalAuthorizedSourceCount",
                 "packContextLength",
                 "answerContextLength",
+                "contextBudget",
+                "packContextBudget",
+                "answerContextBudget",
+                "truncatedCount",
+                "budget",
                 "graph",
                 "retrieval",
             )
@@ -435,11 +437,14 @@ def classify(
     compilation_lost_answer = bool(
         (compiled_answers or {}).get("compiled_missing_count", 0)
     )
-    answer_text = str(sample.get("answer") or "").strip().lower()
+    answer_value = sample.get("answer")
     generation_empty = (
         decision_reason == "generation_empty"
-        or not answer_text
-        or "did not produce a response" in answer_text
+        or query_store.is_generation_unavailable_answer(answer_value)
+        or (
+            isinstance(answer_value, str)
+            and "did not produce a response" in answer_value.lower()
+        )
     )
     reference_in_context = (reference_grounding or {}).get("grounded")
     retrieval_missed = hit is not None and hit == 0
@@ -520,7 +525,7 @@ HTTP 失败、遗漏指标，以及最多 10 条 general 回答案例。案例�
 4. EM/F1 受解释性长答案影响，只描述其表现，不能仅凭低分断言答案错误或归因根因。
 5. Judge 指标可以辅助观察，但要说明它们来自模型判定，存在模型与提示词偏差。
 6. 给出按优先级排序、可验证的下一步建议，并说明报告局限。
-7. general 可能仍保留 retrievedSources 和 graph-neighbor 证据。分析 general 案例时必须
+7. general 可能仍保留 retrievedSources 和 origin=graph 的图扩展证据。分析 general 案例时必须
    结合检索、引用和图指标，不得把 general 自动解释为没有召回。不要逐条复述或外推整体。
 8. 不要声称看过未提供的原文、答案或日志。
 

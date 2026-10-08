@@ -4,9 +4,13 @@ import {
   createMongoAbility,
   MongoAbility,
 } from '@casl/ability';
-import { SpaceRole, UserRole } from '../../../common/helpers/types/permission';
+import {
+  isWorkspaceAdmin,
+  SpaceRole,
+} from '../../../common/helpers/types/permission';
 import { User } from '@akasha/db/types/entity.types';
 import { SpaceMemberRepo } from '@akasha/db/repos/space/space-member.repo';
+import { SpaceRepo } from '@akasha/db/repos/space/space.repo';
 import {
   SpaceCaslAction,
   ISpaceAbility,
@@ -16,10 +20,17 @@ import { findHighestUserSpaceRole } from '@akasha/db/repos/space/utils';
 
 @Injectable()
 export default class SpaceAbilityFactory {
-  constructor(private readonly spaceMemberRepo: SpaceMemberRepo) {}
+  constructor(
+    private readonly spaceMemberRepo: SpaceMemberRepo,
+    private readonly spaceRepo: SpaceRepo,
+  ) {}
   async createForUser(user: User, spaceId: string) {
-    // Workspace owner has full admin access to all spaces
-    if (user.role === UserRole.OWNER) {
+    // Workspace administrators have full access within their own workspace.
+    if (isWorkspaceAdmin(user.role)) {
+      const space = await this.spaceRepo.findById(spaceId, user.workspaceId);
+      if (!space) {
+        throw new NotFoundException('Space not found');
+      }
       return buildSpaceAdminAbility();
     }
 

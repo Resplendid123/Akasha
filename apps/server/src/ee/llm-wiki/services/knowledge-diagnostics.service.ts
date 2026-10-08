@@ -6,9 +6,10 @@ import { sql } from 'kysely';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
 import { KnowledgeQuarantineRepo } from '@akasha/db/repos/llm-wiki/knowledge-quarantine.repo';
 import { KnowledgeQueryAuditRepo } from '@akasha/db/repos/llm-wiki/knowledge-query-audit.repo';
-import { QueueName } from '../../../integrations/queue/constants';
+import { QueueJob, QueueName } from '../../../integrations/queue/constants';
 import {
   KNOWLEDGE_IMAGE_WORKER_OPTIONS,
+  KNOWLEDGE_MERGE_WORKER_OPTIONS,
   KNOWLEDGE_SPACE_WORKER_OPTIONS,
   KNOWLEDGE_WORKER_SETTINGS,
 } from './knowledge-worker-settings';
@@ -33,6 +34,20 @@ export type KnowledgeQueueSnapshot = KnowledgeQueueCounts & {
 export type KnowledgeOperationalQueueSnapshots = {
   space: KnowledgeQueueSnapshot;
   image: KnowledgeQueueSnapshot;
+  merge: KnowledgeQueueSnapshot;
+  spaceByJobKind: {
+    text: KnowledgeQueueCounts & {
+      queueWaitMsP95: number | null;
+      durationMsP95: number | null;
+    };
+    finalize: KnowledgeQueueCounts & {
+      queueWaitMsP95: number | null;
+      durationMsP95: number | null;
+    };
+    sampledJobs: number;
+    truncated: boolean;
+    sampleLimitPerState: number;
+  };
 };
 
 export type WorkerCapacityEstimate = {
@@ -140,6 +155,8 @@ export class KnowledgeDiagnosticsService {
     private readonly qualityService: KnowledgeQualityService,
     private readonly quarantineRepo: KnowledgeQuarantineRepo,
     private readonly queryAuditRepo: KnowledgeQueryAuditRepo,
+    @InjectQueue(QueueName.KNOWLEDGE_MERGE_QUEUE)
+    private readonly knowledgeMergeQueue?: Queue,
   ) {}
 
   async getQualityDiagnostics(input: {
@@ -356,9 +373,10 @@ export class KnowledgeDiagnosticsService {
   }
 
   async getWorkerDiagnostics() {
-    const [spaceWorkers, imageWorkers] = await Promise.all([
+    const [spaceWorkers, imageWorkers, mergeWorkers] = await Promise.all([
       this.safeGetWorkers(this.knowledgeSpaceQueue),
       this.safeGetWorkers(this.knowledgeImageQueue),
+      this.safeGetWorkers(this.knowledgeMergeQueue),
     ]);
     return {
       sampledAt: new Date().toISOString(),
@@ -384,6 +402,13 @@ export class KnowledgeDiagnosticsService {
         maxStalledCount: KNOWLEDGE_IMAGE_WORKER_OPTIONS.maxStalledCount,
       },
       schedulingAuthority: 'postgresql' as const,
+      merge: {
+        ...buildWorkerCapacityEstimate(
+          mergeWorkers,
+          KNOWLEDGE_MERGE_WORKER_OPTIONS.concurrency,
+        ),
+        ...KNOWLEDGE_MERGE_WORKER_OPTIONS,
+      },
     };
   }
 
@@ -496,6 +521,14 @@ export class KnowledgeDiagnosticsService {
               sql<number>`count(*) filter (where rp.merge_status = 'skipped')`.as(
                 'skippedMergeCount',
               ),
+              // Page merge pipeline visibility: pages ready to merge but not yet
+              // dispatched vs. an actively running per-run merge slot.
+              sql<number>`count(*) filter (where rp.merge_status = 'pending')`.as(
+                'readyMergeCount',
+              ),
+              sql<number>`count(*) filter (where rp.merge_status in ('queued', 'running'))`.as(
+                'activeMergeCount',
+              ),
             ])
             .where('rp.runId', 'in', runIds)
             .groupBy('rp.runId')
@@ -552,6 +585,8 @@ export class KnowledgeDiagnosticsService {
               succeeded: numberValue(progress?.succeededMergeCount),
               failed: numberValue(progress?.failedMergeCount),
               skipped: numberValue(progress?.skippedMergeCount),
+              ready: numberValue(progress?.readyMergeCount),
+              active: numberValue(progress?.activeMergeCount),
             },
           },
         };
@@ -1091,13 +1126,90 @@ export class KnowledgeDiagnosticsService {
 
   private async findOperationalQueueSnapshots(): Promise<KnowledgeOperationalQueueSnapshots> {
     const sampledAt = new Date().toISOString();
-    const [space, image] = await Promise.all([
+    const [space, image, merge] = await Promise.all([
       this.knowledgeSpaceQueue
         ? this.findQueueSnapshot(this.knowledgeSpaceQueue, sampledAt)
         : Promise.resolve({ ...emptyQueueCounts(), sampledAt }),
       this.findQueueSnapshot(this.knowledgeImageQueue, sampledAt),
+      this.knowledgeMergeQueue
+        ? this.findQueueSnapshot(this.knowledgeMergeQueue, sampledAt)
+        : Promise.resolve({ ...emptyQueueCounts(), sampledAt }),
     ]);
-    return { space, image };
+    const spaceByJobKind = await this.findSpaceJobKindSnapshots(space);
+    return { space, image, merge, spaceByJobKind };
+  }
+
+  private async findSpaceJobKindSnapshots(
+    counts: KnowledgeQueueCounts,
+  ): Promise<KnowledgeOperationalQueueSnapshots['spaceByJobKind']> {
+    const sampleLimitPerState = 1_000;
+    const result = {
+      text: {
+        ...emptyQueueCounts(),
+        queueWaitMsP95: null as number | null,
+        durationMsP95: null as number | null,
+      },
+      finalize: {
+        ...emptyQueueCounts(),
+        queueWaitMsP95: null as number | null,
+        durationMsP95: null as number | null,
+      },
+      sampledJobs: 0,
+      truncated: false,
+      sampleLimitPerState,
+    };
+    if (!this.knowledgeSpaceQueue?.getJobs) return result;
+    const timings = {
+      text: { waits: [] as number[], durations: [] as number[] },
+      finalize: { waits: [] as number[], durations: [] as number[] },
+    };
+    const now = Date.now();
+    for (const state of [
+      'waiting',
+      'active',
+      'delayed',
+      'prioritized',
+      'waiting-children',
+      'paused',
+      'failed',
+      'completed',
+    ] as const) {
+      const key = state === 'waiting-children' ? 'waitingChildren' : state;
+      if (!counts[key]) continue;
+      const jobs = await this.knowledgeSpaceQueue.getJobs(
+        [state],
+        0,
+        sampleLimitPerState - 1,
+      );
+      result.truncated ||= counts[key] > jobs.length;
+      for (const job of jobs) {
+        const kind =
+          job.name === QueueJob.KNOWLEDGE_COMPILE_SPACE_TEXT
+            ? 'text'
+            : job.name === QueueJob.KNOWLEDGE_FINALIZE_SPACE
+              ? 'finalize'
+              : undefined;
+        if (!kind) continue;
+        result.sampledJobs++;
+        result[kind][key]++;
+        timings[kind].waits.push(
+          Math.max(0, (job.processedOn ?? now) - job.timestamp),
+        );
+        if (job.processedOn)
+          timings[kind].durations.push(
+            Math.max(0, (job.finishedOn ?? now) - job.processedOn),
+          );
+      }
+    }
+    const p95 = (values: number[]) =>
+      values.length
+        ? values.sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]
+        : null;
+    for (const kind of ['text', 'finalize'] as const) {
+      result[kind].queueWaitMsP95 = p95(timings[kind].waits);
+      result[kind].durationMsP95 = p95(timings[kind].durations);
+    }
+    return result;
   }
 
   private async safeGetWorkers(

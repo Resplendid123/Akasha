@@ -3,27 +3,32 @@ import { UserRole } from '../../../common/helpers/types/permission';
 import { SpaceAuthorizationService } from './space-authorization.service';
 
 describe('SpaceAuthorizationService', () => {
-  it('returns all requested spaces for a workspace owner', async () => {
-    const spaceMemberRepo = {
-      findUserSpaceRolesForSpaces: jest.fn(),
-    };
-    const service = new SpaceAuthorizationService(
-      spaceMemberRepo as unknown as SpaceMemberRepo,
-    );
+  it.each([UserRole.OWNER, UserRole.ADMIN])(
+    'returns all requested spaces for a workspace %s',
+    async (role) => {
+      const spaceMemberRepo = {
+        findUserSpaceRolesForSpaces: jest.fn(),
+      };
+      const service = new SpaceAuthorizationService(
+        spaceMemberRepo as unknown as SpaceMemberRepo,
+      );
 
-    await expect(
-      service.filterReadableSpaceIds({
-        user: {
-          id: 'owner-1',
-          role: UserRole.OWNER,
-          workspaceId: 'workspace-1',
-        },
-        spaceIds: ['space-1', 'space-2'],
-      }),
-    ).resolves.toEqual(['space-1', 'space-2']);
+      await expect(
+        service.filterReadableSpaceIds({
+          user: {
+            id: 'owner-1',
+            role,
+            workspaceId: 'workspace-1',
+          },
+          spaceIds: ['space-1', 'space-2'],
+        }),
+      ).resolves.toEqual(['space-1', 'space-2']);
 
-    expect(spaceMemberRepo.findUserSpaceRolesForSpaces).not.toHaveBeenCalled();
-  });
+      expect(
+        spaceMemberRepo.findUserSpaceRolesForSpaces,
+      ).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns spaces where a normal user has any readable role', async () => {
     const spaceMemberRepo = {

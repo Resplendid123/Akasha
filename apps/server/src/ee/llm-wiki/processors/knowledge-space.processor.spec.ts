@@ -24,7 +24,7 @@ describe('KnowledgeSpaceProcessor', () => {
       image: process.env.KNOWLEDGE_IMAGE_CONCURRENCY,
     };
     Object.assign(process.env, {
-      DATABASE_MAX_POOL: '22',
+      DATABASE_MAX_POOL: '30',
       KNOWLEDGE_SPACE_CONCURRENCY: '7',
       KNOWLEDGE_IMAGE_CONCURRENCY: '5',
     });
@@ -109,39 +109,45 @@ describe('KnowledgeSpaceProcessor', () => {
     );
   });
 
-  it('delegates image merge leases to the image merge runner', async () => {
+  it('dispatches explicit Finalize jobs to the Finalize runner on the same worker', async () => {
     const runner = {
       runTextLease: jest.fn(),
-      runImageMergeLease: jest
+      runFinalizeLease: jest
         .fn()
-        .mockResolvedValue({ outcome: 'completed', completedPages: 2 }),
+        .mockResolvedValue({ outcome: 'completed', completedPages: 0 }),
     };
+    const processor = new KnowledgeSpaceProcessor(
+      runner as never,
+      createExecutionRepo() as never,
+    );
+    const job = textJob();
+    job.name = QueueJob.KNOWLEDGE_FINALIZE_SPACE;
+    job.data.phase = 'finalize';
+    expect(await processor.process(job)).toEqual({
+      outcome: 'completed',
+      completedPages: 0,
+    });
+    expect(runner.runTextLease).not.toHaveBeenCalled();
+    expect(runner.runFinalizeLease).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'finalize' }),
+      expect.any(Object),
+    );
+  });
+
+  it('rejects the retired space-level image merge job', async () => {
+    const runner = { runTextLease: jest.fn() };
     const processor = new KnowledgeSpaceProcessor(
       runner as never,
       createExecutionRepo() as never,
     );
     const job = {
       ...textJob(),
-      name: QueueJob.KNOWLEDGE_MERGE_SPACE_IMAGES,
-      data: {
-        ...textJob().data,
-        phase: 'image_merge',
-      },
+      name: QueueJob.KNOWLEDGE_MERGE_PAGE,
+      data: { ...textJob().data, phase: 'image_merge' },
     } as Job;
 
-    await expect(processor.process(job)).resolves.toEqual({
-      outcome: 'completed',
-      completedPages: 2,
-    });
-    expect(runner.runImageMergeLease).toHaveBeenCalledWith(
-      expect.objectContaining({
-        phase: 'image_merge',
-        spaceJobId: 'space-job-2',
-      }),
-      expect.objectContaining({ workerId: expect.any(String) }),
-    );
-    expect(runner.runImageMergeLease.mock.calls[0][1]).not.toHaveProperty(
-      'finalAttempt',
+    await expect(processor.process(job)).rejects.toThrow(
+      'Unsupported Knowledge Space job',
     );
     expect(runner.runTextLease).not.toHaveBeenCalled();
   });

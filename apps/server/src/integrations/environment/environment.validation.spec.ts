@@ -90,25 +90,25 @@ describe('environment validation', () => {
   it('accepts bounded database and compilation runtime settings', () => {
     const config = validate({
       ...baseEnvironment,
-      DATABASE_MAX_POOL: '25',
+      DATABASE_MAX_POOL: '40',
       DATABASE_STATEMENT_TIMEOUT_MS: '30000',
       KNOWLEDGE_COMPILER_TIMEOUT_MS: '120000',
       KNOWLEDGE_PAGE_DEADLINE_MS: '900000',
       KNOWLEDGE_IMAGE_JOB_DEADLINE_MS: '180000',
       KNOWLEDGE_SPACE_CONCURRENCY: '10',
-      KNOWLEDGE_IMAGE_CONCURRENCY: '5',
+      KNOWLEDGE_IMAGE_CONCURRENCY: '8',
       KNOWLEDGE_SPACE_SLICE_MAX_PAGES: '5',
       KNOWLEDGE_SPACE_SLICE_MAX_MS: '300000',
       KNOWLEDGE_SPACE_HEARTBEAT_MS: '30000',
       KNOWLEDGE_SPACE_LEASE_TTL_MS: '180000',
     });
 
-    expect(config.DATABASE_MAX_POOL).toBe(25);
+    expect(config.DATABASE_MAX_POOL).toBe(40);
     expect(config.DATABASE_STATEMENT_TIMEOUT_MS).toBe(30_000);
     expect(config.KNOWLEDGE_PAGE_DEADLINE_MS).toBe(900_000);
     expect(config.KNOWLEDGE_IMAGE_JOB_DEADLINE_MS).toBe(180_000);
     expect(config.KNOWLEDGE_SPACE_CONCURRENCY).toBe(10);
-    expect(config.KNOWLEDGE_IMAGE_CONCURRENCY).toBe(5);
+    expect(config.KNOWLEDGE_IMAGE_CONCURRENCY).toBe(8);
     expect(config.KNOWLEDGE_SPACE_SLICE_MAX_PAGES).toBe(5);
     expect(config.KNOWLEDGE_SPACE_SLICE_MAX_MS).toBe(300_000);
     expect(config.KNOWLEDGE_SPACE_HEARTBEAT_MS).toBe(30_000);

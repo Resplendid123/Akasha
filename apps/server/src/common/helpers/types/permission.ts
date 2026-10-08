@@ -4,6 +4,10 @@ export enum UserRole {
   MEMBER = 'member',
 }
 
+export function isWorkspaceAdmin(role: string | null | undefined): boolean {
+  return role === UserRole.OWNER || role === UserRole.ADMIN;
+}
+
 export enum InviteUserRole {
   ADMIN = 'admin', // can have owner permissions but cannot delete workspace
   MEMBER = 'member',

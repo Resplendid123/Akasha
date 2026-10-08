@@ -11,7 +11,11 @@ import { PageRepo } from '@akasha/db/repos/page/page.repo';
 import { SpaceMemberRepo } from '@akasha/db/repos/space/space-member.repo';
 import { PagePermissionRepo } from '@akasha/db/repos/page/page-permission.repo';
 import { findHighestUserSpaceRole } from '@akasha/db/repos/space/utils';
-import { SpaceRole, UserRole } from '../../common/helpers/types/permission';
+import {
+  isWorkspaceAdmin,
+  SpaceRole,
+  UserRole,
+} from '../../common/helpers/types/permission';
 import { isUserDisabled } from '../../common/helpers';
 import { getPageId } from '../collaboration.util';
 import { JwtCollabPayload, JwtType } from '../../core/auth/dto/jwt-payload';
@@ -61,7 +65,7 @@ export class AuthenticationExtension implements Extension {
     }
 
     const page = await this.pageRepo.findById(pageId);
-    if (!page) {
+    if (!page || page.workspaceId !== workspaceId) {
       this.logger.debug(`Page not found: ${pageId}`);
       throw new NotFoundException('Page not found');
     }
@@ -75,12 +79,11 @@ export class AuthenticationExtension implements Extension {
       return { user };
     }
 
-    const userSpaceRoles = await this.spaceMemberRepo.getUserSpaceRoles(
-      user.id,
-      page.spaceId,
-    );
-
-    const userSpaceRole = findHighestUserSpaceRole(userSpaceRoles);
+    const userSpaceRole = isWorkspaceAdmin(user.role)
+      ? SpaceRole.ADMIN
+      : findHighestUserSpaceRole(
+          await this.spaceMemberRepo.getUserSpaceRoles(user.id, page.spaceId),
+        );
 
     if (!userSpaceRole) {
       this.logger.warn(`User not authorized to access page: ${pageId}`);

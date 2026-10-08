@@ -1,5 +1,6 @@
 import { withApiKeyAccess } from '../../../common/auth/api-key-access';
-import { UserRole } from '../../../common/helpers/types/permission';
+import { NotFoundException } from '@nestjs/common';
+import { SpaceRole, UserRole } from '../../../common/helpers/types/permission';
 import {
   SpaceCaslAction,
   SpaceCaslSubject,
@@ -20,7 +21,7 @@ describe('SpaceAbilityFactory API key policy', () => {
           { userId: 'user-1', spaceId: 'shared-1', role: 'admin' },
         ]),
     };
-    const factory = new SpaceAbilityFactory(spaceMemberRepo as any);
+    const factory = new SpaceAbilityFactory(spaceMemberRepo as any, {} as any);
     const user = withApiKeyAccess(member, {
       apiKeyId: 'key-1',
       personalSpaceId: 'personal-1',
@@ -44,7 +45,7 @@ describe('SpaceAbilityFactory API key policy', () => {
           { userId: 'user-1', spaceId: 'personal-1', role: 'admin' },
         ]),
     };
-    const factory = new SpaceAbilityFactory(spaceMemberRepo as any);
+    const factory = new SpaceAbilityFactory(spaceMemberRepo as any, {} as any);
     const user = withApiKeyAccess(member, {
       apiKeyId: 'key-1',
       personalSpaceId: 'personal-1',
@@ -56,6 +57,80 @@ describe('SpaceAbilityFactory API key policy', () => {
     expect(spaceMemberRepo.getUserSpaceRoles).toHaveBeenCalledWith(
       'user-1',
       'personal-1',
+    );
+  });
+});
+
+describe('SpaceAbilityFactory workspace administrator access', () => {
+  it.each([UserRole.OWNER, UserRole.ADMIN])(
+    'grants %s full space management without membership',
+    async (role) => {
+      const spaceMemberRepo = {
+        getUserSpaceRoles: jest.fn().mockResolvedValue([]),
+      };
+      const spaceRepo = {
+        findById: jest.fn().mockResolvedValue({ id: 'space-1' }),
+      };
+      const factory = new SpaceAbilityFactory(
+        spaceMemberRepo as any,
+        spaceRepo as any,
+      );
+
+      const ability = await factory.createForUser(
+        { id: 'user-1', role, workspaceId: 'workspace-1' } as any,
+        'space-1',
+      );
+
+      for (const subject of Object.values(SpaceCaslSubject)) {
+        expect(ability.can(SpaceCaslAction.Manage, subject)).toBe(true);
+      }
+      expect(spaceRepo.findById).toHaveBeenCalledWith('space-1', 'workspace-1');
+      expect(spaceMemberRepo.getUserSpaceRoles).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([UserRole.OWNER, UserRole.ADMIN])(
+    'denies %s access to missing spaces or spaces outside the workspace',
+    async (role) => {
+      const spaceRepo = { findById: jest.fn().mockResolvedValue(undefined) };
+      const factory = new SpaceAbilityFactory({} as any, spaceRepo as any);
+
+      await expect(
+        factory.createForUser(
+          { id: 'user-1', role, workspaceId: 'workspace-1' } as any,
+          'other-space',
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(spaceRepo.findById).toHaveBeenCalledWith(
+        'other-space',
+        'workspace-1',
+      );
+    },
+  );
+
+  it('keeps ordinary members subject to their space membership', async () => {
+    const spaceMemberRepo = {
+      getUserSpaceRoles: jest.fn().mockResolvedValue([]),
+    };
+    const factory = new SpaceAbilityFactory(spaceMemberRepo as any, {} as any);
+    const user = { id: 'user-1', role: UserRole.MEMBER } as any;
+
+    await expect(factory.createForUser(user, 'space-1')).rejects.toThrow(
+      NotFoundException,
+    );
+
+    spaceMemberRepo.getUserSpaceRoles.mockResolvedValue([
+      { userId: 'user-1', role: SpaceRole.READER },
+    ]);
+    const ability = await factory.createForUser(user, 'space-1');
+    expect(ability.can(SpaceCaslAction.Read, SpaceCaslSubject.Settings)).toBe(
+      true,
+    );
+    expect(ability.can(SpaceCaslAction.Manage, SpaceCaslSubject.Settings)).toBe(
+      false,
+    );
+    expect(ability.can(SpaceCaslAction.Edit, SpaceCaslSubject.Page)).toBe(
+      false,
     );
   });
 });

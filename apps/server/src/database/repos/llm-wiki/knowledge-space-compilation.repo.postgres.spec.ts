@@ -132,7 +132,7 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
     expect(state.rows).toEqual([{ rerunRequested: true, count: 1 }]);
   });
 
-  it('orders merge work first and puts yielded continuations behind older peers', async () => {
+  it('orders finalize work first and puts yielded continuations behind older peers', async () => {
     await sql`
       insert into knowledge_space_compile_runs (
         id, workspace_id, space_id, trigger, mode, knowledge_generation, phase,
@@ -153,8 +153,8 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
           now() - interval '20 minutes', now(), now() - interval '1 minute'
         ),
         (
-          'run-merge', 'workspace-1', 'space-fair-merge', 'manual_compile',
-          'incremental', 0, 'image_merge', 'queued', 1, 'compiler-v1',
+          'run-finalize', 'workspace-1', 'space-fair-finalize', 'manual_compile',
+          'incremental', 0, 'finalizing', 'queued', 1, 'compiler-v1',
           'prompt-v1', now() - interval '20 minutes',
           now(), now()
         )
@@ -164,11 +164,11 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
     const relevantIds = candidates
       .map((candidate) => candidate.id)
       .filter((id) =>
-        ['run-merge', 'run-old-text', 'run-continuation'].includes(id),
+        ['run-finalize', 'run-old-text', 'run-continuation'].includes(id),
       );
 
     expect(relevantIds).toEqual([
-      'run-merge',
+      'run-finalize',
       'run-old-text',
       'run-continuation',
     ]);
@@ -916,7 +916,7 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       ('space-removed', 'workspace-1', 'Removed'),
       ('space-fair-old', 'workspace-1', 'Fair old'),
       ('space-fair-continuation', 'workspace-1', 'Fair continuation'),
-      ('space-fair-merge', 'workspace-1', 'Fair merge'),
+      ('space-fair-finalize', 'workspace-1', 'Fair finalize'),
       ('space-scoped', 'workspace-1', 'Page scoped'),
       ('space-scoped-union', 'workspace-1', 'Page scoped union'),
       ('space-scoped-widen', 'workspace-1', 'Page scoped widen')

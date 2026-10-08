@@ -4,6 +4,7 @@ import { JsonValue } from '@akasha/db/types/db';
 import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';
 import { executeTx } from '@akasha/db/utils';
 import { sql } from 'kysely';
+import { reconcileRunPipelineInTransaction } from './knowledge-run-pipeline';
 import {
   buildSpaceJobId,
   runPhaseToJobPhase,
@@ -147,13 +148,13 @@ export class KnowledgeSpaceCompilationRepo {
         'spaceJobQueuedAt',
       ])
       .where('status', '=', 'queued')
-      .where('phase', 'in', ['text', 'image_merge', 'finalizing'])
+      .where('phase', 'in', ['text', 'finalizing'])
       .where('spaceJobId', 'is', null)
       .orderBy(
         sql<number>`CASE
           WHEN trigger = ${KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER}
            AND phase IN ('text', 'finalizing') THEN 0
-          WHEN phase IN ('image_merge', 'finalizing') THEN 1
+          WHEN phase = 'finalizing' THEN 1
           ELSE 5
         END`,
         'asc',
@@ -179,14 +180,14 @@ export class KnowledgeSpaceCompilationRepo {
         'spaceJobQueuedAt',
       ])
       .where('status', '=', 'queued')
-      .where('phase', 'in', ['text', 'image_merge', 'finalizing'])
+      .where('phase', 'in', ['text', 'finalizing'])
       .where('spaceJobId', 'is not', null)
       .where('spaceJobDispatchedAt', 'is', null)
       .orderBy(
         sql<number>`CASE
           WHEN trigger = ${KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER}
            AND phase IN ('text', 'finalizing') THEN 0
-          WHEN phase IN ('image_merge', 'finalizing') THEN 1
+          WHEN phase = 'finalizing' THEN 1
           ELSE 5
         END`,
         'asc',
@@ -211,14 +212,14 @@ export class KnowledgeSpaceCompilationRepo {
   async markSpaceJobDispatched(input: {
     runId: string;
     knowledgeGeneration: number;
-    jobPhase: 'text' | 'image_merge';
+    jobPhase: 'text' | 'finalize';
     spaceJobSequence: number;
     spaceJobId: string;
   }): Promise<boolean> {
     const phases =
       input.jobPhase === 'text'
-        ? (['text', 'finalizing'] as const)
-        : (['image_merge', 'finalizing'] as const);
+        ? (['text'] as const)
+        : (['finalizing'] as const);
     const updated = await this.db
       .updateTable('knowledgeSpaceCompileRuns')
       .set({ spaceJobDispatchedAt: new Date(), updatedAt: new Date() })
@@ -279,11 +280,7 @@ export class KnowledgeSpaceCompilationRepo {
         return undefined;
       }
       const spaceJobSequence = run.spaceJobSequence + 1;
-      const spaceJobId = buildSpaceJobId(
-        run.id,
-        jobPhase,
-        spaceJobSequence,
-      );
+      const spaceJobId = buildSpaceJobId(run.id, jobPhase, spaceJobSequence);
       const reserved = await trx
         .updateTable('knowledgeSpaceCompileRuns')
         .set({
@@ -1636,39 +1633,13 @@ export class KnowledgeSpaceCompilationRepo {
         .where('imageStatus', 'in', ['pending', 'queued', 'processing'])
         .execute();
 
-      let barrierAdvanced = false;
-      if (nonterminal === 0) {
-        const remaining = await trx
-          .selectFrom('knowledgeSpaceCompileRunImages')
-          .select('id')
-          .where('runId', '=', input.runId)
-          .where('status', 'in', ['pending', 'queued', 'processing'])
-          .limit(1)
-          .executeTakeFirst();
-        if (!remaining) {
-          const advanced = await trx
-            .updateTable('knowledgeSpaceCompileRuns')
-            .set({
-              phase: 'image_merge',
-              status: 'queued',
-              spaceJobId: null,
-              spaceJobDispatchedAt: null,
-              spaceJobQueuedAt: now,
-              executionToken: null,
-              executionLeaseExpiresAt: null,
-              workerId: null,
-              heartbeatAt: null,
-              updatedAt: now,
-            })
-            .where('id', '=', input.runId)
-            .where('knowledgeGeneration', '=', input.knowledgeGeneration)
-            .where('phase', '=', 'images')
-            .where('status', '=', 'compiling')
-            .returning('id')
-            .executeTakeFirst();
-          barrierAdvanced = Boolean(advanced);
-        }
-      }
+      const reconciled = await reconcileRunPipelineInTransaction(
+        trx,
+        input.runId,
+      );
+      const barrierAdvanced = Boolean(
+        reconciled && reconciled.phase !== locked.run.phase,
+      );
       return {
         image,
         imageStatus,
@@ -2003,6 +1974,12 @@ export class KnowledgeSpaceCompilationRepo {
       .updateTable('knowledgeSpaceCompileRunPages')
       .set({
         mergeStatus: 'skipped',
+        // Clear the page merge execution fence so any stale merge worker that
+        // returns after cancellation fails its publication guard.
+        mergeExecutionToken: null,
+        mergeProcessingExpiresAt: null,
+        mergeWorkerId: null,
+        mergeHeartbeatAt: null,
         errorCode: sql`COALESCE(error_code, ${input.errorCode})`,
         errorMessage: sql`COALESCE(error_message, ${input.errorMessage})`,
         updatedAt: input.now,
