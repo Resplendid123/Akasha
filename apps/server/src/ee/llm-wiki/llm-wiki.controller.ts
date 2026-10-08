@@ -75,6 +75,7 @@ import { KnowledgeSpaceResetService } from './services/knowledge-space-reset.ser
 import { AiModelConfigService } from './services/ai-model-config.service';
 import { AiModelConfigTestService } from './services/ai-model-config-test.service';
 import { AiModelConfigFeature } from '../../database/repos/llm-wiki/ai-model-config.repo';
+import { buildKnowledgeQueryAuditMetadata } from './services/knowledge-query-audit-metadata';
 import {
   TestAiModelConfigDto,
   UpdateAiModelConfigDto,
@@ -188,13 +189,27 @@ export class LlmWikiController {
       ...(isGeneralKnowledgeEnabledForUser(user)
         ? {}
         : { generalKnowledgeEnabled: false }),
+      ...(dto.scoreThreshold !== undefined
+        ? { scoreThreshold: dto.scoreThreshold }
+        : {}),
+      ...(dto.rawResultsOnly === true ? { rawResultsOnly: true } : {}),
+      ...(dto.queryRewriteEnabled !== undefined
+        ? { queryRewriteEnabled: dto.queryRewriteEnabled }
+        : {}),
     });
     const queryHash = hashQuery(dto.query);
     // attachmentHitContext is an internal retrieval detail (§7.1): the regular
     // query API never resolves top-level attachments, so strip it here too so it
     // can never leak through `...response` as a public field.
-    const { retrievalDiagnostics, retrievalScope, attachmentHitContext, ...response } =
-      result;
+    const {
+      retrievalDiagnostics,
+      retrievalScope,
+      attachmentHitContext,
+      queryObservation,
+      retrieval,
+      context,
+      ...response
+    } = result;
     void attachmentHitContext;
     // The knowledge path always returns a scope. Keep audit recording
     // defensive for the legacy pure-general path and older service mocks.
@@ -225,8 +240,8 @@ export class LlmWikiController {
       workspaceId: workspace.id,
       userId: user.id,
       queryHash,
-      retrievalMode: retrievalDiagnostics.mode,
-      authorizedCapsuleCount: retrievalDiagnostics.authorizedChunkCount,
+      retrievalMode: retrievalDiagnostics?.mode ?? 'general',
+      authorizedCapsuleCount: retrievalDiagnostics?.authorizedChunkCount ?? 0,
       metadata: {
         origin: 'knowledge_query',
         ...(queryType === KnowledgeQueryType.ROBOT ? { type: queryType } : {}),
@@ -237,19 +252,13 @@ export class LlmWikiController {
         publicScopeValidated,
         ...(personalApiKeyId ? { personalApiKeyId } : {}),
         ...(publicApiKeyId ? { publicApiKeyId } : {}),
-        queryEmbeddingAvailable: retrievalDiagnostics.queryEmbeddingAvailable,
-        candidateSourceCount: retrievalDiagnostics.candidateSourceCount,
-        policyCandidateSourceCount:
-          retrievalDiagnostics.policyCandidateSourceCount,
-        fallbackCandidateSourceCount:
-          retrievalDiagnostics.fallbackCandidateSourceCount,
-        finalAuthorizedSourceCount:
-          retrievalDiagnostics.finalAuthorizedSourceCount,
-        accessPolicyFallbackUsed: retrievalDiagnostics.accessPolicyFallbackUsed,
-        candidateChunkCount: retrievalDiagnostics.candidateChunkCount,
-        rankedCandidateCount: retrievalDiagnostics.rankedCandidateCount,
-        authorizedChunkCount: retrievalDiagnostics.authorizedChunkCount,
-        filteredChunkCount: retrievalDiagnostics.filteredChunkCount,
+        ...buildKnowledgeQueryAuditMetadata({
+          answerMode: response.answerMode,
+          queryObservation,
+          retrievalDiagnostics,
+          retrieval,
+          context,
+        }),
       },
     });
 

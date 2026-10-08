@@ -471,9 +471,6 @@ function normalizeKnowledgeQueryResult(value: unknown): KnowledgeQueryResult {
   const citations = Array.isArray(record.citations) ? record.citations : [];
   const snippets = Array.isArray(record.snippets) ? record.snippets : [];
   const warnings = Array.isArray(record.warnings) ? record.warnings : [];
-  const retrievalReasons = Array.isArray(record.retrievalReasons)
-    ? record.retrievalReasons
-    : [];
 
   return {
     answer: typeof record.answer === "string" ? record.answer : "",
@@ -514,9 +511,6 @@ function normalizeKnowledgeQueryResult(value: unknown): KnowledgeQueryResult {
       .filter((snippet) => snippet.id && (snippet.text || snippet.title)),
     warnings: warnings.filter(
       (warning): warning is string => typeof warning === "string",
-    ),
-    retrievalReasons: retrievalReasons.filter(
-      (reason): reason is string => typeof reason === "string",
     ),
     budget: normalizeContextBudget(record.budget),
     completenessNotice:

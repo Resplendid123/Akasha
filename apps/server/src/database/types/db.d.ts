@@ -413,7 +413,10 @@ export interface KnowledgeGraphEdges {
   relation: string;
   spaceId: string;
   staleAt: Timestamp | null;
-  toKnowledgePageId: string;
+  toKnowledgePageId: string | null;
+  targetArtifactKind: Generated<string | null>;
+  targetCanonicalKey: Generated<string | null>;
+  isDangling: Generated<boolean>;
   workspaceId: string;
 }
 

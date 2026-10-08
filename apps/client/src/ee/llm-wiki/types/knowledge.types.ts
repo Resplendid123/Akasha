@@ -39,7 +39,6 @@ export interface KnowledgeQueryResult {
   citations: KnowledgeCitation[];
   snippets: KnowledgeSnippet[];
   warnings: string[];
-  retrievalReasons: string[];
   budget?: KnowledgeContextBudget;
   completenessNotice?: string;
 }
