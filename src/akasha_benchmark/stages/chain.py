@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
+from .. import naming
 from ..datasets import DATASET_NAMES, get_adapter
 from ..metrics import registry
 from ..store import (
@@ -18,7 +18,7 @@ from . import compile
 DATASETS = ("hotpotqa", "2wikimultihopqa", "musique")
 
 
-def _check_query(connection, query_id: int) -> None:
+def verify_query(connection, query_id: int) -> None:
 
     run = query_store.get_query_run(connection, query_id)
     if run is None:
@@ -43,7 +43,7 @@ def _check_query(connection, query_id: int) -> None:
         raise RuntimeError(f"knowledge 响应没有 retrievedSources：{unmapped[:3]}")
 
 
-def _check_evaluate(connection, eval_id: int) -> None:
+def verify_evaluate(connection, eval_id: int) -> None:
     run = eval_store.get_eval_run(connection, eval_id)
     if run is None:
         raise RuntimeError("评测记录丢失")
@@ -58,7 +58,7 @@ def _check_evaluate(connection, eval_id: int) -> None:
         raise RuntimeError("评测没有覆盖全部样本")
 
 
-def _check_attribute(connection, attribution_id: int) -> None:
+def verify_attribute(connection, attribution_id: int) -> None:
     run = attribution_store.get_attribution_run(connection, attribution_id)
     if run is None:
         raise RuntimeError("归因记录不存在")
@@ -71,11 +71,22 @@ def _check_attribute(connection, attribution_id: int) -> None:
         raise RuntimeError("归因没有覆盖评测的全部样本")
 
 
-VERIFY = {
-    "query": _check_query,
-    "evaluate": _check_evaluate,
-    "attribute": _check_attribute,
-}
+def follow_up_steps() -> list[dict[str, Any]]:
+    """查询完成后自动跟的两步：确定性指标评测 + 规则归因。"""
+    return [
+        {
+            "stage": "evaluate",
+            "link": "query_id",
+            "params": {
+                "metrics": [
+                    definition.name
+                    for definition in registry.METRIC_DEFINITIONS
+                    if definition.kind == registry.KIND_DETERMINISTIC
+                ],
+            },
+        },
+        {"stage": "attribute", "link": "eval_id", "params": {"use_model": False}},
+    ]
 
 
 def build(params: dict[str, Any], connection) -> list[dict[str, Any]]:
@@ -101,7 +112,7 @@ def build(params: dict[str, Any], connection) -> list[dict[str, Any]]:
         )
     negatives_ratio = (5 - gold_count) / gold_count if gold_count else 0.0
 
-    run_id = f"smoke{uuid.uuid4().hex[:8]}"
+    run_id = naming.smoke_name(connection, dataset)
     available_metrics = registry.available(get_adapter(dataset).provides)
     with_judge = bool(params.get("with_judge", False))
     metrics = [
@@ -110,7 +121,6 @@ def build(params: dict[str, Any], connection) -> list[dict[str, Any]]:
         if with_judge or definition.kind == registry.KIND_DETERMINISTIC
     ]
     evaluate_params: dict[str, Any] = {
-        "name": f"{run_id}-e",
         "metrics": metrics,
         "ks": [2],
     }
@@ -129,13 +139,12 @@ def build(params: dict[str, Any], connection) -> list[dict[str, Any]]:
                 "seed": params.get("seed") or compile.default_seed(),
             },
         },
-        {"stage": "query", "link": "compile_id", "params": {"name": f"{run_id}-q"}},
+        {"stage": "query", "link": "compile_id", "params": {}},
         {"stage": "evaluate", "link": "query_id", "params": evaluate_params},
         {
             "stage": "attribute",
             "link": "eval_id",
             "params": {
-                "name": f"{run_id}-a",
                 "use_model": bool(params.get("use_model", False)),
                 "provider_id": params.get("provider_id"),
             },

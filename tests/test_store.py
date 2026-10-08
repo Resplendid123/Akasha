@@ -189,7 +189,13 @@ def test_response_mode_is_derived_from_current_body(db, query_id, body, mode):
 
 def test_delete_failed_responses_keeps_successes(db, query_id):
     for sample_id, status in (("a", 200), ("b", 500), ("c", 0)):
-        _respond(db, query_id, sample_id, http_status=status)
+        _respond(
+            db,
+            query_id,
+            sample_id,
+            http_status=status,
+            response={"answer": "ok"} if status == 200 else None,
+        )
 
     assert query_store.delete_retryable_responses(db, query_id) == 2
     assert [r["sample_id"] for r in query_store.responses_of(db, query_id)] == ["a"]
@@ -198,6 +204,8 @@ def test_delete_failed_responses_keeps_successes(db, query_id):
 def test_generation_unavailable_answer_is_retryable_despite_http_200(db, query_id):
     for sample_id, answer in (
         ("good", "A real answer"),
+        ("empty", ""),
+        ("missing", None),
         ("empty-en", query_store.ANSWER_GENERATION_UNAVAILABLE),
         ("empty-zh", query_store.ANSWER_GENERATION_UNAVAILABLE_ZH),
     ):
@@ -207,10 +215,10 @@ def test_generation_unavailable_answer_is_retryable_despite_http_200(db, query_i
         )
 
     stats = query_store.query_stats(db, query_id)["d"]
-    assert stats["responses"] == 3
-    assert stats["failures"] == 2
-    assert query_store.retryable_response_count(db, query_id) == 2
-    assert query_store.delete_retryable_responses(db, query_id) == 2
+    assert stats["responses"] == 5
+    assert stats["failures"] == 4
+    assert query_store.retryable_response_count(db, query_id) == 4
+    assert query_store.delete_retryable_responses(db, query_id) == 4
     assert [row["sample_id"] for row in query_store.responses_of(db, query_id)] == ["good"]
 
 
@@ -306,15 +314,28 @@ def test_task_tree_preserves_one_to_many_run_branches(db, compile_id, query_id, 
         metrics=["em"],
         judge_provider_id=None,
     )
-    for evaluation, suffix in ((eval_id, "a1"), (eval_id, "a2"), (second_eval, "a3")):
+    attributions = [
         attribution_store.create_attribution_run(
             db, name=suffix, eval_id=evaluation, report_provider_id=None
         )
+        for evaluation, suffix in ((eval_id, "a1"), (eval_id, "a2"), (second_eval, "a3"))
+    ]
 
     compile_task = task_store.create_task(db, stage="compile", params={})
     task_store.set_task_target(db, compile_task, "compile", compile_id)
     query_task = task_store.create_task(db, stage="query", params={"compile_id": compile_id})
     task_store.set_task_target(db, query_task, "query", query_id)
+    for evaluation in (eval_id, second_eval):
+        task_store.set_task_target(
+            db, task_store.create_task(db, stage="evaluate", params={}), "eval", evaluation
+        )
+    for attribution in attributions:
+        task_store.set_task_target(
+            db,
+            task_store.create_task(db, stage="attribute", params={}),
+            "attribution",
+            attribution,
+        )
     pending_eval = task_store.create_task(db, stage="evaluate", params={"query_id": second_query})
     unlinked = task_store.create_task(db, stage="normalize", params={})
     db.commit()

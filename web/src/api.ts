@@ -35,7 +35,9 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const apiBase = import.meta.env.BASE_URL.replace(/\/$/, '')
+  const requestPath = path.startsWith('/api') ? `${apiBase}${path}` : path
+  const response = await fetch(requestPath, {
     ...init,
     headers: {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
@@ -76,13 +78,6 @@ const query = (params: Record<string, string | number | boolean | undefined>) =>
 }
 
 export const api = {
-  health: () =>
-    request<{
-      ok: boolean
-      settings: Record<string, unknown>
-      startup: { recovered_tasks: number }
-    }>('/api/health'),
-
   connection: () => request<Connection>('/api/connection'),
   saveConnection: (payload: Record<string, unknown>) =>
     put<{ updated: string[]; connection: Connection }>('/api/connection', payload),
