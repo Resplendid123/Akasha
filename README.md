@@ -95,16 +95,16 @@ Akasha keeps source content and derived knowledge as distinct but connected laye
 
 ## Benchmark Results
 
-Akasha is evaluated on three public multi-hop question-answering datasets. `R@5` measures the proportion of gold evidence retrieved in the top five results, while `F1` balances retrieval precision and recall against the gold evidence.
+Akasha is evaluated on three public multi-hop question-answering datasets using the `qwen-27b` model. `R@5` measures the proportion of gold evidence retrieved in the top five results, while `F1` balances retrieval precision and recall against the gold evidence.
 
 | Dataset | R@5 | F1 |
 | :-- | --: | --: |
-| MuSiQue | **87.17** | 56.57 |
-| 2WikiMultiHopQA | 90.50 | 59.66 |
-| HotpotQA | **99.00** | 56.19 |
-| **Average** | **92.22** | 57.47 |
+| MuSiQue | **89.33** | 65.10 |
+| 2WikiMultiHopQA | 91.00 | 65.02 |
+| HotpotQA | **99.00** | 62.15 |
+| **Average** | **93.11** | 64.09 |
 
-Under the benchmark configuration currently recorded in this repository, Akasha achieved an average Recall@5 (`R@5`) of **92.22** across MuSiQue, 2WikiMultiHopQA, and HotpotQA, with an average `F1` of **57.47**. These figures describe the recorded retrieval run and should be compared only under consistent dataset and evaluation settings.
+Under the benchmark configuration currently recorded in this repository, Akasha achieved an average Recall@5 (`R@5`) of **93.11** across MuSiQue, 2WikiMultiHopQA, and HotpotQA, with an average `F1` of **64.09**. These figures describe the recorded retrieval run and should be compared only under consistent dataset and evaluation settings.
 
 See the [complete benchmark comparison and local evaluation toolkit](benchmark/README.md#多跳问答基准综合对比) for baselines, per-dataset results, and instructions for running the evaluation pipeline.
 
