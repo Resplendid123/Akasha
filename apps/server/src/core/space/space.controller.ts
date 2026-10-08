@@ -16,7 +16,7 @@ import { AuthWorkspace } from '../../common/decorators/auth-workspace.decorator'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SpaceIdDto } from './dto/space-id.dto';
 import { SpaceMemberService } from './services/space-member.service';
-import { User, Workspace } from '@akasha/db/types/entity.types';
+import { Space, User, Workspace } from '@akasha/db/types/entity.types';
 import { AddSpaceMembersDto } from './dto/add-space-members.dto';
 import { RemoveSpaceMemberDto } from './dto/remove-space-member.dto';
 import { UpdateSpaceMemberRoleDto } from './dto/update-space-member-role.dto';
@@ -35,7 +35,11 @@ import {
 import WorkspaceAbilityFactory from '../casl/abilities/workspace-ability.factory';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { SpaceRepo } from '@akasha/db/repos/space/space.repo';
-import { UserRole, SpaceRole } from '../../common/helpers/types/permission';
+import { emptyCursorPaginationResult } from '@akasha/db/pagination/cursor-pagination';
+import {
+  isWorkspaceAdmin,
+  SpaceRole,
+} from '../../common/helpers/types/permission';
 import { SpacePaginationOptions } from './dto/space-pagination-options.dto';
 import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
 import { AgentCallable } from '../../common/decorators/agent-callable.decorator';
@@ -67,19 +71,24 @@ export class SpaceController {
     @AuthWorkspace() workspace: Workspace,
     @AgentAccess() agentAccess?: AgentAccessContext,
   ) {
-    const isOwner = user.role === UserRole.OWNER;
+    const useAdminView = isWorkspaceAdmin(user.role);
 
-    // Owners normally see every space in the workspace as ADMIN. When a role
-    // filter is applied, fall back to their actual space memberships so the
-    // filter matches the roles shown in the space members panel.
-    const useOwnerView = isOwner && !pagination.role;
+    // Filter by effective access: workspace administrators manage every space,
+    // regardless of direct or group membership.
+    if (
+      useAdminView &&
+      pagination.role &&
+      pagination.role !== SpaceRole.ADMIN
+    ) {
+      return emptyCursorPaginationResult<Space>(pagination.limit);
+    }
 
-    const result = useOwnerView
+    const result = useAdminView
       ? await this.spaceService.getWorkspaceSpaces(workspace.id, pagination)
       : await this.spaceMemberService.getUserSpaces(user.id, pagination);
 
     if (result.items.length > 0) {
-      if (useOwnerView) {
+      if (useAdminView) {
         result.items = result.items.map((space) => ({
           ...space,
           membership: { userId: user.id, role: SpaceRole.ADMIN },
@@ -159,13 +168,12 @@ export class SpaceController {
       throw new ForbiddenException();
     }
 
-    const userSpaceRoles =
-      (await this.spaceMemberRepo.getUserSpaceRoles(user.id, space.id)) ?? [];
-
-    const userSpaceRole =
-      user.role === UserRole.OWNER && !userSpaceRoles.length
-        ? SpaceRole.ADMIN
-        : findHighestUserSpaceRole(userSpaceRoles);
+    const userSpaceRole = isWorkspaceAdmin(user.role)
+      ? SpaceRole.ADMIN
+      : findHighestUserSpaceRole(
+          (await this.spaceMemberRepo.getUserSpaceRoles(user.id, space.id)) ??
+            [],
+        );
 
     const membership = {
       userId: user.id,

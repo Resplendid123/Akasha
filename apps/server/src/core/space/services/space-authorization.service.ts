@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { SpaceMemberRepo } from '@akasha/db/repos/space/space-member.repo';
 import {
   SpaceRole,
-  UserRole,
+  isWorkspaceAdmin,
 } from '../../../common/helpers/types/permission';
 
 @Injectable()
@@ -15,7 +15,7 @@ export class SpaceAuthorizationService {
   }): Promise<string[]> {
     if (input.spaceIds.length === 0) return [];
 
-    if (input.user.role === UserRole.OWNER) {
+    if (isWorkspaceAdmin(input.user.role)) {
       return input.spaceIds;
     }
 
