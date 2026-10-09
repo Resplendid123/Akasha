@@ -13,6 +13,16 @@ export type KnowledgeAnswerProviderInput = {
   context: string;
   chatContext?: string[];
   mode?: 'knowledge' | 'general';
+  /**
+   * Fired once, when the model emits its first token of any kind.
+   *
+   * With thinking enabled the first token is a reasoning token, and reasoning
+   * is not part of `textStream`. Callers that measured latency from the first
+   * yielded string were therefore timing the end of the thinking block, not
+   * the start of generation. This reports the provider's real first token
+   * while the iterator keeps yielding answer text only.
+   */
+  onFirstToken?: () => void;
 };
 
 export type KnowledgeQueryRewriteInput = {
@@ -115,8 +125,22 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
       seed: ANSWER_SEED,
       providerOptions: answerProviderOptions(config),
     });
-    for await (const token of result.textStream) {
-      yield token;
+    // fullStream rather than textStream: reasoning deltas have to be visible
+    // here to time the first token, since with thinking enabled they arrive
+    // first and textStream drops them. Only text is yielded, so consumers see
+    // the answer exactly as before.
+    let firstTokenSeen = false;
+    for await (const part of result.fullStream) {
+      if (part.type !== 'reasoning-delta' && part.type !== 'text-delta') {
+        continue;
+      }
+      if (!firstTokenSeen && part.text) {
+        firstTokenSeen = true;
+        input.onFirstToken?.();
+      }
+      if (part.type === 'text-delta') {
+        yield part.text;
+      }
     }
   }
 

@@ -275,9 +275,9 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     const openaiProvider = jest.fn().mockReturnValue('openai-model');
     (createOpenAICompatible as jest.Mock).mockReturnValue(openaiProvider);
     (streamText as jest.Mock).mockReturnValue({
-      textStream: (async function* () {
-        yield 'first ';
-        yield 'second';
+      fullStream: (async function* () {
+        yield { type: 'text-delta', id: '1', text: 'first ' };
+        yield { type: 'text-delta', id: '1', text: 'second' };
       })(),
     });
     const service = createService({ aiDriver: 'openai-compatible' });
@@ -294,6 +294,44 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'openai-model' }),
     );
+  });
+
+  it('reports the first token while thinking, and still yields answer text only', async () => {
+    const openaiProvider = jest.fn().mockReturnValue('openai-model');
+    (createOpenAICompatible as jest.Mock).mockReturnValue(openaiProvider);
+    // With thinking enabled the model reasons before it answers. Those deltas
+    // are absent from textStream, so timing the first yielded string measured
+    // the end of the thinking block instead of the start of generation.
+    const seenBeforeFirstYield: string[] = [];
+    (streamText as jest.Mock).mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: 'reasoning-start', id: 'r1' };
+        yield { type: 'reasoning-delta', id: 'r1', text: 'let me check ' };
+        yield { type: 'reasoning-delta', id: 'r1', text: 'the context' };
+        yield { type: 'reasoning-end', id: 'r1' };
+        yield { type: 'text-delta', id: 't1', text: 'Emad Hashim' };
+      })(),
+    });
+    const service = createService({ aiDriver: 'openai-compatible' });
+
+    const tokens: string[] = [];
+    let firstTokenCalls = 0;
+    for await (const token of service.stream({
+      query: 'Q',
+      context: 'Context',
+      onFirstToken: () => {
+        firstTokenCalls += 1;
+        seenBeforeFirstYield.push(...tokens);
+      },
+    })) {
+      tokens.push(token);
+    }
+
+    // Fired once, on the first reasoning delta, before any text was yielded.
+    expect(firstTokenCalls).toBe(1);
+    expect(seenBeforeFirstYield).toEqual([]);
+    // Reasoning never reaches the consumer; the answer is unchanged.
+    expect(tokens).toEqual(['Emad Hashim']);
   });
 });
 
