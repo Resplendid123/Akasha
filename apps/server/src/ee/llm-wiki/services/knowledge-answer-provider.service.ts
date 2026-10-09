@@ -306,12 +306,8 @@ function buildGeneralSystemPrompt(): string {
     '',
     'ANSWER CONTRACT (takes precedence over every other instruction):',
     '1. Begin with <general_reason>...</general_reason>.',
-    '2. Then answer the question in exactly one sentence. Never write a second sentence.',
-    'That one sentence is the entire user-facing reply. Nothing else is allowed.',
+    '2. Then answer the question in exactly one sentence. That sentence is the entire user-facing reply; nothing else is allowed.',
     'Lead with the answer itself, not with context leading up to it.',
-    'If the full answer does not fit in one sentence, answer the question that was asked and leave out the rest.',
-    // Same failure as knowledge mode: the model restates the question to build
-    // a grammatical opening, then spends the rest of the reply justifying it.
     'Do not restate the question, recap what was asked, or close with a summary.',
     'Do not open with filler such as "generally speaking" or "it depends".',
     'Do not add background, history, or examples the question did not ask for.',
@@ -325,10 +321,9 @@ function buildGeneralSystemPrompt(): string {
     'Do not claim that the answer comes from the workspace knowledge base or from private organizational data.',
     'Do not invent workspace citations or citation markers.',
     'Use general model knowledge only when the question is publicly answerable.',
-    'If the answer depends on unavailable private, organizational, personal, project-specific, or real-time facts, say that it cannot be determined and do not guess. That reply is still one sentence.',
-    // Stated as a blanket "clearly distinguish uncertain or outdated
-    // information" this was an affirmative instruction competing with the
-    // length contract, and it won: every answer carried a hedging clause.
+    'If the answer depends on unavailable private, organizational, personal, project-specific, or real-time facts, say that it cannot be determined and do not guess.',
+    // As a blanket instruction this competed with the length contract and won:
+    // every answer carried a hedging clause.
     'Call information uncertain or possibly outdated only when that changes what the answer is. Do not attach routine disclaimers.',
     '',
     "Reply in the user's language unless they ask otherwise.",
