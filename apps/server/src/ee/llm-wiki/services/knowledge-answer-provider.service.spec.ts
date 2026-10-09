@@ -74,7 +74,7 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining(
-          'When you use facts from the knowledge context, append the relevant citation marker to that sentence.',
+          'Append the citation markers for the sources you used at the end of the answer.',
         ),
       }),
     );
