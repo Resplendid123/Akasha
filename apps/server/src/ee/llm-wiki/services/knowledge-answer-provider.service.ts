@@ -252,28 +252,35 @@ function buildSystemPrompt(
     // exception, the model wrote a grammatical sentence every time: it restated
     // the question and embedded the answer in it, which costs exact match and
     // tanks token-F1 precision.
-    '2. Then give only the shortest span that answers the question: a name, a number, a date, a phrase. Do not put it in a sentence.',
-    '3. Append the citation markers for the sources you used at the end of the answer.',
-    'In [[answer:knowledge]] mode those three parts are the entire reply. Nothing else is allowed.',
-    'Write a full sentence only when no span can answer the question, because it asks how or why, or asks you to compare.',
+    '2. In [[answer:knowledge]] mode, give only the shortest span that answers the question: a name, a number, a date, a phrase. Do not put it in a sentence. Then append the citation markers for the sources you used at the end of the answer.',
+    // The general branch used to be governed only by the word "concise" down in
+    // GROUNDING, and the knowledge-mode qualifier on "nothing else is allowed"
+    // read as an exemption from this section: answers came back at two to four
+    // sentences, opening with the reasoning that led to them.
+    '3. In [[answer:general]] mode, give the <general_reason>...</general_reason> tag and then exactly one sentence of answer.',
+    'Whichever mode you pick, the parts listed for it are the entire reply. Nothing else is allowed.',
+    'Write a full sentence in [[answer:knowledge]] mode only when no span can answer the question, because it asks how or why, or asks you to compare.',
     // "Never restate the question" alone was read as "do not quote the question
     // verbatim". Naming the parts of speech is what actually stops the
     // "<subject> was the <role> of <qualifiers from the question>" shape.
+    'The rules below bind both modes.',
     "Do not echo the question's subject, verb, or any of its wording in the answer. Give the new information only.",
     'Never explain or justify the answer, never recap the evidence, never close with a summary, never add a sentence just to carry a citation marker.',
+    'Never state which mode you chose, why you chose it, or what the retrieved context did or did not contain. The reason tag is the only place that belongs.',
+    'Never narrate the reasoning that led to the answer. Give the conclusion alone.',
     'Plain prose only: no headings, lists, bold, italics, or blank lines.',
     'Do not hedge, add caveats, or remark that the evidence is partial, stale, or conflicting.',
     '',
     'MODE SELECTION:',
     'Determine whether the available evidence contains sufficient relevant information to answer the user question, without narrating that decision.',
     'Use [[answer:knowledge]] when the provided knowledge context, mentioned pages, current page context, or attachments contain sufficient relevant evidence for the answer.',
-    'When the provided evidence is insufficient or unrelated, output [[answer:general]] and follow the general-mode reply shape defined under GROUNDING.',
+    'When the provided evidence is insufficient or unrelated, output [[answer:general]] and give the reply the shape part 3 of the answer contract sets out.',
     '',
     'GROUNDING:',
     'Answer only from the provided knowledge context, mentioned pages, current page context, and attachments when using [[answer:knowledge]].',
     'You may summarize, combine, or calculate from that evidence, but do not introduce unsupported factual claims in [[answer:knowledge]] mode.',
     'For multi-hop questions, join facts across multiple evidence sections through the same named entity when every link is explicitly supported; cite the evidence for each link and do not require one section to state the whole chain.',
-    'When the provided evidence is insufficient or unrelated, begin with [[answer:general]], add the required <general_reason>...</general_reason> tag, then provide a concise answer using general model knowledge when the question is publicly answerable.',
+    'When the provided evidence is insufficient or unrelated, begin with [[answer:general]], add the required <general_reason>...</general_reason> tag, then provide a concise answer using general model knowledge when the question is publicly answerable, held to the one sentence the answer contract allows.',
     'If the question depends on private, organizational, personal, project-specific, or real-time facts that are not supported by the evidence, do not guess; return only the marker and reason.',
     'Inside <general_reason>, explain the concrete evidence gap that caused the decision: identify the missing entity, attribute, relationship, hop, or time-specific fact, or say whether the retrieved evidence is unrelated, ambiguous, conflicting, or incomplete.',
     'Do not use a vague reason such as "insufficient evidence" by itself. State what would need to be known or verified to answer the question from workspace evidence.',

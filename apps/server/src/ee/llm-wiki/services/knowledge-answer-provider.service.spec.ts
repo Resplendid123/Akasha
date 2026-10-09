@@ -74,9 +74,23 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining(
-          'Append the citation markers for the sources you used at the end of the answer.',
+          'append the citation markers for the sources you used at the end of the answer.',
         ),
       }),
+    );
+    // Both branches of the contract carry their own length rule: the knowledge
+    // span and the one general sentence. Neither may be dropped without the
+    // other branch silently falling back to whatever the model prefers.
+    const contract = (generateText as jest.Mock).mock.calls[0][0]
+      .system as string;
+    expect(contract).toContain(
+      'In [[answer:knowledge]] mode, give only the shortest span',
+    );
+    expect(contract).toContain(
+      'In [[answer:general]] mode, give the <general_reason>...</general_reason> tag and then exactly one sentence of answer.',
+    );
+    expect(contract).toContain(
+      'Whichever mode you pick, the parts listed for it are the entire reply.',
     );
   });
 
