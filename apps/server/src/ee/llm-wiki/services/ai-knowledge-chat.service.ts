@@ -18,8 +18,13 @@ import {
   KnowledgeSourceWindow,
 } from './knowledge-context-pack.service';
 import type { KnowledgeCitation } from './knowledge-context-pack.service';
+import type { KnowledgeContextPackingItem } from './knowledge-context-pack.service';
+import { createHash } from 'crypto';
 import {
   KnowledgeRetrievalDiagnostics,
+  KnowledgeRetrievalAuthorizationMode,
+  KnowledgeRetrievalObservation,
+  KnowledgeRetrievalOrigin,
   KnowledgeRetrievalScope,
   KnowledgeRetrievalService,
 } from './knowledge-retrieval.service';
@@ -36,6 +41,19 @@ export type AiKnowledgeCitationEvidence = KnowledgeCitation & {
   excerpts: Array<
     Pick<KnowledgeSourceWindow, 'text' | 'sourceRange' | 'quoteHash'>
   >;
+};
+
+export type KnowledgeContextObservation = {
+  text: string;
+  items: Array<{
+    itemId: string;
+    pageId: string;
+    text: string;
+    tokenCount: number;
+  }>;
+  usedTokens: number;
+  maxTokens: number;
+  dropped: Array<{ itemId: string; pageId: string; reason: string }>;
 };
 
 type AiKnowledgeChatInput = {
@@ -115,6 +133,9 @@ export type AiKnowledgeChatResult = {
   >['citations'];
   snippets: Array<{
     id: string;
+    knowledgePageId: string;
+    origin: KnowledgeRetrievalOrigin;
+    authorizationMode: KnowledgeRetrievalAuthorizationMode;
     title: string;
     text: string;
     retrievalReasons: string[];
@@ -123,13 +144,12 @@ export type AiKnowledgeChatResult = {
   warnings: ReturnType<
     KnowledgeContextPackService['buildContextPack']
   >['warnings'];
-  retrievalReasons: ReturnType<
-    KnowledgeContextPackService['buildContextPack']
-  >['retrievalReasons'];
   budget: ReturnType<KnowledgeContextPackService['buildContextPack']>['budget'];
   completenessNotice: ReturnType<
     KnowledgeContextPackService['buildContextPack']
   >['completenessNotice'];
+  retrieval?: KnowledgeRetrievalObservation;
+  context?: KnowledgeContextObservation;
   retrievalDiagnostics?: KnowledgeRetrievalDiagnostics & {
     mode: ReturnType<KnowledgeRetrievalService['retrieve']> extends Promise<
       infer Result
@@ -145,6 +165,34 @@ export type AiKnowledgeChatResult = {
   // attachments independently of the answer branch (§7.1). Never serialized to
   // the API response; the controller strips it before assembling the payload.
   attachmentHitContext?: { directHitChunkIds: string[] };
+  queryObservation: KnowledgeQueryObservation;
+};
+
+type AiKnowledgeRetrievedEvidence = {
+  pack: ReturnType<KnowledgeContextPackService['buildContextPack']>;
+  retrievedSources: AiKnowledgeChatResult['retrievedSources'];
+};
+
+export type KnowledgeQueryDecisionReason =
+  | 'explicit_general'
+  | 'raw_results_only'
+  | 'no_knowledge_evidence'
+  | 'model_general'
+  | 'model_no_match'
+  | 'knowledge'
+  | 'generation_empty';
+
+export type KnowledgeQueryObservation = {
+  decisionReason: KnowledgeQueryDecisionReason;
+  generalAnswerReason?: string;
+  finalChunkIds: string[];
+  finalSourcePageIds: string[];
+  rankReasonsByChunk: Record<string, string[]>;
+  contextItems: KnowledgeContextPackingItem[];
+  packContextLength: number;
+  packMaxContextLength: number;
+  answerContextLength: number | null;
+  answerContextHash: string | null;
 };
 
 /** Result returned to external agents that perform their own answer judgment. */
@@ -159,6 +207,9 @@ export type AiKnowledgeRetrievalResult = {
   >['citations'];
   snippets: Array<{
     id: string;
+    knowledgePageId: string;
+    origin: KnowledgeRetrievalOrigin;
+    authorizationMode: KnowledgeRetrievalAuthorizationMode;
     title: string;
     text: string;
     retrievalReasons: string[];
@@ -167,9 +218,6 @@ export type AiKnowledgeRetrievalResult = {
   warnings: ReturnType<
     KnowledgeContextPackService['buildContextPack']
   >['warnings'];
-  retrievalReasons: ReturnType<
-    KnowledgeContextPackService['buildContextPack']
-  >['retrievalReasons'];
   budget: ReturnType<KnowledgeContextPackService['buildContextPack']>['budget'];
   completenessNotice: ReturnType<
     KnowledgeContextPackService['buildContextPack']
@@ -255,13 +303,15 @@ export class AiKnowledgeChatService {
       retrievedSources: citations,
       snippets: pack.primary.map((entry) => ({
         id: entry.id,
+        knowledgePageId: entry.knowledgePageId,
+        origin: entry.origin,
+        authorizationMode: entry.authorizationMode,
         title: entry.title,
         text: entry.text,
         retrievalReasons: entry.retrievalReasons,
         sourceWindows: entry.sourceWindows,
       })),
       warnings: pack.warnings,
-      retrievalReasons: pack.retrievalReasons,
       budget: pack.budget,
       completenessNotice: pack.completenessNotice,
       retrievalDiagnostics: {
@@ -281,14 +331,23 @@ export class AiKnowledgeChatService {
     if (input.responseMode === 'general') {
       // No retrieval runs on this path, so there is no hit set; keep the field
       // present and empty for a uniform internal contract (§7.1).
-      const generalAnswer = await this.answerFromGeneralKnowledge(
-        input,
-        thinking,
-        'preparing',
-      );
+      const { result: generalAnswer, generalAnswerReason } =
+        await this.answerFromGeneralKnowledge(input, thinking, 'preparing');
       return {
         ...generalAnswer,
         attachmentHitContext: { directHitChunkIds: [] },
+        retrieval: {
+          attempted: false,
+          candidates: [],
+          dropped: [],
+          topK: 0,
+          threshold: 0.45,
+        },
+        context: emptyContextObservation(),
+        queryObservation: emptyQueryObservation(
+          'explicit_general',
+          generalAnswerReason,
+        ),
       };
     }
 
@@ -426,6 +485,31 @@ export class AiKnowledgeChatService {
       ...retrieval.diagnostics,
     };
     const retrievalScope = retrieval.scope;
+    const retrievalObservation = retrieval.retrievalObservation ?? {
+      attempted: true,
+      candidates: [],
+      dropped: [],
+      topK: 20,
+      threshold: input.scoreThreshold ?? 0.45,
+    };
+    const baseObservation: KnowledgeQueryObservation = {
+      decisionReason: 'knowledge',
+      finalChunkIds: retrieval.chunks.map(retrievalChunkId),
+      finalSourcePageIds: unique(
+        retrieval.chunks.flatMap((candidate) => candidate.sourcePageIds ?? []),
+      ),
+      rankReasonsByChunk: Object.fromEntries(
+        retrieval.chunks.map((candidate) => [
+          retrievalChunkId(candidate),
+          candidate.rankReasons ?? [],
+        ]),
+      ),
+      contextItems: pack.packing?.items ?? [],
+      packContextLength: pack.context.length,
+      packMaxContextLength: pack.budget.maxContextLength,
+      answerContextLength: null,
+      answerContextHash: null,
+    };
     // Carried on every normal return path below (§1.2: retrieval hits are
     // resolved by the hit set regardless of the answer branch).
     const attachmentHitContext = {
@@ -463,18 +547,28 @@ export class AiKnowledgeChatService {
         retrievedSources: allCitations,
         snippets: pack.primary.map((entry) => ({
           id: entry.id,
+          knowledgePageId: entry.knowledgePageId,
+          origin: entry.origin,
+          authorizationMode: entry.authorizationMode,
           title: entry.title,
           text: entry.text,
           retrievalReasons: entry.retrievalReasons,
           sourceWindows: entry.sourceWindows,
         })),
         warnings: pack.warnings,
-        retrievalReasons: pack.retrievalReasons,
         budget: pack.budget,
         completenessNotice: pack.completenessNotice,
+        retrieval: retrievalObservation,
+        context: buildContextObservation({
+          pack,
+          text: pack.context,
+          explicitContext: '',
+          retrievalObservation,
+        }),
         retrievalDiagnostics,
         ...(retrievalScope ? { retrievalScope } : {}),
         attachmentHitContext,
+        queryObservation: withDecision(baseObservation, 'raw_results_only'),
       };
     }
 
@@ -491,23 +585,36 @@ export class AiKnowledgeChatService {
             ? { retrievalQuery: contextualRetrievalQuery }
             : {}),
           retrievalDiagnostics,
+          retrieval: retrievalObservation,
+          context: emptyContextObservation(),
           ...(retrievalScope ? { retrievalScope } : {}),
           attachmentHitContext,
+          queryObservation: withDecision(
+            baseObservation,
+            'no_knowledge_evidence',
+          ),
         };
       }
-      const generalAnswer = await this.answerFromGeneralKnowledge(
-        input,
-        thinking,
-        'fallback',
-      );
+      const { result: generalAnswer, generalAnswerReason } =
+        await this.answerFromGeneralKnowledge(input, thinking, 'fallback', {
+          pack,
+          retrievedSources: allCitations,
+        });
       return {
         ...generalAnswer,
         ...(contextualRetrievalQuery
           ? { retrievalQuery: contextualRetrievalQuery }
           : {}),
         retrievalDiagnostics,
+        retrieval: retrievalObservation,
+        context: emptyContextObservation(),
         ...(retrievalScope ? { retrievalScope } : {}),
         attachmentHitContext,
+        queryObservation: withDecision(
+          baseObservation,
+          'no_knowledge_evidence',
+          generalAnswerReason,
+        ),
       };
     }
 
@@ -517,6 +624,11 @@ export class AiKnowledgeChatService {
         .filter(Boolean)
         .join('\n\n'),
       chatContext: input.chatContext,
+    };
+    const answerObservation: KnowledgeQueryObservation = {
+      ...baseObservation,
+      answerContextLength: answerInput.context.length,
+      answerContextHash: hashContext(answerInput.context),
     };
     let rawAnswer = '';
     let generatedAnswer: ParsedGeneratedAnswer = {
@@ -578,26 +690,77 @@ export class AiKnowledgeChatService {
             ? { retrievalQuery: contextualRetrievalQuery }
             : {}),
           retrievalDiagnostics,
+          retrieval: retrievalObservation,
+          context: emptyContextObservation(),
           ...(retrievalScope ? { retrievalScope } : {}),
           attachmentHitContext,
+          queryObservation: withDecision(
+            answerObservation,
+            generatedAnswer.mode === 'general'
+              ? 'model_general'
+              : 'model_no_match',
+            generatedAnswer.generalAnswerReason,
+          ),
         };
       }
-      const generalAnswer = await this.answerFromGeneralKnowledge(
-        {
-          ...input,
-          onStage: undefined,
-        },
-        thinking,
-        'fallback',
-      );
+      if (
+        generatedAnswer.mode === 'general' &&
+        generatedAnswer.generalAnswerReason &&
+        generatedAnswer.content.trim()
+      ) {
+        const cleanGeneralAnswer =
+          stripCitationMarkers(generatedAnswer.content) ||
+          buildGenerationUnavailableAnswer(input.query);
+        const disclaimer = buildGeneralKnowledgeDisclaimer(input.query);
+        input.onToken?.(disclaimer);
+        input.onToken?.(cleanGeneralAnswer);
+        return {
+          ...this.buildGeneralKnowledgeResult(input.query, cleanGeneralAnswer, {
+            pack,
+            retrievedSources: allCitations,
+          }),
+          ...(contextualRetrievalQuery
+            ? { retrievalQuery: contextualRetrievalQuery }
+            : {}),
+          retrievalDiagnostics,
+          retrieval: retrievalObservation,
+          context: emptyContextObservation(),
+          ...(retrievalScope ? { retrievalScope } : {}),
+          attachmentHitContext,
+          queryObservation: withDecision(
+            answerObservation,
+            'model_general',
+            generatedAnswer.generalAnswerReason,
+          ),
+        };
+      }
+      const { result: generalAnswer, generalAnswerReason } =
+        await this.answerFromGeneralKnowledge(
+          {
+            ...input,
+            onStage: undefined,
+          },
+          thinking,
+          'fallback',
+          { pack, retrievedSources: allCitations },
+        );
       return {
         ...generalAnswer,
         ...(contextualRetrievalQuery
           ? { retrievalQuery: contextualRetrievalQuery }
           : {}),
         retrievalDiagnostics,
+        retrieval: retrievalObservation,
+        context: emptyContextObservation(),
         ...(retrievalScope ? { retrievalScope } : {}),
         attachmentHitContext,
+        queryObservation: withDecision(
+          answerObservation,
+          generatedAnswer.mode === 'general'
+            ? 'model_general'
+            : 'model_no_match',
+          generatedAnswer.generalAnswerReason ?? generalAnswerReason,
+        ),
       };
     }
     let cleanAnswer = stripCitationMarkers(generatedAnswer.content);
@@ -629,18 +792,32 @@ export class AiKnowledgeChatService {
       retrievedSources: allCitations,
       snippets: pack.primary.map((entry) => ({
         id: entry.id,
+        knowledgePageId: entry.knowledgePageId,
+        origin: entry.origin,
+        authorizationMode: entry.authorizationMode,
         title: entry.title,
         text: entry.text,
         retrievalReasons: entry.retrievalReasons,
         sourceWindows: entry.sourceWindows,
       })),
       warnings: pack.warnings,
-      retrievalReasons: pack.retrievalReasons,
       budget: pack.budget,
       completenessNotice: pack.completenessNotice,
+      retrieval: retrievalObservation,
+      context: buildContextObservation({
+        pack,
+        text: answerInput.context,
+        explicitContext: explicit.context,
+        retrievalObservation,
+        chatContext: input.chatContext,
+      }),
       retrievalDiagnostics,
       ...(retrievalScope ? { retrievalScope } : {}),
       attachmentHitContext,
+      queryObservation: withDecision(
+        answerObservation,
+        generatedAnswer.content.trim() ? 'knowledge' : 'generation_empty',
+      ),
     };
   }
 
@@ -691,14 +868,19 @@ export class AiKnowledgeChatService {
             input.onStage,
           ),
           attachmentHitContext,
+          queryObservation: emptyQueryObservation('no_knowledge_evidence'),
         };
       }
-      const generalAnswer = await this.answerFromGeneralKnowledge(
-        input,
-        thinking,
-        'fallback',
-      );
-      return { ...generalAnswer, attachmentHitContext };
+      const { result: generalAnswer, generalAnswerReason } =
+        await this.answerFromGeneralKnowledge(input, thinking, 'fallback');
+      return {
+        ...generalAnswer,
+        attachmentHitContext,
+        queryObservation: emptyQueryObservation(
+          'no_knowledge_evidence',
+          generalAnswerReason,
+        ),
+      };
     }
 
     const answerInput = {
@@ -756,6 +938,8 @@ export class AiKnowledgeChatService {
       generatedAnswer.mode === 'general'
     ) {
       thinking.complete('preparing', undefined, 'insufficient');
+      const modelDecision =
+        generatedAnswer.mode === 'general' ? 'model_general' : 'model_no_match';
       if (input.generalKnowledgeEnabled === false) {
         return {
           ...this.buildNoMatchResult(
@@ -765,14 +949,23 @@ export class AiKnowledgeChatService {
             input.onStage,
           ),
           attachmentHitContext,
+          queryObservation: emptyQueryObservation(modelDecision),
         };
       }
-      const generalAnswer = await this.answerFromGeneralKnowledge(
-        { ...input, onStage: undefined },
-        thinking,
-        'fallback',
-      );
-      return { ...generalAnswer, attachmentHitContext };
+      const { result: generalAnswer, generalAnswerReason } =
+        await this.answerFromGeneralKnowledge(
+          { ...input, onStage: undefined },
+          thinking,
+          'fallback',
+        );
+      return {
+        ...generalAnswer,
+        attachmentHitContext,
+        queryObservation: emptyQueryObservation(
+          modelDecision,
+          generalAnswerReason,
+        ),
+      };
     }
 
     let cleanAnswer = stripCitationMarkers(generatedAnswer.content);
@@ -801,10 +994,13 @@ export class AiKnowledgeChatService {
       retrievedSources: explicit.citations,
       snippets: [],
       warnings: pack.warnings,
-      retrievalReasons: [],
       budget: pack.budget,
       completenessNotice: pack.completenessNotice,
       attachmentHitContext,
+      queryObservation: withDecision(
+        emptyQueryObservation('knowledge'),
+        cleanAnswer.trim() ? 'knowledge' : 'generation_empty',
+      ),
     };
   }
 
@@ -819,7 +1015,11 @@ export class AiKnowledgeChatService {
       AiChatThinkingStep,
       'preparing' | 'fallback'
     > = 'preparing',
-  ): Promise<AiKnowledgeChatResult> {
+    retrievedEvidence?: AiKnowledgeRetrievedEvidence,
+  ): Promise<{
+    result: Omit<AiKnowledgeChatResult, 'queryObservation'>;
+    generalAnswerReason?: string;
+  }> {
     const answerInput: KnowledgeAnswerProviderInput = {
       query: input.query,
       context: '',
@@ -833,7 +1033,6 @@ export class AiKnowledgeChatService {
     thinking.start(thinkingStep);
     input.onToken?.(disclaimer);
     if (this.answerProvider.stream) {
-      const sanitizer = new CitationStreamSanitizer(input.onToken);
       const generationStartedAt = performance.now();
       let providerFirstTokenLogged = false;
       await measureAiChatPhase(
@@ -850,12 +1049,10 @@ export class AiKnowledgeChatService {
               );
             }
             generatedAnswer += token;
-            sanitizer.push(token);
           }
         },
         { attempt: 'general', streamed: true },
       );
-      sanitizer.finish();
     } else {
       generatedAnswer = await measureAiChatPhase(
         input.debugTiming,
@@ -863,35 +1060,54 @@ export class AiKnowledgeChatService {
         () => this.answerProvider.answer(answerInput),
         { attempt: 'general', streamed: false },
       );
-      input.onToken?.(stripCitationMarkers(generatedAnswer));
     }
 
+    const parsedGeneralAnswer = parseGeneralAnswerOutput(generatedAnswer);
     const cleanAnswer =
-      stripCitationMarkers(generatedAnswer) ||
+      stripCitationMarkers(parsedGeneralAnswer.content) ||
       buildGenerationUnavailableAnswer(input.query);
-    if (!generatedAnswer.trim()) {
-      input.onToken?.(cleanAnswer);
-    }
+    input.onToken?.(cleanAnswer);
 
     thinking.complete(thinkingStep, undefined, 'general');
 
-    return this.buildGeneralKnowledgeResult(input.query, cleanAnswer);
+    return {
+      result: this.buildGeneralKnowledgeResult(
+        input.query,
+        cleanAnswer,
+        retrievedEvidence,
+      ),
+      ...(parsedGeneralAnswer.reason
+        ? { generalAnswerReason: parsedGeneralAnswer.reason }
+        : {}),
+    };
   }
 
   private buildGeneralKnowledgeResult(
     query: string,
     cleanAnswer: string,
-  ): AiKnowledgeChatResult {
-    const pack = this.contextPack.buildContextPack({});
+    retrievedEvidence?: AiKnowledgeRetrievedEvidence,
+  ): Omit<AiKnowledgeChatResult, 'queryObservation'> {
+    const pack =
+      retrievedEvidence?.pack ?? this.contextPack.buildContextPack({});
     return {
       answer: `${buildGeneralKnowledgeDisclaimer(query)}${cleanAnswer}`,
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
-      snippets: [],
+      retrievedSources: retrievedEvidence?.retrievedSources ?? [],
+      snippets: retrievedEvidence
+        ? pack.primary.map((entry) => ({
+            id: entry.id,
+            knowledgePageId: entry.knowledgePageId,
+            origin: entry.origin,
+            authorizationMode: entry.authorizationMode,
+            title: entry.title,
+            text: entry.text,
+            retrievalReasons: entry.retrievalReasons,
+            sourceWindows: entry.sourceWindows,
+          }))
+        : [],
       warnings: pack.warnings,
-      retrievalReasons: [],
       budget: pack.budget,
       completenessNotice: pack.completenessNotice,
     };
@@ -902,7 +1118,7 @@ export class AiKnowledgeChatService {
     thinking: AiChatThinkingProgress,
     onToken?: (token: string) => void,
     onStage?: (stage: 'understanding' | 'retrieval' | 'generation') => void,
-  ): AiKnowledgeChatResult {
+  ): Omit<AiKnowledgeChatResult, 'queryObservation'> {
     const pack = this.contextPack.buildContextPack({});
     const answer = buildKnowledgeNoMatchAnswer(query);
     onStage?.('generation');
@@ -917,7 +1133,6 @@ export class AiKnowledgeChatService {
       retrievedSources: [],
       snippets: [],
       warnings: pack.warnings,
-      retrievalReasons: [],
       budget: pack.budget,
       completenessNotice: pack.completenessNotice,
     };
@@ -1160,6 +1375,7 @@ type ParsedGeneratedAnswer = {
   mode: GeneratedAnswerMode;
   content: string;
   hasExplicitModeMarker: boolean;
+  generalAnswerReason?: string;
 };
 
 const ANSWER_MODE_MARKERS: Array<{
@@ -1191,6 +1407,132 @@ function buildAnswerContext(pack: KnowledgeContextPack): string {
       ].join('\n');
     })
     .join('\n\n');
+}
+
+function emptyQueryObservation(
+  decisionReason: KnowledgeQueryDecisionReason,
+  generalAnswerReason?: string,
+): KnowledgeQueryObservation {
+  return {
+    decisionReason,
+    ...(generalAnswerReason ? { generalAnswerReason } : {}),
+    finalChunkIds: [],
+    finalSourcePageIds: [],
+    rankReasonsByChunk: {},
+    contextItems: [],
+    packContextLength: 0,
+    packMaxContextLength: 0,
+    answerContextLength: null,
+    answerContextHash: null,
+  };
+}
+
+function withDecision(
+  observation: KnowledgeQueryObservation,
+  decisionReason: KnowledgeQueryDecisionReason,
+  generalAnswerReason?: string,
+): KnowledgeQueryObservation {
+  return {
+    ...observation,
+    decisionReason,
+    ...(generalAnswerReason ? { generalAnswerReason } : {}),
+  };
+}
+
+function hashContext(context: string): string {
+  return `sha256:${createHash('sha256').update(context).digest('hex')}`;
+}
+
+function retrievalChunkId(
+  candidate: Awaited<
+    ReturnType<KnowledgeRetrievalService['retrieve']>
+  >['chunks'][number],
+): string {
+  return candidate.chunk?.id ?? (candidate as unknown as { id: string }).id;
+}
+
+function emptyContextObservation(): KnowledgeContextObservation {
+  return { text: '', items: [], usedTokens: 0, maxTokens: 0, dropped: [] };
+}
+
+function buildContextObservation(input: {
+  pack: ReturnType<KnowledgeContextPackService['buildContextPack']>;
+  text: string;
+  explicitContext: string;
+  retrievalObservation?: KnowledgeRetrievalObservation;
+  chatContext?: string[];
+}): KnowledgeContextObservation {
+  const items = input.pack.primary.flatMap((entry) =>
+    (entry.citationSourcePageIds.length
+      ? entry.citationSourcePageIds
+      : [entry.id]
+    ).map((pageId) => ({
+      itemId: entry.id,
+      pageId,
+      text: entry.text,
+      tokenCount: estimateTokenCount(entry.text),
+    })),
+  );
+  const dropped = (input.pack.packing?.items ?? []).flatMap((item) => {
+    if (item.disposition === 'included') return [];
+    const pageIds = item.sourcePageIds?.length
+      ? item.sourcePageIds
+      : [item.itemId];
+    const reason =
+      item.disposition === 'clipped'
+        ? 'clipped_by_context_budget'
+        : 'context_budget';
+    return pageIds.map((pageId) => ({
+      itemId: item.itemId,
+      pageId,
+      reason,
+    }));
+  });
+  const retrievalDropped = (input.retrievalObservation?.dropped ?? []).map(
+    (candidate) => ({
+      itemId: candidate.chunkId,
+      pageId: candidate.pageId,
+      reason: candidate.reason,
+    }),
+  );
+  const droppedById = new Map(
+    [...dropped, ...retrievalDropped].map((item) => [
+      `${item.itemId}:${item.pageId}:${item.reason}`,
+      item,
+    ]),
+  );
+  if (input.explicitContext.trim()) {
+    items.unshift({
+      itemId: 'explicit-context',
+      pageId: 'explicit-context',
+      text: input.explicitContext,
+      tokenCount: estimateTokenCount(input.explicitContext),
+    });
+  }
+  const nonKnowledgeContext = [
+    ...(input.chatContext ?? []),
+    input.explicitContext,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  const observedContext = [nonKnowledgeContext, input.text]
+    .filter(Boolean)
+    .join('\n\n');
+  const maxContextChars =
+    input.pack.budget.maxContextLength +
+    nonKnowledgeContext.length +
+    (nonKnowledgeContext ? 2 : 0);
+  return {
+    text: input.text,
+    items,
+    usedTokens: estimateTokenCount(observedContext),
+    maxTokens: Math.ceil(maxContextChars / 4),
+    dropped: [...droppedById.values()],
+  };
+}
+
+function estimateTokenCount(text: string): number {
+  return text ? Math.ceil(text.length / 4) : 0;
 }
 
 function formatCitationIds(sourcePageIds: string[]): string {
@@ -1229,10 +1571,34 @@ function parseGeneratedAnswer(answer: string): ParsedGeneratedAnswer {
       hasExplicitModeMarker: false,
     };
   }
+  const parsedContent = parseGeneralAnswerOutput(
+    content.slice(matchedMode.marker.length).trimStart(),
+  );
   return {
     mode: matchedMode.mode,
-    content: content.slice(matchedMode.marker.length).trimStart(),
+    content: parsedContent.content,
     hasExplicitModeMarker: true,
+    ...(matchedMode.mode === 'general' && parsedContent.reason
+      ? { generalAnswerReason: parsedContent.reason }
+      : {}),
+  };
+}
+
+const GENERAL_REASON_PATTERN = /<general_reason>([\s\S]*?)<\/general_reason>/i;
+
+function parseGeneralAnswerOutput(answer: string): {
+  content: string;
+  reason?: string;
+} {
+  const match = answer.match(GENERAL_REASON_PATTERN);
+  const reason = match?.[1]?.replace(/\s+/g, ' ').trim().slice(0, 2_000);
+  const content = answer
+    .replace(GENERAL_REASON_PATTERN, '')
+    .replace(/<\/?general_reason>/gi, '')
+    .trimStart();
+  return {
+    content,
+    ...(reason ? { reason } : {}),
   };
 }
 

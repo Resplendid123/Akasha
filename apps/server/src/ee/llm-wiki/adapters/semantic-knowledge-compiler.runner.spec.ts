@@ -803,6 +803,37 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     ]);
   });
 
+  it('retains unresolved Stage 1 relations as dangling semantic graph edges', async () => {
+    const provider = createProvider();
+    provider.analyze.mockResolvedValueOnce({
+      ...analysis,
+      relations: [
+        {
+          fromCanonicalKey: 'event-sourcing',
+          toCanonicalKey: 'future-concept',
+          relation: 'depends on',
+          evidenceQuote: 'append-only log',
+        },
+      ],
+    });
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      provider,
+      createCompilationRepo(),
+    );
+
+    const result = await runner.compileSpace(compileInput());
+    const concept = result.artifacts.find(
+      (artifact) => artifact.canonicalKey === 'event-sourcing',
+    );
+
+    expect(concept?.graphEdges).toEqual([
+      expect.objectContaining({
+        targetCanonicalKey: 'future-concept',
+        relation: 'depends on',
+      }),
+    ]);
+  });
+
   it('materializes generated Markdown headings as parented structural chunks', async () => {
     const provider = createProvider();
     provider.generate.mockResolvedValueOnce({

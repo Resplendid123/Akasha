@@ -35,6 +35,7 @@ import { AuthCredentials } from '../../common/decorators/auth-credentials.decora
 import { AuthCredentialPolicy } from '../../common/auth/auth-credential-policy';
 import { AgentAccess } from '../../common/decorators/agent-access.decorator';
 import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { buildKnowledgeQueryAuditMetadata } from './services/knowledge-query-audit-metadata';
 import { AgentAccessService } from '../../core/page/page-access/agent-access.service';
 
 /** HTTP boundary for iself agents, with the same knowledge-chat behavior as the regular API. */
@@ -107,6 +108,9 @@ export class IsElfLlmWikiController {
       retrievalDiagnostics,
       retrievalScope,
       attachmentHitContext,
+      queryObservation,
+      retrieval,
+      context,
       ...response
     } = result;
     const requestedSpaceIds = retrievalScope?.requestedSpaceIds ?? dto.spaceIds;
@@ -135,8 +139,8 @@ export class IsElfLlmWikiController {
       workspaceId: workspace.id,
       userId: user.id,
       queryHash,
-      retrievalMode: retrievalDiagnostics.mode,
-      authorizedCapsuleCount: retrievalDiagnostics.authorizedChunkCount,
+      retrievalMode: retrievalDiagnostics?.mode ?? 'general',
+      authorizedCapsuleCount: retrievalDiagnostics?.authorizedChunkCount ?? 0,
       metadata: {
         origin: 'iself_knowledge_query',
         spaceIds: dto.spaceIds,
@@ -145,19 +149,13 @@ export class IsElfLlmWikiController {
         effectiveSpaceIds,
         publicScopeValidated,
         publicApiKeyId: agentAccess.apiKeyId,
-        queryEmbeddingAvailable: retrievalDiagnostics.queryEmbeddingAvailable,
-        candidateSourceCount: retrievalDiagnostics.candidateSourceCount,
-        policyCandidateSourceCount:
-          retrievalDiagnostics.policyCandidateSourceCount,
-        fallbackCandidateSourceCount:
-          retrievalDiagnostics.fallbackCandidateSourceCount,
-        finalAuthorizedSourceCount:
-          retrievalDiagnostics.finalAuthorizedSourceCount,
-        accessPolicyFallbackUsed: retrievalDiagnostics.accessPolicyFallbackUsed,
-        candidateChunkCount: retrievalDiagnostics.candidateChunkCount,
-        rankedCandidateCount: retrievalDiagnostics.rankedCandidateCount,
-        authorizedChunkCount: retrievalDiagnostics.authorizedChunkCount,
-        filteredChunkCount: retrievalDiagnostics.filteredChunkCount,
+        ...buildKnowledgeQueryAuditMetadata({
+          answerMode: response.answerMode,
+          queryObservation,
+          retrievalDiagnostics,
+          retrieval,
+          context,
+        }),
       },
     });
 
