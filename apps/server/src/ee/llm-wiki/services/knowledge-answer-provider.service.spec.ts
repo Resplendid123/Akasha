@@ -87,7 +87,7 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
       'In [[answer:knowledge]] mode, give only the shortest span',
     );
     expect(contract).toContain(
-      'In [[answer:general]] mode, give the <general_reason>...</general_reason> tag and then exactly one sentence of answer.',
+      'In [[answer:general]] mode, give the <general_reason>...</general_reason> tag and then only the shortest span that answers the question',
     );
     expect(contract).toContain(
       'Whichever mode you pick, the parts listed for it are the entire reply.',
