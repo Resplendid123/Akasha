@@ -200,6 +200,7 @@ Akasha 面向私有化环境设计。组织可以自行控制应用数据、文�
 Akasha 建立在优秀的开源项目之上，在此致谢：
 
 - **[Docmost](https://github.com/docmost/docmost)** — 工作区与编辑器层所基于的协作 Wiki 基础。
+- **[OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf)** — 文档导入背后的 PDF 解析引擎。
 
 ## 贡献者
 

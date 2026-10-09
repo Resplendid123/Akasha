@@ -200,6 +200,7 @@ Akasha is designed to run in self-hosted environments. Organizations can control
 Akasha builds upon excellent open-source projects. We gratefully acknowledge:
 
 - **[Docmost](https://github.com/docmost/docmost)** — the collaborative Wiki foundation that the workspace and editor layers build on.
+- **[OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf)** — the PDF parsing engine behind document import.
 
 ## Contributors
 
