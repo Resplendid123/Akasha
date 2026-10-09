@@ -75,6 +75,7 @@ import { KnowledgeSpaceResetService } from './services/knowledge-space-reset.ser
 import { AiModelConfigService } from './services/ai-model-config.service';
 import { AiModelConfigTestService } from './services/ai-model-config-test.service';
 import { AiModelConfigFeature } from '../../database/repos/llm-wiki/ai-model-config.repo';
+import { buildKnowledgeQueryAuditMetadata } from './services/knowledge-query-audit-metadata';
 import {
   TestAiModelConfigDto,
   UpdateAiModelConfigDto,
@@ -189,17 +190,28 @@ export class LlmWikiController {
         ? {}
         : { generalKnowledgeEnabled: false }),
       collectTimings: true,
+      ...(dto.scoreThreshold !== undefined
+        ? { scoreThreshold: dto.scoreThreshold }
+        : {}),
+      ...(dto.rawResultsOnly === true ? { rawResultsOnly: true } : {}),
+      ...(dto.queryRewriteEnabled !== undefined
+        ? { queryRewriteEnabled: dto.queryRewriteEnabled }
+        : {}),
     });
     const queryHash = hashQuery(dto.query);
     // attachmentHitContext is an internal retrieval detail (§7.1): the regular
     // query API never resolves top-level attachments, so strip it here too so it
-    // can never leak through `...response` as a public field. `timings` is
-    // likewise internal: it goes to the query audit, not to the API response.
+    // can never leak through `...response` as a public field. `timings`,
+    // `queryObservation`, `retrieval`, and `context` are likewise internal:
+    // they go to the query audit, not to the API response.
     const {
       retrievalDiagnostics,
       retrievalScope,
       attachmentHitContext,
       timings,
+      queryObservation,
+      retrieval,
+      context,
       ...response
     } = result;
     void attachmentHitContext;
@@ -232,8 +244,8 @@ export class LlmWikiController {
       workspaceId: workspace.id,
       userId: user.id,
       queryHash,
-      retrievalMode: retrievalDiagnostics.mode,
-      authorizedCapsuleCount: retrievalDiagnostics.authorizedChunkCount,
+      retrievalMode: retrievalDiagnostics?.mode ?? 'general',
+      authorizedCapsuleCount: retrievalDiagnostics?.authorizedChunkCount ?? 0,
       metadata: {
         origin: 'knowledge_query',
         ...(queryType === KnowledgeQueryType.ROBOT ? { type: queryType } : {}),
@@ -245,19 +257,13 @@ export class LlmWikiController {
         publicScopeValidated,
         ...(personalApiKeyId ? { personalApiKeyId } : {}),
         ...(publicApiKeyId ? { publicApiKeyId } : {}),
-        queryEmbeddingAvailable: retrievalDiagnostics.queryEmbeddingAvailable,
-        candidateSourceCount: retrievalDiagnostics.candidateSourceCount,
-        policyCandidateSourceCount:
-          retrievalDiagnostics.policyCandidateSourceCount,
-        fallbackCandidateSourceCount:
-          retrievalDiagnostics.fallbackCandidateSourceCount,
-        finalAuthorizedSourceCount:
-          retrievalDiagnostics.finalAuthorizedSourceCount,
-        accessPolicyFallbackUsed: retrievalDiagnostics.accessPolicyFallbackUsed,
-        candidateChunkCount: retrievalDiagnostics.candidateChunkCount,
-        rankedCandidateCount: retrievalDiagnostics.rankedCandidateCount,
-        authorizedChunkCount: retrievalDiagnostics.authorizedChunkCount,
-        filteredChunkCount: retrievalDiagnostics.filteredChunkCount,
+        ...buildKnowledgeQueryAuditMetadata({
+          answerMode: response.answerMode,
+          queryObservation,
+          retrievalDiagnostics,
+          retrieval,
+          context,
+        }),
         ...(timings ? { timings } : {}),
       },
     });

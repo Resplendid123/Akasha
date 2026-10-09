@@ -129,6 +129,7 @@ describe('KnowledgeCitationResolverService', () => {
             sourcePageIds: ['source-date'],
             rankReasons: [],
             origin: 'direct' as const,
+            authorizationMode: 'policy' as const,
           },
           {
             chunk: chunk('chunk-kms', 'kp-kms'),
@@ -136,6 +137,7 @@ describe('KnowledgeCitationResolverService', () => {
             sourcePageIds: ['source-kms'],
             rankReasons: [],
             origin: 'direct' as const,
+            authorizationMode: 'policy' as const,
           },
         ],
       }),
@@ -143,6 +145,8 @@ describe('KnowledgeCitationResolverService', () => {
       {
         chunk: chunk('chunk-date', 'kp-chaterm'),
         pageTitle: 'Chaterm',
+        origin: 'direct',
+        authorizationMode: 'policy',
         retrievalReasons: [],
         sourceWindows: [],
         warnings: [],
@@ -157,6 +161,8 @@ describe('KnowledgeCitationResolverService', () => {
       {
         chunk: chunk('chunk-kms', 'kp-kms'),
         pageTitle: 'KMS_Blog',
+        origin: 'direct',
+        authorizationMode: 'policy',
         retrievalReasons: [],
         sourceWindows: [],
         warnings: [],
@@ -176,6 +182,74 @@ describe('KnowledgeCitationResolverService', () => {
       ['source-date', 'source-kms'],
       { workspaceId: 'workspace-1', includeTextContent: true },
     );
+  });
+
+  it('preserves input chunk order, including graph-origin chunks interleaved with direct hits', async () => {
+    const capsuleRepo = {
+      findDependencySourcePageIds: jest.fn(),
+      findChunkSourceRefsByChunkIds: jest.fn().mockResolvedValue([]),
+    };
+    const pageRepo = {
+      findManyByIds: jest
+        .fn()
+        .mockResolvedValue([
+          page('source-c', 'C_Page', 'c-page'),
+          page('source-a', 'A_Page', 'a-page'),
+          page('source-b', 'B_Page', 'b-page'),
+        ]),
+    };
+    const service = new KnowledgeCitationResolverService(
+      capsuleRepo as unknown as KnowledgeCapsuleRepo,
+      { filterReadableSources: jest.fn() } as unknown as KnowledgeSourceAuthorizationService,
+      pageRepo as unknown as PageRepo,
+    );
+
+    const resolved = await service.resolveForChunks({
+      workspaceId: 'workspace-1',
+      chunks: [
+        {
+          chunk: chunk('chunk-a', 'kp-a'),
+          page: capsule('kp-a', 'A_Page'),
+          sourcePageIds: ['source-a'],
+          rankReasons: ['semantic'],
+          origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
+        },
+        {
+          chunk: chunk('chunk-b', 'kp-b'),
+          page: capsule('kp-b', 'B_Page'),
+          sourcePageIds: ['source-b'],
+          rankReasons: ['semantic'],
+          origin: 'graph' as const,
+          authorizationMode: 'policy' as const,
+        },
+        {
+          chunk: chunk('chunk-c', 'kp-c'),
+          page: capsule('kp-c', 'C_Page'),
+          sourcePageIds: ['source-c'],
+          rankReasons: ['lexical'],
+          origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
+        },
+      ],
+    });
+
+    expect(resolved.map((entry) => entry.chunk.id)).toEqual([
+      'chunk-a',
+      'chunk-b',
+      'chunk-c',
+    ]);
+    expect(
+      resolved.flatMap((entry) =>
+        entry.citations.map((citation) => citation.sourcePageId),
+      ),
+    ).toEqual(['source-a', 'source-b', 'source-c']);
+    expect(resolved[1].retrievalReasons).toEqual(['semantic']);
+    expect(resolved.map((entry) => entry.origin)).toEqual([
+      'direct',
+      'graph',
+      'direct',
+    ]);
   });
 
   it('returns source windows only when source range and quote hash validate against readable page text', async () => {
@@ -245,8 +319,9 @@ describe('KnowledgeCitationResolverService', () => {
             chunk: chunk('chunk-1', 'kp-1'),
             page: capsule('kp-1', 'Readable summary'),
             sourcePageIds: ['source-readable', 'source-readable-invalid'],
-            rankReasons: ['lexical', 'sidecar-prefiltered'],
+            rankReasons: ['lexical'],
             origin: 'direct' as const,
+            authorizationMode: 'policy' as const,
           },
         ],
       }),
@@ -254,7 +329,9 @@ describe('KnowledgeCitationResolverService', () => {
       {
         chunk: chunk('chunk-1', 'kp-1'),
         pageTitle: 'Readable summary',
-        retrievalReasons: ['lexical', 'sidecar-prefiltered'],
+        origin: 'direct',
+        authorizationMode: 'policy',
+        retrievalReasons: ['lexical'],
         warnings: [],
         citations: [
           {
@@ -344,6 +421,7 @@ describe('KnowledgeCitationResolverService', () => {
           sourcePageIds: ['source-image'],
           rankReasons: ['semantic'],
           origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
         },
       ],
     });
@@ -433,8 +511,9 @@ describe('KnowledgeCitationResolverService', () => {
           chunk: chunk('chunk-dms', 'kp-dms'),
           page: capsule('kp-dms', 'DMS 定制查询SQL返回接口'),
           sourcePageIds: ['source-dms'],
-          rankReasons: ['semantic', 'sidecar-prefiltered'],
+          rankReasons: ['semantic'],
           origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
         },
       ],
     } as never);
@@ -556,6 +635,7 @@ describe('KnowledgeCitationResolverService', () => {
           sourcePageIds: ['source-table'],
           rankReasons: ['semantic'],
           origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
         },
         ...relevantRows.map((_, index) => ({
           chunk: {
@@ -564,8 +644,9 @@ describe('KnowledgeCitationResolverService', () => {
           },
           page: capsule('kp-table', 'Service inventory'),
           sourcePageIds: ['source-table'],
-          rankReasons: ['lexical' as const, 'sidecar-prefiltered' as const],
+          rankReasons: ['lexical' as const],
           origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
         })),
         {
           chunk: {
@@ -576,6 +657,7 @@ describe('KnowledgeCitationResolverService', () => {
           sourcePageIds: ['source-table'],
           rankReasons: ['semantic'],
           origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
         },
       ],
     });
@@ -637,8 +719,9 @@ describe('KnowledgeCitationResolverService', () => {
           chunk: chunk('chunk-generic', 'kp-generic'),
           page: capsule('kp-generic', '查询条件'),
           sourcePageIds: ['source-generic'],
-          rankReasons: ['semantic', 'sidecar-prefiltered'],
+          rankReasons: ['semantic'],
           origin: 'direct' as const,
+          authorizationMode: 'policy' as const,
         },
       ],
     });

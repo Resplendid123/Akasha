@@ -67,7 +67,6 @@ vi.mock("../services/knowledge-service", () => ({
       },
     ],
     warnings: [],
-    retrievalReasons: ["lexical"],
     completenessNotice: undefined,
   }),
 }));

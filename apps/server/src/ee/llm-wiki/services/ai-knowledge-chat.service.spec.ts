@@ -9,6 +9,7 @@ import {
   KnowledgeAnswerProvider,
 } from './ai-knowledge-chat.service';
 import { KnowledgeAuthorizationCache } from './knowledge-source-authorization.cache';
+import { createHash } from 'crypto';
 
 describe('AiKnowledgeChatService', () => {
   it('does not associate sources when a knowledge answer omits citation markers', async () => {
@@ -20,7 +21,7 @@ describe('AiKnowledgeChatService', () => {
             chunk: chunk('chunk-1', 'kp-1', '登记批准日期：2026年06月05日'),
             page: capsule('kp-1', 'Chaterm'),
             sourcePageIds: ['page-1'],
-            rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+            rankReasons: ['exact-title', 'lexical'],
             origin: 'direct',
           },
         ],
@@ -54,7 +55,7 @@ describe('AiKnowledgeChatService', () => {
             title: 'Chaterm',
             text: '登记批准日期：2026年06月05日',
             citationSourcePageIds: ['page-1'],
-            retrievalReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+            retrievalReasons: ['exact-title', 'lexical'],
             sourceWindows: [
               {
                 sourcePageId: 'page-1',
@@ -68,7 +69,6 @@ describe('AiKnowledgeChatService', () => {
           },
         ],
         warnings: ['Some retrieved knowledge may be stale.'],
-        retrievalReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
         budget: {
           maxContextLength: 12000,
           usedContextLength: 28,
@@ -94,7 +94,7 @@ describe('AiKnowledgeChatService', () => {
         {
           chunk: chunk('chunk-1', 'kp-1', '登记批准日期：2026年06月05日'),
           pageTitle: 'Chaterm',
-          retrievalReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+          retrievalReasons: ['exact-title', 'lexical'],
           sourceWindows: [
             {
               sourcePageId: 'page-1',
@@ -145,7 +145,7 @@ describe('AiKnowledgeChatService', () => {
           id: 'chunk-1',
           title: 'Chaterm',
           text: '登记批准日期：2026年06月05日',
-          retrievalReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+          retrievalReasons: ['exact-title', 'lexical'],
           sourceWindows: [
             {
               sourcePageId: 'page-1',
@@ -159,7 +159,6 @@ describe('AiKnowledgeChatService', () => {
         },
       ],
       warnings: ['Some retrieved knowledge may be stale.'],
-      retrievalReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
       budget: {
         maxContextLength: 12000,
         usedContextLength: 28,
@@ -170,6 +169,27 @@ describe('AiKnowledgeChatService', () => {
         perItemMaxLength: 12000,
       },
       completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
+      retrieval: {
+        attempted: true,
+        candidates: [],
+        dropped: [],
+        topK: 20,
+        threshold: 0.45,
+      },
+      context: {
+        text: '# Chaterm\nCitation IDs: [[cite:page-1]]\n登记批准日期：2026年06月05日\n## Verified source evidence 1: Kafka\nCitation ID: [[cite:page-1]]\n登记批准日期：2026年06月05日',
+        items: [
+          {
+            itemId: 'chunk-1',
+            pageId: 'page-1',
+            text: '登记批准日期：2026年06月05日',
+            tokenCount: 5,
+          },
+        ],
+        usedTokens: expect.any(Number),
+        maxTokens: 3004,
+        dropped: [],
+      },
       retrievalDiagnostics: {
         mode: 'high_completeness',
         queryEmbeddingAvailable: true,
@@ -191,6 +211,19 @@ describe('AiKnowledgeChatService', () => {
         retrievalMs: expect.any(Number),
         generationMs: expect.any(Number),
         totalMs: expect.any(Number),
+      },
+      queryObservation: {
+        decisionReason: 'knowledge',
+        finalChunkIds: ['chunk-1'],
+        finalSourcePageIds: ['page-1'],
+        rankReasonsByChunk: {
+          'chunk-1': ['exact-title', 'lexical'],
+        },
+        contextItems: [],
+        packContextLength: 28,
+        packMaxContextLength: 12000,
+        answerContextLength: expect.any(Number),
+        answerContextHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       },
     });
 
@@ -215,7 +248,7 @@ describe('AiKnowledgeChatService', () => {
         {
           chunk: chunk('chunk-1', 'kp-1', '登记批准日期：2026年06月05日'),
           pageTitle: 'Chaterm',
-          retrievalReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+          retrievalReasons: ['exact-title', 'lexical'],
           sourceWindows: [
             {
               sourcePageId: 'page-1',
@@ -241,7 +274,7 @@ describe('AiKnowledgeChatService', () => {
           chunk: chunk('chunk-1', 'kp-1', '登记批准日期：2026年06月05日'),
           page: capsule('kp-1', 'Chaterm'),
           sourcePageIds: ['page-1'],
-          rankReasons: ['exact-title', 'lexical', 'sidecar-prefiltered'],
+          rankReasons: ['exact-title', 'lexical'],
           origin: 'direct',
         },
       ],
@@ -379,6 +412,97 @@ describe('AiKnowledgeChatService', () => {
     );
   });
 
+  it('extracts a tagged general-answer reason without exposing it in the answer', async () => {
+    const answer = jest
+      .fn()
+      .mockResolvedValue(
+        '<general_reason>No verified workspace evidence was available.</general_reason>\nKafka is an event platform.',
+      );
+    const onToken = jest.fn();
+    const service = createService({ answerProvider: { answer } });
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'Kafka?',
+      spaceIds: ['space-1'],
+      onToken,
+    });
+
+    expect(result.answer).toContain('Kafka is an event platform.');
+    expect(result.answer).not.toContain('general_reason');
+    expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
+      result.answer,
+    );
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'no_knowledge_evidence',
+      generalAnswerReason: 'No verified workspace evidence was available.',
+    });
+  });
+
+  it('keeps the evidence-aware reason when the knowledge model selects general mode', async () => {
+    const answer = jest
+      .fn()
+      .mockResolvedValueOnce(
+        '[[answer:general]]<general_reason>The retrieved evidence is unrelated to the question.</general_reason>',
+      )
+      .mockResolvedValueOnce(
+        '<general_reason>Using public knowledge.</general_reason>Public answer.',
+      );
+    const service = createService(verifiedKnowledgeOverrides({ answer }));
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'What is the answer?',
+      spaceIds: ['space-1'],
+    });
+
+    expect(result.answer).toContain('Public answer.');
+    expect(result.answer).not.toContain('general_reason');
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'model_general',
+      generalAnswerReason:
+        'The retrieved evidence is unrelated to the question.',
+    });
+  });
+
+  it('reuses a complete general answer from the knowledge attempt without a second generation', async () => {
+    const answer = jest
+      .fn()
+      .mockResolvedValue(
+        [
+          '[[answer:general]]',
+          '<general_reason>The workspace evidence is missing the final date.</general_reason>',
+          'The public answer is 323 BC.',
+        ].join(''),
+      );
+    const onToken = jest.fn();
+    const service = createService(verifiedKnowledgeOverrides({ answer }));
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'When did the owner die?',
+      spaceIds: ['space-1'],
+      onToken,
+    });
+
+    expect(answer).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      answerMode: 'general',
+      answer:
+        '> This answer uses general model knowledge and does not cite the workspace knowledge base.\n\nThe public answer is 323 BC.',
+    });
+    expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
+      result.answer,
+    );
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'model_general',
+      generalAnswerReason: 'The workspace evidence is missing the final date.',
+    });
+  });
+
   it('returns a no-match guidance message when general knowledge fallback is disabled', async () => {
     const answer = jest.fn();
     const onToken = jest.fn();
@@ -440,7 +564,21 @@ describe('AiKnowledgeChatService', () => {
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
+      retrievedSources: [
+        {
+          sourcePageId: 'page-company-api',
+          title: 'CCC推荐公司',
+          url: '/p/company-api',
+        },
+      ],
+      snippets: [
+        {
+          id: 'chunk-company-api',
+          title: 'CCC推荐公司',
+          text: '公司推荐接口用于根据用户信息推荐公司。',
+          retrievalReasons: ['semantic'],
+        },
+      ],
     });
     expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
       result.answer,
@@ -467,6 +605,15 @@ describe('AiKnowledgeChatService', () => {
       // Stamping first-token latency is the provider's job now: it is the only
       // layer that sees reasoning deltas, which arrive before any answer text.
       onFirstToken: expect.any(Function),
+    });
+    const knowledgeContext = stream.mock.calls[0][0].context;
+    expect(result.queryObservation).toMatchObject({
+      decisionReason: 'model_general',
+      finalChunkIds: ['chunk-company-api'],
+      answerContextLength: knowledgeContext.length,
+      answerContextHash: `sha256:${createHash('sha256')
+        .update(knowledgeContext)
+        .digest('hex')}`,
     });
     expect(
       onThinking.mock.calls
@@ -562,7 +709,21 @@ describe('AiKnowledgeChatService', () => {
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
+      retrievedSources: [
+        {
+          sourcePageId: 'page-company-api',
+          title: 'CCC推荐公司',
+          url: '/p/company-api',
+        },
+      ],
+      snippets: [
+        {
+          id: 'chunk-company-api',
+          title: 'CCC推荐公司',
+          text: '公司推荐接口用于根据用户信息推荐公司。',
+          retrievalReasons: ['semantic'],
+        },
+      ],
     });
     expect(onToken.mock.calls.map(([text]) => text).join('')).toBe(
       result.answer,
@@ -933,7 +1094,6 @@ describe('AiKnowledgeChatService', () => {
             },
           ],
           warnings: [],
-          retrievalReasons: ['semantic'],
           budget: {
             maxContextLength: 12000,
             usedContextLength: 30,
@@ -1011,7 +1171,6 @@ describe('AiKnowledgeChatService', () => {
           },
         ],
         warnings: [],
-        retrievalReasons: ['lexical'],
         budget: {
           maxContextLength: 12000,
           usedContextLength: 28,
@@ -1181,7 +1340,6 @@ describe('AiKnowledgeChatService', () => {
             },
           ],
           warnings: [],
-          retrievalReasons: ['semantic'],
           budget: {
             maxContextLength: 12000,
             usedContextLength: 31,
@@ -1210,7 +1368,16 @@ describe('AiKnowledgeChatService', () => {
       answerMode: 'general',
       citations: [],
       citationEvidence: [],
-      retrievedSources: [],
+      retrievedSources: [citation],
+      snippets: [
+        {
+          id: 'chunk-1',
+          title: 'Summary',
+          text: 'A compressed statement.',
+          retrievalReasons: ['semantic'],
+          sourceWindows: [],
+        },
+      ],
     });
     expect(answer).toHaveBeenCalledWith({
       query: 'What is the exact fact?',
@@ -1260,7 +1427,6 @@ describe('AiKnowledgeChatService', () => {
             },
           ],
           warnings: [],
-          retrievalReasons: ['lexical'],
           budget: {
             maxContextLength: 12000,
             usedContextLength: 19,
@@ -1417,7 +1583,6 @@ function verifiedKnowledgeOverrides(
       },
     ],
     warnings: [],
-    retrievalReasons: ['semantic'],
     budget: {
       maxContextLength: 12000,
       usedContextLength: 30,
@@ -1434,7 +1599,6 @@ function verifiedKnowledgeOverrides(
     context: '',
     citations: [],
     primary: [],
-    retrievalReasons: [],
     budget: {
       ...knowledgePack.budget,
       usedContextLength: 0,
@@ -1507,7 +1671,6 @@ function createService(
         citations: [],
         primary: [],
         warnings: [],
-        retrievalReasons: [],
         budget: {
           maxContextLength: 12000,
           usedContextLength: 0,

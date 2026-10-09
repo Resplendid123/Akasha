@@ -115,11 +115,11 @@ describe('KnowledgeRetrievalRankerService', () => {
     ).toEqual([
       {
         id: 'chunk-title',
-        reasons: ['exact-title', 'sidecar-prefiltered'],
+        reasons: ['exact-title'],
       },
       {
         id: 'chunk-lexical',
-        reasons: ['lexical', 'sidecar-prefiltered'],
+        reasons: ['lexical'],
       },
     ]);
   });
@@ -218,9 +218,88 @@ describe('KnowledgeRetrievalRankerService', () => {
       'exact-title',
       'semantic',
       'lexical',
-      'sidecar-prefiltered',
     ]);
     expect(ranked[0].signals).toEqual(['semantic', 'lexical', 'exact-title']);
+  });
+
+  it('keeps rank reasons to matching methods; the graph path is carried by origin instead', () => {
+    const ranker = new KnowledgeRetrievalRankerService();
+
+    const ranked = ranker.fuseRecallLists({
+      recallLists: [
+        {
+          signal: 'semantic',
+          candidates: [
+            {
+              chunk: chunk('chunk-graph', 'kp-graph', null, 'deployment guide'),
+              page: page('kp-graph', 'deployment'),
+              sourcePageIds: ['source-graph'],
+              signals: ['semantic', 'graph'],
+              signalScore: 0.1,
+            },
+          ],
+        },
+      ],
+      limit: 2,
+    });
+
+    expect(ranked[0].rankReasons).toEqual(['semantic']);
+  });
+
+  it('applies weights per recall list so graph channels can be discounted independently', () => {
+    const ranker = new KnowledgeRetrievalRankerService();
+    const direct = {
+      chunk: chunk('chunk-direct', 'kp-direct', null, 'direct result'),
+      page: page('kp-direct'),
+      sourcePageIds: ['source-direct'],
+      signals: ['lexical' as const],
+      signalScore: 1,
+      lexicalScore: 1,
+    };
+    const graph = {
+      chunk: chunk('chunk-graph', 'kp-graph', null, 'graph result'),
+      page: page('kp-graph'),
+      sourcePageIds: ['source-graph'],
+      signals: ['lexical' as const, 'graph' as const],
+      signalScore: 1,
+      lexicalScore: 1,
+    };
+
+    const ranked = ranker.fuseRecallLists({
+      recallLists: [
+        { signal: 'lexical', candidates: [direct], weight: 0.8 },
+        { signal: 'lexical', candidates: [graph], weight: 0.15 },
+      ],
+      limit: 2,
+    });
+
+    expect(ranked.map((candidate) => candidate.chunk.id)).toEqual([
+      'chunk-direct',
+      'chunk-graph',
+    ]);
+  });
+
+  it('keeps a graph candidate subject to the same relevance gate as a direct hit', () => {
+    const ranker = new KnowledgeRetrievalRankerService();
+    const graphCandidate = {
+      chunk: chunk('chunk-graph', 'kp-graph', null, 'unrelated cafeteria menu'),
+      page: page('kp-graph', 'cafeteria'),
+      sourcePageIds: ['source-graph'],
+      signals: ['semantic' as const, 'graph' as const],
+      signalScore: 0.9,
+    };
+    const [ranked] = ranker.fuseRecallLists({
+      recallLists: [{ signal: 'semantic', candidates: [graphCandidate] }],
+      limit: 1,
+    });
+
+    expect(
+      ranker.isCandidateRelevant({
+        query: 'vacation policy',
+        candidate: ranked,
+        maxCosineDistance: 0.2,
+      }),
+    ).toBe(false);
   });
 
   it('rejects a weak semantic-only candidate with no textual query overlap', () => {
