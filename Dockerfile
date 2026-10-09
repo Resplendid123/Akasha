@@ -21,7 +21,7 @@ RUN pnpm build
 FROM base AS installer
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl bash tzdata \
+    && apt-get install -y --no-install-recommends curl bash tzdata openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Asia/Shanghai
