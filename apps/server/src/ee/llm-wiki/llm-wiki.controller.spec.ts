@@ -54,6 +54,7 @@ describe('LlmWikiController', () => {
       isEnabledForWorkspace: jest.fn().mockReturnValue(true),
       chat: jest.fn().mockResolvedValue({
         answer: 'Use Kafka for async events.',
+        answerMode: 'knowledge',
         citations: [
           { sourcePageId: 'page-1', title: 'Kafka', url: '/p/page-1' },
         ],
@@ -78,6 +79,19 @@ describe('LlmWikiController', () => {
         // Internal retrieval detail the shared chat service attaches on every
         // branch; the regular query API must strip it, never expose it (§7.1).
         attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
+        // Phase timings are audit-only: stripped from the response below, and
+        // recorded under metadata.timings.
+        timings: {
+          rewriteMs: 310.2,
+          retrievalMs: 412.3,
+          citationsMs: 88.7,
+          contextPackMs: 2.1,
+          generationMs: 3240.1,
+          generationFirstTokenMs: 1156.4,
+          ttftMs: 1870.5,
+          streamed: true,
+          totalMs: 3702.8,
+        },
       }),
     };
     const auditService = {
@@ -102,6 +116,7 @@ describe('LlmWikiController', () => {
       ),
     ).resolves.toEqual({
       answer: 'Use Kafka for async events.',
+      answerMode: 'knowledge',
       citations: [
         { sourcePageId: 'page-1', title: 'Kafka', url: '/p/page-1', images: [] },
       ],
@@ -114,6 +129,9 @@ describe('LlmWikiController', () => {
       query: 'How do we use Kafka?',
       spaceIds: ['space-1'],
       workspace: workspace(),
+      // Opt-in: without this the service does not return `timings`, so the
+      // audit row below would silently lose its phase breakdown.
+      collectTimings: true,
     });
     expect(auditService.log).toHaveBeenCalledWith({
       event: AuditEvent.KNOWLEDGE_QUERY,
@@ -139,6 +157,9 @@ describe('LlmWikiController', () => {
       authorizedCapsuleCount: 1,
       metadata: {
         origin: 'knowledge_query',
+        // Recorded so the knowledge/general split is queryable from the audit
+        // alone, matching what ai-chat and the MCP tool already store.
+        answerMode: 'knowledge',
         spaceIds: ['space-1'],
         requestedSpaceIds: ['space-1'],
         effectiveSpaceIds: ['space-1'],
@@ -153,6 +174,17 @@ describe('LlmWikiController', () => {
         rankedCandidateCount: 3,
         authorizedChunkCount: 1,
         filteredChunkCount: 2,
+        timings: {
+          rewriteMs: 310.2,
+          retrievalMs: 412.3,
+          citationsMs: 88.7,
+          contextPackMs: 2.1,
+          generationMs: 3240.1,
+          generationFirstTokenMs: 1156.4,
+          ttftMs: 1870.5,
+          streamed: true,
+          totalMs: 3702.8,
+        },
       },
     });
     expect(JSON.stringify(queryAuditRepo.recordQuery.mock.calls)).not.toContain(

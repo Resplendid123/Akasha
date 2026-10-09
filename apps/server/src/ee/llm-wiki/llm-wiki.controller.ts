@@ -188,13 +188,20 @@ export class LlmWikiController {
       ...(isGeneralKnowledgeEnabledForUser(user)
         ? {}
         : { generalKnowledgeEnabled: false }),
+      collectTimings: true,
     });
     const queryHash = hashQuery(dto.query);
     // attachmentHitContext is an internal retrieval detail (§7.1): the regular
     // query API never resolves top-level attachments, so strip it here too so it
-    // can never leak through `...response` as a public field.
-    const { retrievalDiagnostics, retrievalScope, attachmentHitContext, ...response } =
-      result;
+    // can never leak through `...response` as a public field. `timings` is
+    // likewise internal: it goes to the query audit, not to the API response.
+    const {
+      retrievalDiagnostics,
+      retrievalScope,
+      attachmentHitContext,
+      timings,
+      ...response
+    } = result;
     void attachmentHitContext;
     // The knowledge path always returns a scope. Keep audit recording
     // defensive for the legacy pure-general path and older service mocks.
@@ -230,6 +237,7 @@ export class LlmWikiController {
       metadata: {
         origin: 'knowledge_query',
         ...(queryType === KnowledgeQueryType.ROBOT ? { type: queryType } : {}),
+        answerMode: response.answerMode,
         spaceIds: dto.spaceIds,
         ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
@@ -250,6 +258,7 @@ export class LlmWikiController {
         rankedCandidateCount: retrievalDiagnostics.rankedCandidateCount,
         authorizedChunkCount: retrievalDiagnostics.authorizedChunkCount,
         filteredChunkCount: retrievalDiagnostics.filteredChunkCount,
+        ...(timings ? { timings } : {}),
       },
     });
 

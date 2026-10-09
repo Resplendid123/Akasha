@@ -3,6 +3,32 @@ import { InjectKysely } from 'nestjs-kysely';
 import { JsonValue } from '@akasha/db/types/db';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
 
+/**
+ * Wall-clock phase breakdown of the answered query, in milliseconds.
+ *
+ * Structurally mirrors `AiKnowledgeChatTimings` in the llm-wiki service layer.
+ * It is duplicated rather than imported so this db-layer repo does not depend
+ * on an ee service, matching how the retrieval diagnostics counts below are
+ * already carried structurally.
+ *
+ * Phases that did not run are omitted rather than stored as 0.
+ */
+export type KnowledgeQueryAuditTimings = {
+  rewriteMs?: number;
+  retrievalMs?: number;
+  citationsMs?: number;
+  contextPackMs?: number;
+  generationMs?: number;
+  /** Provider-internal time to first token, from the start of generation. */
+  generationFirstTokenMs?: number;
+  /** Time to first token from the start of the chat pipeline. */
+  ttftMs?: number;
+  /** Whether the answer provider streamed; absent when no generation ran. */
+  streamed?: boolean;
+  /** Whole chat pipeline, excluding controller-side post-processing. */
+  totalMs: number;
+};
+
 export type KnowledgeQueryAuditMetadata = {
   origin?:
     | 'knowledge_query'
@@ -15,6 +41,8 @@ export type KnowledgeQueryAuditMetadata = {
   answerMode?: 'knowledge' | 'no_match' | 'general';
   citationCount?: number;
   retrievedSourceCount?: number;
+  /** Phase timings. Absent for callers that do not report them. */
+  timings?: KnowledgeQueryAuditTimings;
   spaceIds: string[];
   requestedSpaceIds?: string[];
   effectiveSpaceIds?: string[];
