@@ -1,14 +1,16 @@
 import { Kysely, sql } from 'kysely';
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-  await db.schema
-    .alterTable('knowledge_graph_edges')
-    .addColumn('target_artifact_kind', 'varchar')
-    .addColumn('target_canonical_key', 'varchar')
-    .addColumn('is_dangling', 'boolean', (col) =>
-      col.notNull().defaultTo(false),
-    )
-    .execute();
+  // Each statement is written to be re-runnable: Kysely does not wrap a
+  // migration's DDL in one transaction, so an interrupted run can leave the
+  // columns in place while the `kysely_migration` row is never written. A
+  // plain `addColumn` would then fail with 42701 on every later attempt.
+  await sql`
+    ALTER TABLE knowledge_graph_edges
+      ADD COLUMN IF NOT EXISTS target_artifact_kind varchar,
+      ADD COLUMN IF NOT EXISTS target_canonical_key varchar,
+      ADD COLUMN IF NOT EXISTS is_dangling boolean NOT NULL DEFAULT false
+  `.execute(db);
 
   await sql`
     UPDATE knowledge_graph_edges AS edge
@@ -43,10 +45,10 @@ export async function down(db: Kysely<unknown>): Promise<void> {
     ALTER TABLE knowledge_graph_edges
     ALTER COLUMN to_knowledge_page_id SET NOT NULL
   `.execute(db);
-  await db.schema
-    .alterTable('knowledge_graph_edges')
-    .dropColumn('is_dangling')
-    .dropColumn('target_canonical_key')
-    .dropColumn('target_artifact_kind')
-    .execute();
+  await sql`
+    ALTER TABLE knowledge_graph_edges
+      DROP COLUMN IF EXISTS is_dangling,
+      DROP COLUMN IF EXISTS target_canonical_key,
+      DROP COLUMN IF EXISTS target_artifact_kind
+  `.execute(db);
 }
