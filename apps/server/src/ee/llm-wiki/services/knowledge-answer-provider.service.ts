@@ -223,10 +223,20 @@ function buildSystemPrompt(
     '',
     'ANSWER CONTRACT (takes precedence over every other instruction):',
     '1. Begin with exactly one mode marker: [[answer:knowledge]] or [[answer:general]].',
-    '2. Then answer in one sentence. If a word or a phrase answers the question, reply with exactly that and stop.',
+    // The bare span is the default and the sentence is the exception, not the
+    // other way round. Stated as "answer in one sentence" with a short-answer
+    // exception, the model wrote a grammatical sentence every time: it restated
+    // the question and embedded the answer in it, which costs exact match and
+    // tanks token-F1 precision.
+    '2. Then give only the shortest span that answers the question: a name, a number, a date, a phrase. Do not put it in a sentence.',
     '3. Append the citation markers for the sources you used at the end of the answer.',
     'Those three parts are the entire reply. Nothing else is allowed.',
-    'Never restate the question, never explain or justify the answer, never recap the evidence, never close with a summary, never add a sentence just to carry a citation marker.',
+    'Write a full sentence only when no span can answer the question, because it asks how or why, or asks you to compare.',
+    // "Never restate the question" alone was read as "do not quote the question
+    // verbatim". Naming the parts of speech is what actually stops the
+    // "<subject> was the <role> of <qualifiers from the question>" shape.
+    "Do not echo the question's subject, verb, or any of its wording in the answer. Give the new information only.",
+    'Never explain or justify the answer, never recap the evidence, never close with a summary, never add a sentence just to carry a citation marker.',
     'Plain prose only: no headings, lists, bold, italics, or blank lines.',
     'Do not hedge, add caveats, or remark that the evidence is partial, stale, or conflicting.',
     '',
