@@ -9,7 +9,7 @@ import { createLanguageModelFromConfig } from '../llm-wiki/services/ai-model-fac
 import type { ResolvedAiModelConfig } from '../llm-wiki/services/ai-model-config.service';
 import { EditorAiAction, EditorAiGenerateDto } from './dto/editor-ai.dto';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
-import { answerProviderOptions } from '../llm-wiki/services/knowledge-answer-provider.service';
+import { reasoningProviderOptions } from '../llm-wiki/services/knowledge-answer-provider.service';
 
 const SYSTEM_PROMPT = [
   'You are an inline writing assistant inside a document editor.',
@@ -44,7 +44,7 @@ export class EditorAiService {
       model,
       system: SYSTEM_PROMPT,
       prompt: buildEditorPrompt(input),
-      providerOptions: answerProviderOptions(config),
+      providerOptions: reasoningProviderOptions(config),
       maxOutputTokens: EDITOR_AI_MAX_OUTPUT_TOKENS,
       abortSignal: AbortSignal.timeout(EDITOR_AI_TIMEOUT_MS),
     });
@@ -73,7 +73,7 @@ export class EditorAiService {
       model,
       system: SYSTEM_PROMPT,
       prompt: buildEditorPrompt(input),
-      providerOptions: answerProviderOptions(config),
+      providerOptions: reasoningProviderOptions(config),
       maxOutputTokens: EDITOR_AI_MAX_OUTPUT_TOKENS,
       abortSignal,
     });

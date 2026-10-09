@@ -26,6 +26,27 @@ export interface KnowledgeAnswerProvider {
   rewriteQuery?(input: KnowledgeQueryRewriteInput): Promise<string>;
 }
 
+// Greedy decoding: the same question against the same context and the same
+// model must produce the same answer. See ANSWER_SEED for the caveat.
+const ANSWER_TEMPERATURE = 0;
+
+// temperature 0 alone does not pin the sampler on every backend, so a fixed
+// seed goes out with each request. Note this still is not a bitwise guarantee:
+// vLLM/SGLang batch requests together and the reduction order inside a batched
+// kernel varies with whatever else is in flight, so output can still drift
+// under concurrency. It removes sampling as a source of variance, not the
+// serving stack.
+const ANSWER_SEED = 7;
+
+// Qwen3-style thinking. Keeping this on while temperature is 0 contradicts
+// Qwen's own sampling guidance (they recommend ~0.6 with thinking enabled and
+// warn that greedy decoding can send the model into endless repetition).
+// Determinism was the explicit requirement here, so temperature wins; if
+// answers start looping, this is the first thing to turn off.
+const ANSWER_ENABLE_THINKING = true;
+
+const ANSWER_REASONING_EFFORT = 'medium';
+
 @Injectable()
 export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvider {
   constructor(
@@ -48,7 +69,10 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         model,
         system: buildQueryRewriteSystemPrompt(),
         prompt: buildQueryRewritePrompt(input),
-        ...(isOpenAiReasoningModel(config) ? {} : { temperature: 0 }),
+        ...(isOpenAiReasoningModel(config)
+          ? {}
+          : { temperature: ANSWER_TEMPERATURE }),
+        seed: ANSWER_SEED,
         providerOptions: answerProviderOptions(config),
         maxOutputTokens: 256,
         abortSignal: AbortSignal.timeout(30_000),
@@ -74,6 +98,12 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         input,
         this.environmentService.getAiChatMaxInputChars() - system.length,
       ),
+      // OpenAI reasoning models reject an explicit temperature; everything else
+      // gets pinned for reproducibility.
+      ...(isOpenAiReasoningModel(config)
+        ? {}
+        : { temperature: ANSWER_TEMPERATURE }),
+      seed: ANSWER_SEED,
       providerOptions: answerProviderOptions(config),
     });
 
@@ -93,6 +123,10 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         input,
         this.environmentService.getAiChatMaxInputChars() - system.length,
       ),
+      ...(isOpenAiReasoningModel(config)
+        ? {}
+        : { temperature: ANSWER_TEMPERATURE }),
+      seed: ANSWER_SEED,
       providerOptions: answerProviderOptions(config),
     });
     for await (const token of result.textStream) {
@@ -106,13 +140,60 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
   }> {
     const config = await this.configService.getResolvedConfig('answer');
     return {
-      model: createLanguageModelFromConfig(config, 'openai-compatible'),
+      model: createLanguageModelFromConfig(config, ANSWER_PROVIDER_NAME),
       config,
     };
   }
 }
 
+// Provider name handed to createOpenAICompatible for the answer path. The SDK
+// derives providerOptionsName from it, and any key under that name which is not
+// part of the SDK's own option schema is spread verbatim into the request body.
+// That is the only way to send chat_template_kwargs. Deliberately not
+// 'openai-compatible': the SDK treats that exact key as a deprecated alias and
+// logs a warning for it.
+export const ANSWER_PROVIDER_NAME = 'akashaAnswer';
+
+/**
+ * Thinking configuration for the answer path.
+ *
+ * Two mutually exclusive dialects:
+ *  - OpenAI reasoning models take a top-level `reasoning_effort`, which the SDK
+ *    emits from its typed `reasoningEffort` option.
+ *  - Qwen3-style models served by vLLM/SGLang take the flags inside
+ *    `chat_template_kwargs`, which the chat template reads to decide whether to
+ *    open a thinking block. The SDK has no typed option for it, so it rides the
+ *    passthrough path and requires providerOptionsName as the key.
+ */
 export function answerProviderOptions(
+  config: ResolvedAiModelConfig,
+  providerOptionsName: string = ANSWER_PROVIDER_NAME,
+): ProviderOptions | undefined {
+  if (isOpenAiReasoningModel(config)) {
+    return {
+      openaiCompatible: {
+        reasoningEffort: ANSWER_REASONING_EFFORT,
+      },
+    };
+  }
+
+  return {
+    [providerOptionsName]: {
+      chat_template_kwargs: {
+        enable_thinking: ANSWER_ENABLE_THINKING,
+        reasoning_effort: ANSWER_REASONING_EFFORT,
+      },
+    },
+  };
+}
+
+/**
+ * Pre-existing behaviour, kept for callers outside the knowledge Q&A path
+ * (editor-ai): reasoning models get a low effort hint, everything else gets
+ * nothing. Separate from answerProviderOptions so that tuning the Q&A thinking
+ * configuration does not silently change inline editor requests.
+ */
+export function reasoningProviderOptions(
   config: ResolvedAiModelConfig,
 ): ProviderOptions | undefined {
   if (!isOpenAiReasoningModel(config)) return undefined;
@@ -191,7 +272,8 @@ function buildSystemPrompt(
     'Do not cite general knowledge, calculations, or answers that do not rely on provided workspace context.',
     'Do not reveal or mention hidden, denied, filtered, or unavailable documents.',
     "Reply in the user's language unless they ask otherwise.",
-    'Be direct, practical, and concise.',
+    'Output only the answer, as short as possible. If a word or a phrase answers the question, output exactly that.',
+    'No explanation, preamble, restatement, caveats, or suggestions. Mode and citation markers are the only exception.',
   ].join(' ');
 }
 

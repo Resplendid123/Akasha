@@ -1,7 +1,10 @@
 import { generateText, streamText } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { EnvironmentService } from '../../../integrations/environment/environment.service';
-import { ConfiguredKnowledgeAnswerProvider } from './knowledge-answer-provider.service';
+import {
+  ANSWER_PROVIDER_NAME,
+  ConfiguredKnowledgeAnswerProvider,
+} from './knowledge-answer-provider.service';
 
 jest.mock('ai', () => ({
   generateText: jest.fn(),
@@ -37,7 +40,7 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     ).resolves.toBe('grounded answer');
 
     expect(createOpenAICompatible).toHaveBeenCalledWith({
-      name: 'openai-compatible',
+      name: ANSWER_PROVIDER_NAME,
       apiKey: 'openai-key',
       baseURL: 'https://api.openai.test/v1',
     });
@@ -57,6 +60,16 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
         'User question:',
         'How do we use Kafka?',
       ].join('\n'),
+      temperature: 0,
+      seed: 7,
+      providerOptions: {
+        [ANSWER_PROVIDER_NAME]: {
+          chat_template_kwargs: {
+            enable_thinking: true,
+            reasoning_effort: 'medium',
+          },
+        },
+      },
     });
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -80,7 +93,7 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     await service.answer({ query: 'Q', context: 'Context' });
 
     expect(createOpenAICompatible).toHaveBeenCalledWith({
-      name: 'openai-compatible',
+      name: ANSWER_PROVIDER_NAME,
       apiKey: 'compatible-key',
       baseURL: 'https://llm.example/v1',
     });
