@@ -247,22 +247,9 @@ function buildSystemPrompt(
     '',
     'ANSWER CONTRACT (takes precedence over every other instruction):',
     '1. Begin with exactly one mode marker: [[answer:knowledge]] or [[answer:general]].',
-    // The bare span is the default and the sentence is the exception, not the
-    // other way round. Stated as "answer in one sentence" with a short-answer
-    // exception, the model wrote a grammatical sentence every time: it restated
-    // the question and embedded the answer in it, which costs exact match and
-    // tanks token-F1 precision.
-    '2. In [[answer:knowledge]] mode, give only the shortest span that answers the question: a name, a number, a date, a phrase. Do not put it in a sentence. Then append the citation markers for the sources you used at the end of the answer.',
-    // The general branch used to be governed only by the word "concise" down in
-    // GROUNDING, and the knowledge-mode qualifier on "nothing else is allowed"
-    // read as an exemption from this section: answers came back at two to four
-    // sentences, opening with the reasoning that led to them.
+    '2. In [[answer:knowledge]] mode, give only the shortest span that answers the question: a phrase. Do not put it in a sentence. Then append the citation markers for the sources you used at the end of the answer.',
     '3. In [[answer:general]] mode, give the <general_reason>...</general_reason> tag and then exactly one sentence of answer.',
     'Whichever mode you pick, the parts listed for it are the entire reply. Nothing else is allowed.',
-    'Write a full sentence in [[answer:knowledge]] mode only when no span can answer the question, because it asks how or why, or asks you to compare.',
-    // "Never restate the question" alone was read as "do not quote the question
-    // verbatim". Naming the parts of speech is what actually stops the
-    // "<subject> was the <role> of <qualifiers from the question>" shape.
     'The rules below bind both modes.',
     "Do not echo the question's subject, verb, or any of its wording in the answer. Give the new information only.",
     'Never explain or justify the answer, never recap the evidence, never close with a summary, never add a sentence just to carry a citation marker.',
