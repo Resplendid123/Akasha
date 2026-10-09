@@ -181,7 +181,11 @@ export function answerProviderOptions(
     [providerOptionsName]: {
       chat_template_kwargs: {
         enable_thinking: ANSWER_ENABLE_THINKING,
-        reasoning_effort: ANSWER_REASONING_EFFORT,
+        // Only meaningful while a thinking block is being produced. Sending it
+        // alongside enable_thinking: false would be contradictory.
+        ...(ANSWER_ENABLE_THINKING
+          ? { reasoning_effort: ANSWER_REASONING_EFFORT }
+          : {}),
       },
     },
   };
