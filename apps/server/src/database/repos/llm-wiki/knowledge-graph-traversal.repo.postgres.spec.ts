@@ -146,7 +146,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
     sql`create table knowledge_graph_edges (
       id uuid primary key, workspace_id uuid not null, space_id uuid not null,
       from_knowledge_page_id uuid not null, to_knowledge_page_id uuid not null,
-      relation varchar not null, stale_at timestamptz
+      relation varchar not null, is_dangling boolean not null default false,
+      stale_at timestamptz
     )`,
     sql`create table knowledge_graph_edge_sources (
       workspace_id uuid not null, graph_edge_id uuid not null, source_page_id uuid not null
