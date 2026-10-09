@@ -14,17 +14,18 @@ import { KyselyDB } from '@akasha/db/types/kysely.types';
  * Phases that did not run are omitted rather than stored as 0.
  */
 export type KnowledgeQueryAuditTimings = {
+  /** Query rewrite. Absent when the rewrite was skipped. */
   rewriteMs?: number;
+  /** Retrieval. Absent on paths that never retrieve. */
   retrievalMs?: number;
-  citationsMs?: number;
-  contextPackMs?: number;
-  generationMs?: number;
-  /** Provider-internal time to first token, from the start of generation. */
-  generationFirstTokenMs?: number;
-  /** Time to first token from the start of the chat pipeline. */
+  /**
+   * Time to first token, measured from the generation request. With thinking
+   * enabled the first token is a reasoning token, so this covers queue and
+   * prefill. Absent when the provider does not stream.
+   */
   ttftMs?: number;
-  /** Whether the answer provider streamed; absent when no generation ran. */
-  streamed?: boolean;
+  /** Answer generation. Summed across attempts on fallback. */
+  generationMs?: number;
   /** Whole chat pipeline, excluding controller-side post-processing. */
   totalMs: number;
 };

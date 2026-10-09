@@ -130,6 +130,7 @@ describe('AiKnowledgeChatService', () => {
         labelNames: ['项目计划', 'kafka'],
         chatContext: ['Previous turn'],
         onThinking,
+        collectTimings: true,
       }),
     ).resolves.toEqual({
       answer: 'Kafka is used for async events.',
@@ -183,6 +184,14 @@ describe('AiKnowledgeChatService', () => {
         filteredChunkCount: 0,
       },
       attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
+      // Durations are wall-clock, so only their presence and shape are asserted.
+      // This provider has no `rewriteQuery` and no `stream`, so `rewriteMs` and
+      // `ttftMs` must stay absent rather than be reported as 0.
+      timings: {
+        retrievalMs: expect.any(Number),
+        generationMs: expect.any(Number),
+        totalMs: expect.any(Number),
+      },
     });
 
     expect(retrieval.retrieve).toHaveBeenCalledWith(
@@ -455,6 +464,9 @@ describe('AiKnowledgeChatService', () => {
       context: '',
       chatContext: undefined,
       mode: 'general',
+      // Stamping first-token latency is the provider's job now: it is the only
+      // layer that sees reasoning deltas, which arrive before any answer text.
+      onFirstToken: expect.any(Function),
     });
     expect(
       onThinking.mock.calls
@@ -474,6 +486,57 @@ describe('AiKnowledgeChatService', () => {
       },
       { step: 'fallback', status: 'started', outcome: undefined },
       { step: 'fallback', status: 'completed', outcome: 'general' },
+    ]);
+  });
+
+  it('reports one first-token latency when a general fallback streams twice', async () => {
+    // Both the knowledge attempt and the general fallback stream, so each one
+    // reaches the first-token call site. The recorded instants must describe
+    // the first attempt: that is the request the caller waited on.
+    // Both mocks report a first token, the way the real provider does off its
+    // first reasoning or text delta.
+    const stream = jest
+      .fn()
+      .mockImplementationOnce((input: { onFirstToken?: () => void }) =>
+        (async function* () {
+          input.onFirstToken?.();
+          yield '[[answer:general]]\n';
+          yield '知识库中提到了公司推荐接口。';
+        })(),
+      )
+      .mockImplementationOnce((input: { onFirstToken?: () => void }) =>
+        (async function* () {
+          input.onFirstToken?.();
+          yield '孙悟空是文学角色，';
+          yield '没有现实世界中的公司。';
+        })(),
+      );
+    const service = createService(
+      verifiedKnowledgeOverrides({ stream } as never),
+    );
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: '孙悟空的公司是什么',
+      spaceIds: ['space-1'],
+      collectTimings: true,
+    });
+
+    expect(stream).toHaveBeenCalledTimes(2);
+    const timings = result.timings!;
+    // Derived from two first-wins instants, so it describes the knowledge
+    // attempt rather than the fallback that followed it, and stays inside the
+    // generation it was measured against.
+    expect(timings.ttftMs).toBeGreaterThanOrEqual(0);
+    expect(timings.ttftMs).toBeLessThanOrEqual(timings.generationMs!);
+    // generationMs is a duration and still accumulates: both requests ran.
+    expect(timings.generationMs).toBeGreaterThan(0);
+    expect(Object.keys(timings).sort()).toEqual([
+      'generationMs',
+      'retrievalMs',
+      'totalMs',
+      'ttftMs',
     ]);
   });
 

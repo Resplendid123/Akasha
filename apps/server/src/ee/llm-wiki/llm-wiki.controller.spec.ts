@@ -80,16 +80,13 @@ describe('LlmWikiController', () => {
         // branch; the regular query API must strip it, never expose it (§7.1).
         attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
         // Phase timings are audit-only: stripped from the response below, and
-        // recorded under metadata.timings.
+        // recorded under metadata.timings. ttftMs is measured from the
+        // generation request, so it is not bounded by the phases before it.
         timings: {
           rewriteMs: 310.2,
           retrievalMs: 412.3,
-          citationsMs: 88.7,
-          contextPackMs: 2.1,
+          ttftMs: 1157.2,
           generationMs: 3240.1,
-          generationFirstTokenMs: 1156.4,
-          ttftMs: 1870.5,
-          streamed: true,
           totalMs: 3702.8,
         },
       }),
@@ -177,12 +174,8 @@ describe('LlmWikiController', () => {
         timings: {
           rewriteMs: 310.2,
           retrievalMs: 412.3,
-          citationsMs: 88.7,
-          contextPackMs: 2.1,
+          ttftMs: 1157.2,
           generationMs: 3240.1,
-          generationFirstTokenMs: 1156.4,
-          ttftMs: 1870.5,
-          streamed: true,
           totalMs: 3702.8,
         },
       },

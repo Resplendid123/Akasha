@@ -71,6 +71,21 @@ type AiKnowledgeChatInput = {
   onStage?: (stage: 'understanding' | 'retrieval' | 'generation') => void;
   onThinking?: (event: AiChatThinkingEvent) => void;
   debugTiming?: AiChatDebugTiming;
+  /**
+   * Return a phase-timing breakdown on the result. Opt-in per caller: the
+   * result spreads straight into the API response on some paths, so a caller
+   * that does not strip `timings` must not receive it in the first place.
+   */
+  collectTimings?: boolean;
+};
+
+/**
+ * `AiKnowledgeChatInput` plus the request-scoped timing collector. Internal
+ * only: `chat()` owns the collector so every caller gets one on a consistent
+ * baseline, which is why the public input type cannot supply it.
+ */
+type TimedChatInput = AiKnowledgeChatInput & {
+  timings: AiKnowledgeChatTimingCollector;
 };
 
 export type AiChatThinkingStep =
@@ -100,6 +115,38 @@ export type AiChatThinkingEvent = {
   durationMs?: number;
   stats?: AiChatThinkingStats;
   outcome?: 'knowledge' | 'insufficient' | 'general';
+};
+
+/**
+ * Wall-clock breakdown of one `chat()` call, in milliseconds (0.1ms precision).
+ *
+ * Unlike {@link AiChatDebugTiming} this is always collected, because it is
+ * persisted into `knowledge_query_audit.metadata.timings` for every audited
+ * query. It carries durations and counts only, never query or answer text.
+ *
+ * Phases that did not run are omitted rather than reported as 0, so a missing
+ * field means "skipped" and never "instant".
+ */
+export type AiKnowledgeChatTimings = {
+  /** LLM query rewrite. Omitted when the rewrite was skipped. */
+  rewriteMs?: number;
+  /** Full retrieval. Omitted on paths that never retrieve (general/attached page). */
+  retrievalMs?: number;
+  /**
+   * Time to first token: from the generation request to the model's first
+   * token of any kind. With thinking enabled that first token is a reasoning
+   * token, so this covers queue and prefill, not the wait for the answer's
+   * first word.
+   *
+   * Measured against the model call, not the pipeline entry, so it is
+   * comparable with the serving stack's own TTFT. Omitted when the provider
+   * does not stream.
+   */
+  ttftMs?: number;
+  /** Answer-generation provider call. Summed across attempts on fallback. */
+  generationMs?: number;
+  /** Whole `chat()` span. Excludes controller-side image/attachment resolution. */
+  totalMs: number;
 };
 
 export type AiKnowledgeChatResult = {
@@ -140,6 +187,11 @@ export type AiKnowledgeChatResult = {
       : never;
   };
   retrievalScope?: KnowledgeRetrievalScope;
+  /**
+   * Phase timings for this call. Recorded for audit purposes; callers strip it
+   * before serializing the API response.
+   */
+  timings?: AiKnowledgeChatTimings;
   // Internal-only: the final direct-hit chunk ids from retrieval, carried on
   // every normal return path so the controller can resolve hit-chunk
   // attachments independently of the answer branch (§7.1). Never serialized to
@@ -272,11 +324,41 @@ export class AiKnowledgeChatService {
     };
   }
 
+  /**
+   * Single place where the first token is stamped, for every streaming
+   * attempt. The audit keeps only the offset from the `chat()` entry; the
+   * provider-relative duration stays in debug timing, where the per-attempt
+   * breakdown is the point.
+   */
+  private recordFirstToken(
+    input: TimedChatInput,
+    generationStartedAt: number,
+    attempt: 'knowledge' | 'general',
+  ): void {
+    input.timings.markFirstToken();
+    input.debugTiming?.record(
+      'generation.provider_first_token',
+      performance.now() - generationStartedAt,
+      { attempt },
+    );
+  }
+
   async chat(input: AiKnowledgeChatInput): Promise<AiKnowledgeChatResult> {
     if (input.workspace && !this.isEnabledForWorkspace(input.workspace)) {
       throw new ForbiddenException('AI knowledge chat is disabled');
     }
 
+    // The collector is created here, before any work, so `totalMs` and `ttftMs`
+    // share one baseline. Every `runChat` return path gets the snapshot
+    // attached in one place, but only for callers that asked for it.
+    const timings = new AiKnowledgeChatTimingCollector();
+    const result = await this.runChat({ ...input, timings });
+    return input.collectTimings
+      ? { ...result, timings: timings.snapshot() }
+      : result;
+  }
+
+  private async runChat(input: TimedChatInput): Promise<AiKnowledgeChatResult> {
     const thinking = new AiChatThinkingProgress(input.onThinking);
     if (input.responseMode === 'general') {
       // No retrieval runs on this path, so there is no hit set; keep the field
@@ -322,31 +404,35 @@ export class AiKnowledgeChatService {
     });
     input.onStage?.('retrieval');
     thinking.start('searching');
-    const retrieval = await measureAiChatPhase(
-      input.debugTiming,
-      'retrieval.total',
-      () =>
-        this.retrieval.retrieve({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          supplementalUserId: input.supplementalUserId,
-          query: retrievalQuery,
-          spaceIds: input.spaceIds,
-          ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
-          authCache,
-          ...(input.scoreThreshold !== undefined
-            ? { maxCosineDistance: input.scoreThreshold }
-            : {}),
-          ...(input.debugTiming ? { debugTiming: input.debugTiming } : {}),
+    const retrieval = await input.timings.measure('retrievalMs', () =>
+      measureAiChatPhase(
+        input.debugTiming,
+        'retrieval.total',
+        () =>
+          this.retrieval.retrieve({
+            workspaceId: input.workspaceId,
+            userId: input.userId,
+            supplementalUserId: input.supplementalUserId,
+            query: retrievalQuery,
+            spaceIds: input.spaceIds,
+            ...(input.labelNames?.length
+              ? { labelNames: input.labelNames }
+              : {}),
+            authCache,
+            ...(input.scoreThreshold !== undefined
+              ? { maxCosineDistance: input.scoreThreshold }
+              : {}),
+            ...(input.debugTiming ? { debugTiming: input.debugTiming } : {}),
+          }),
+        (result) => ({
+          retrievalMode: result.mode,
+          chunkCount: result.chunks.length,
+          capsuleCount: result.capsules.length,
+          embeddingAvailable:
+            result.diagnostics?.queryEmbeddingAvailable ?? false,
+          fallbackUsed: result.diagnostics?.accessPolicyFallbackUsed ?? false,
         }),
-      (result) => ({
-        retrievalMode: result.mode,
-        chunkCount: result.chunks.length,
-        capsuleCount: result.capsules.length,
-        embeddingAvailable:
-          result.diagnostics?.queryEmbeddingAvailable ?? false,
-        fallbackUsed: result.diagnostics?.accessPolicyFallbackUsed ?? false,
-      }),
+      ),
     );
     thinking.complete('searching', {
       matchedChunkCount:
@@ -397,14 +483,11 @@ export class AiKnowledgeChatService {
       chunks: chunkCitations,
       capsules: capsuleCitations,
     });
-    input.debugTiming?.record(
-      'context.build_pack',
-      performance.now() - contextPackStartedAt,
-      {
-        includedItemCount: pack.budget.includedItemCount,
-        contextChars: pack.budget.usedContextLength,
-      },
-    );
+    const contextPackDurationMs = performance.now() - contextPackStartedAt;
+    input.debugTiming?.record('context.build_pack', contextPackDurationMs, {
+      includedItemCount: pack.budget.includedItemCount,
+      contextChars: pack.budget.usedContextLength,
+    });
     const explicit = await measureAiChatPhase(
       input.debugTiming,
       'context.load_explicit',
@@ -527,37 +610,39 @@ export class AiKnowledgeChatService {
     const streamed = Boolean(this.answerProvider.stream);
     input.onStage?.('generation');
     thinking.start('preparing');
+    input.timings.markGenerationStart();
     if (this.answerProvider.stream) {
       const streamRouter = new KnowledgeAnswerStreamRouter(input.onToken);
       const generationStartedAt = performance.now();
-      let providerFirstTokenLogged = false;
-      await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        async () => {
-          for await (const token of this.answerProvider.stream!(answerInput)) {
-            if (!providerFirstTokenLogged && token) {
-              providerFirstTokenLogged = true;
-              input.debugTiming?.record(
-                'generation.provider_first_token',
-                performance.now() - generationStartedAt,
-                { attempt: 'knowledge' },
-              );
+      await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          async () => {
+            for await (const token of this.answerProvider.stream!({
+              ...answerInput,
+              // Reported by the provider on its first token of any kind, so
+              // this fires during the thinking block rather than after it.
+              onFirstToken: () =>
+                this.recordFirstToken(input, generationStartedAt, 'knowledge'),
+            })) {
+              rawAnswer += token;
+              streamRouter.push(token);
             }
-            rawAnswer += token;
-            streamRouter.push(token);
-          }
-        },
-        { attempt: 'knowledge', streamed: true },
+          },
+          { attempt: 'knowledge', streamed: true },
+        ),
       );
       streamRouter.finish();
       generatedAnswer = parseGeneratedAnswer(rawAnswer);
     } else {
-      rawAnswer = await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        () => this.answerProvider.answer(answerInput),
-        { attempt: 'knowledge', streamed: false },
+      rawAnswer = await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          () => this.answerProvider.answer(answerInput),
+          { attempt: 'knowledge', streamed: false },
+        ),
       );
       generatedAnswer = parseGeneratedAnswer(rawAnswer);
     }
@@ -645,7 +730,7 @@ export class AiKnowledgeChatService {
   }
 
   private async answerFromAttachedPage(
-    input: AiKnowledgeChatInput,
+    input: TimedChatInput,
     authCache: KnowledgeAuthorizationCache,
     thinking: AiChatThinkingProgress,
   ): Promise<AiKnowledgeChatResult> {
@@ -724,15 +809,18 @@ export class AiKnowledgeChatService {
         input.debugTiming,
         'generation.provider',
         async () => {
-          for await (const token of this.answerProvider.stream!(answerInput)) {
-            if (!providerFirstTokenLogged && token) {
+          for await (const token of this.answerProvider.stream!({
+            ...answerInput,
+            onFirstToken: () => {
+              if (providerFirstTokenLogged) return;
               providerFirstTokenLogged = true;
               input.debugTiming?.record(
                 'generation.provider_first_token',
                 performance.now() - generationStartedAt,
                 { attempt: 'attached_page' },
               );
-            }
+            },
+          })) {
             rawAnswer += token;
             streamRouter.push(token);
           }
@@ -813,7 +901,7 @@ export class AiKnowledgeChatService {
   }
 
   private async answerFromGeneralKnowledge(
-    input: AiKnowledgeChatInput,
+    input: TimedChatInput,
     thinking = new AiChatThinkingProgress(input.onThinking),
     thinkingStep: Extract<
       AiChatThinkingStep,
@@ -832,36 +920,38 @@ export class AiKnowledgeChatService {
     input.onStage?.('generation');
     thinking.start(thinkingStep);
     input.onToken?.(disclaimer);
+    // First-wins, so a knowledge attempt that already issued a request keeps
+    // its own offset: this is the request the caller actually waited on.
+    input.timings.markGenerationStart();
     if (this.answerProvider.stream) {
       const sanitizer = new CitationStreamSanitizer(input.onToken);
       const generationStartedAt = performance.now();
-      let providerFirstTokenLogged = false;
-      await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        async () => {
-          for await (const token of this.answerProvider.stream!(answerInput)) {
-            if (!providerFirstTokenLogged && token) {
-              providerFirstTokenLogged = true;
-              input.debugTiming?.record(
-                'generation.provider_first_token',
-                performance.now() - generationStartedAt,
-                { attempt: 'general' },
-              );
+      await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          async () => {
+            for await (const token of this.answerProvider.stream!({
+              ...answerInput,
+              onFirstToken: () =>
+                this.recordFirstToken(input, generationStartedAt, 'general'),
+            })) {
+              generatedAnswer += token;
+              sanitizer.push(token);
             }
-            generatedAnswer += token;
-            sanitizer.push(token);
-          }
-        },
-        { attempt: 'general', streamed: true },
+          },
+          { attempt: 'general', streamed: true },
+        ),
       );
       sanitizer.finish();
     } else {
-      generatedAnswer = await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        () => this.answerProvider.answer(answerInput),
-        { attempt: 'general', streamed: false },
+      generatedAnswer = await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          () => this.answerProvider.answer(answerInput),
+          { attempt: 'general', streamed: false },
+        ),
       );
       input.onToken?.(stripCitationMarkers(generatedAnswer));
     }
@@ -923,9 +1013,7 @@ export class AiKnowledgeChatService {
     };
   }
 
-  private async rewriteRetrievalQuery(
-    input: AiKnowledgeChatInput,
-  ): Promise<string> {
+  private async rewriteRetrievalQuery(input: TimedChatInput): Promise<string> {
     if (input.queryRewriteEnabled === false) {
       input.debugTiming?.mark('context.rewrite_skipped', {
         reason: 'disabled_by_request',
@@ -943,18 +1031,22 @@ export class AiKnowledgeChatService {
 
     input.onStage?.('understanding');
     try {
-      const rewritten = await measureAiChatPhase(
-        input.debugTiming,
-        'context.rewrite',
-        () =>
-          this.answerProvider.rewriteQuery!({
-            query: input.query,
-            chatContext: input.chatContext!,
-          }),
-        {
-          historyMessageCount: input.chatContext.length,
-          historyChars: input.chatContext.join('\n').length,
-        },
+      // Timed even when it throws, so a slow failing rewrite still shows up in
+      // the audit row rather than vanishing into the catch below.
+      const rewritten = await input.timings.measure('rewriteMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'context.rewrite',
+          () =>
+            this.answerProvider.rewriteQuery!({
+              query: input.query,
+              chatContext: input.chatContext!,
+            }),
+          {
+            historyMessageCount: input.chatContext!.length,
+            historyChars: input.chatContext!.join('\n').length,
+          },
+        ),
       );
       return rewritten.trim() || input.query;
     } catch {
@@ -1097,6 +1189,69 @@ export function isGeneralKnowledgeEnabledForUser(user: User): boolean {
     return true;
   }
   return (preferences as Record<string, unknown>).generalKnowledge !== false;
+}
+
+/** Phase keys the collector measures; each maps 1:1 to an AiKnowledgeChatTimings field. */
+type TimedPhase = 'rewriteMs' | 'retrievalMs' | 'generationMs';
+
+/**
+ * Always-on phase timer for one `chat()` call.
+ *
+ * `AiChatDebugTiming` only exists when DEBUG_MODE=true, so it cannot feed the
+ * query audit. This collector runs unconditionally: it is a handful of
+ * `performance.now()` reads and no I/O, and it keeps one consistent `chat()`
+ * entry baseline across the HTTP, iself, MCP and SSE callers so rows in
+ * `knowledge_query_audit` stay comparable.
+ *
+ * Every reported field is a duration. `rewriteMs`, `retrievalMs` and
+ * `generationMs` accumulate across attempts; `ttftMs` is derived from two
+ * instants that are both first-wins, so a general-knowledge fallback cannot
+ * overwrite the attempt the caller actually waited on.
+ */
+class AiKnowledgeChatTimingCollector {
+  private readonly startedAt = performance.now();
+  private readonly phases: Partial<Record<TimedPhase, number>> = {};
+  private generationStartedAt?: number;
+  private firstTokenAt?: number;
+
+  /** Accumulates, so repeated phases (e.g. generation retried via fallback) sum. */
+  record(phase: TimedPhase, durationMs: number): void {
+    this.phases[phase] = roundDuration((this.phases[phase] ?? 0) + durationMs);
+  }
+
+  async measure<T>(phase: TimedPhase, operation: () => Promise<T>): Promise<T> {
+    const phaseStartedAt = performance.now();
+    try {
+      return await operation();
+    } finally {
+      this.record(phase, performance.now() - phaseStartedAt);
+    }
+  }
+
+  /** First call wins: the fallback request is not what the caller waited on. */
+  markGenerationStart(): void {
+    this.generationStartedAt ??= performance.now();
+  }
+
+  /** First call wins, so fallback attempts do not overwrite the real TTFT. */
+  markFirstToken(): void {
+    this.firstTokenAt ??= performance.now();
+  }
+
+  snapshot(): AiKnowledgeChatTimings {
+    // Measured from the generation request, not the pipeline entry: TTFT is
+    // a property of the model call, and mixing in rewrite and retrieval would
+    // make it incomparable with what the serving stack reports.
+    const ttftMs =
+      this.firstTokenAt === undefined || this.generationStartedAt === undefined
+        ? undefined
+        : roundDuration(this.firstTokenAt - this.generationStartedAt);
+    return {
+      ...this.phases,
+      ...(ttftMs === undefined ? {} : { ttftMs }),
+      totalMs: roundDuration(performance.now() - this.startedAt),
+    };
+  }
 }
 
 class AiChatThinkingProgress {
