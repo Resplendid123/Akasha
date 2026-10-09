@@ -519,9 +519,6 @@ importers:
       '@clickhouse/client':
         specifier: ^1.18.2
         version: 1.18.2
-      '@docmost/pdf-inspector':
-        specifier: 1.9.6
-        version: 1.9.6
       '@fastify/cookie':
         specifier: ^11.0.2
         version: 11.0.2
@@ -597,6 +594,9 @@ importers:
       '@node-saml/passport-saml':
         specifier: ^5.1.0
         version: 5.1.0
+      '@opendataloader/pdf':
+        specifier: 2.5.12
+        version: 2.5.12
       '@socket.io/redis-adapter':
         specifier: ^8.3.0
         version: 8.3.0(socket.io-adapter@2.5.4)
@@ -1923,9 +1923,6 @@ packages:
   '@csstools/css-tokenizer@3.0.3':
     resolution: {integrity: sha512-UJnjoFsmxfKUdNYdWgOB0mWUypuLvAfQPH1+pyvRJs6euowbFkFC6P13w1l8mJyi3vxYMxc9kld5jZEGRQs6bw==}
     engines: {node: '>=18'}
-
-  '@docmost/pdf-inspector@1.9.6':
-    resolution: {integrity: sha512-8k8N8Mwu9xbpRC1jLcz4sFv88ev2oBnW56a/2WLbrOBkfXzyZV2Tml5PikUwEWT4cUXfYfk2dGnJpWQYgCESCQ==}
 
   '@emnapi/core@1.8.1':
     resolution: {integrity: sha512-AvT9QFpxK0Zd8J0jopedNm+w/2fIzvtPKPjqyw9jwvBaReTTqPBk9Hixaz7KbjimP+QNz605/XnjFcDAL2pqBg==}
@@ -3363,6 +3360,11 @@ packages:
 
   '@nx/workspace@22.6.1':
     resolution: {integrity: sha512-mrvGubfownO/m0CtFvtRwQxQm//UoBRgrT0WCxrQi5tGlgViTYFSDRumhy94EuU00OGiAHNa3yeXWFd72O981A==}
+
+  '@opendataloader/pdf@2.5.12':
+    resolution: {integrity: sha512-5+LGp7h7LyhCGRvevZ0aqM9fR4tDgueqJA2csdINRTsZb05Y78yoKgsQbp5Ic6XWog3+7xXbJLpfTsQ7lqXogA==}
+    engines: {node: '>=22.13'}
+    hasBin: true
 
   '@opentelemetry/api-logs@0.208.0':
     resolution: {integrity: sha512-CjruKY9V6NMssL/T1kAFgzosF1v9o6oeN+aX5JB/C/xPNtmgIJqcXHG7fA82Ou1zCpWGl4lROQUKwUNE1pMCyg==}
@@ -6014,6 +6016,10 @@ packages:
   commander@13.1.0:
     resolution: {integrity: sha512-/rFeCpNJQbhSZjGVwO9RFV3xPqbnERS8MmIQzCtD/zl6gpJuV/bMLuN92oG3F7d8oDEHHRrujSXNUr8fpjntKw==}
     engines: {node: '>=18'}
+
+  commander@15.0.0:
+    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+    engines: {node: '>=22.12.0'}
 
   commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
@@ -12142,8 +12148,6 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.3': {}
 
-  '@docmost/pdf-inspector@1.9.6': {}
-
   '@emnapi/core@1.8.1':
     dependencies:
       '@emnapi/wasi-threads': 1.1.0
@@ -13613,6 +13617,10 @@ snapshots:
       - '@swc-node/register'
       - '@swc/core'
       - debug
+
+  '@opendataloader/pdf@2.5.12':
+    dependencies:
+      commander: 15.0.0
 
   '@opentelemetry/api-logs@0.208.0':
     dependencies:
@@ -16477,6 +16485,8 @@ snapshots:
   commander@11.1.0: {}
 
   commander@13.1.0: {}
+
+  commander@15.0.0: {}
 
   commander@2.20.3: {}
 
