@@ -189,6 +189,7 @@ export class LlmWikiController {
       ...(isGeneralKnowledgeEnabledForUser(user)
         ? {}
         : { generalKnowledgeEnabled: false }),
+      collectTimings: true,
       ...(dto.scoreThreshold !== undefined
         ? { scoreThreshold: dto.scoreThreshold }
         : {}),
@@ -200,11 +201,14 @@ export class LlmWikiController {
     const queryHash = hashQuery(dto.query);
     // attachmentHitContext is an internal retrieval detail (§7.1): the regular
     // query API never resolves top-level attachments, so strip it here too so it
-    // can never leak through `...response` as a public field.
+    // can never leak through `...response` as a public field. `timings`,
+    // `queryObservation`, `retrieval`, and `context` are likewise internal:
+    // they go to the query audit, not to the API response.
     const {
       retrievalDiagnostics,
       retrievalScope,
       attachmentHitContext,
+      timings,
       queryObservation,
       retrieval,
       context,
@@ -245,6 +249,7 @@ export class LlmWikiController {
       metadata: {
         origin: 'knowledge_query',
         ...(queryType === KnowledgeQueryType.ROBOT ? { type: queryType } : {}),
+        answerMode: response.answerMode,
         spaceIds: dto.spaceIds,
         ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
@@ -259,6 +264,7 @@ export class LlmWikiController {
           retrieval,
           context,
         }),
+        ...(timings ? { timings } : {}),
       },
     });
 

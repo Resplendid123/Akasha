@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { generateText, LanguageModel, streamText } from 'ai';
-import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import { EnvironmentService } from '../../../integrations/environment/environment.service';
+import {
+  ModelCallOptions,
+  resolveModelCallOptions,
+} from './ai-model-call-options';
 import {
   AiModelConfigService,
   ResolvedAiModelConfig,
@@ -13,6 +16,7 @@ export type KnowledgeAnswerProviderInput = {
   context: string;
   chatContext?: string[];
   mode?: 'knowledge' | 'general';
+  onFirstToken?: () => void;
 };
 
 export type KnowledgeQueryRewriteInput = {
@@ -26,12 +30,14 @@ export interface KnowledgeAnswerProvider {
   rewriteQuery?(input: KnowledgeQueryRewriteInput): Promise<string>;
 }
 
+const ANSWER_DEFAULT_TEMPERATURE = 0;
+
 @Injectable()
 export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvider {
   constructor(
     private readonly environmentService: EnvironmentService,
     private readonly configService: AiModelConfigService,
-  ) {}
+  ) { }
 
   async rewriteQuery(input: KnowledgeQueryRewriteInput): Promise<string> {
     if (input.chatContext.length === 0) {
@@ -48,8 +54,7 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         model,
         system: buildQueryRewriteSystemPrompt(),
         prompt: buildQueryRewritePrompt(input),
-        ...(isOpenAiReasoningModel(config) ? {} : { temperature: 0 }),
-        providerOptions: answerProviderOptions(config),
+        ...answerCallOptions(config),
         maxOutputTokens: 256,
         abortSignal: AbortSignal.timeout(30_000),
       });
@@ -74,7 +79,7 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         input,
         this.environmentService.getAiChatMaxInputChars() - system.length,
       ),
-      providerOptions: answerProviderOptions(config),
+      ...answerCallOptions(config),
     });
 
     return result.text;
@@ -93,10 +98,21 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
         input,
         this.environmentService.getAiChatMaxInputChars() - system.length,
       ),
-      providerOptions: answerProviderOptions(config),
+      ...answerCallOptions(config),
     });
-    for await (const token of result.textStream) {
-      yield token;
+
+    let firstTokenSeen = false;
+    for await (const part of result.fullStream) {
+      if (part.type !== 'reasoning-delta' && part.type !== 'text-delta') {
+        continue;
+      }
+      if (!firstTokenSeen && part.text) {
+        firstTokenSeen = true;
+        input.onFirstToken?.();
+      }
+      if (part.type === 'text-delta') {
+        yield part.text;
+      }
     }
   }
 
@@ -106,30 +122,33 @@ export class ConfiguredKnowledgeAnswerProvider implements KnowledgeAnswerProvide
   }> {
     const config = await this.configService.getResolvedConfig('answer');
     return {
-      model: createLanguageModelFromConfig(config, 'openai-compatible'),
+      model: createLanguageModelFromConfig(config, ANSWER_PROVIDER_NAME),
       config,
     };
   }
 }
 
-export function answerProviderOptions(
+export const ANSWER_PROVIDER_NAME = 'akashaAnswer';
+
+export const EDITOR_PROVIDER_NAME = 'akashaEditor';
+
+export function answerCallOptions(
   config: ResolvedAiModelConfig,
-): ProviderOptions | undefined {
-  if (!isOpenAiReasoningModel(config)) return undefined;
-  return {
-    openaiCompatible: {
-      reasoningEffort: 'low',
-    },
-  };
+): ModelCallOptions {
+  return resolveModelCallOptions(config, {
+    providerOptionsName: ANSWER_PROVIDER_NAME,
+    defaultTemperature: ANSWER_DEFAULT_TEMPERATURE,
+  });
 }
 
-export function isOpenAiReasoningModel(config: ResolvedAiModelConfig): boolean {
-  const driver = config.driver?.toLowerCase();
-  const model = config.model?.toLowerCase() ?? '';
-  return (
-    driver === 'openai-compatible' &&
-    (model.includes('gpt') || /(^|[-_])o[134]/.test(model))
-  );
+export function editorCallOptions(
+  config: ResolvedAiModelConfig,
+): ModelCallOptions {
+  return resolveModelCallOptions(config, {
+    providerOptionsName: EDITOR_PROVIDER_NAME,
+    defaultTemperature: ANSWER_DEFAULT_TEMPERATURE,
+    ignoreThinking: true,
+  });
 }
 
 function buildQueryRewriteSystemPrompt(): string {

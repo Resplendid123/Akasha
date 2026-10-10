@@ -73,7 +73,7 @@ describe('AiModelConfigTestService', () => {
     expect(configService.getResolvedConfig).toHaveBeenCalledWith('answer');
     expect(createLanguageModelFromConfig).toHaveBeenCalledWith(
       expect.objectContaining({ apiKey: 'stored-key' }),
-      'openai-compatible',
+      'akashaConfigTest',
     );
   });
 

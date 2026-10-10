@@ -18,6 +18,8 @@ import { createEmbeddingModelFromConfig } from './ai-model-factory';
  */
 export const BAILIAN_TEXT_EMBEDDING_V4_MAX_INPUTS_PER_REQUEST = 10;
 
+export const EMBEDDING_PROVIDER_NAME = 'akashaEmbedding';
+
 export type KnowledgeEmbedding = {
   vector: number[];
   profile: string;
@@ -127,7 +129,7 @@ export class ConfiguredKnowledgeEmbeddingProvider implements KnowledgeEmbeddingP
     const config = await this.configService.getResolvedConfig('embedding');
     const driver = config.driver;
     const modelName = config.model;
-    const model = createEmbeddingModelFromConfig(config, 'openai-compatible');
+    const model = createEmbeddingModelFromConfig(config, EMBEDDING_PROVIDER_NAME);
     if (!driver || !modelName || !model) {
       throw new KnowledgeEmbeddingError(
         'embedding_not_configured',
@@ -196,7 +198,7 @@ export class ConfiguredKnowledgeEmbeddingProvider implements KnowledgeEmbeddingP
     const config = await this.configService.getResolvedConfig('embedding');
     const driver = config.driver;
     const modelName = config.model;
-    const model = createEmbeddingModelFromConfig(config, 'openai-compatible');
+    const model = createEmbeddingModelFromConfig(config, EMBEDDING_PROVIDER_NAME);
     if (text.trim().length === 0) {
       if (required) {
         throw new KnowledgeEmbeddingError(

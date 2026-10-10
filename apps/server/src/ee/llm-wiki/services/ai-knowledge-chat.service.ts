@@ -1,39 +1,38 @@
+import { AttachmentRepo } from '@akasha/db/repos/attachment/attachment.repo';
+import { PageRepo } from '@akasha/db/repos/page/page.repo';
+import { User, Workspace } from '@akasha/db/types/entity.types';
 import {
   ForbiddenException,
   Inject,
   Injectable,
   Optional,
 } from '@nestjs/common';
-import { User, Workspace } from '@akasha/db/types/entity.types';
-import { PageRepo } from '@akasha/db/repos/page/page.repo';
-import { AttachmentRepo } from '@akasha/db/repos/attachment/attachment.repo';
+import { createHash } from 'crypto';
+import {
+  AiChatDebugTiming,
+  measureAiChatPhase,
+} from '../../../common/observability/ai-chat-debug-timing';
 import { KNOWLEDGE_ANSWER_PROVIDER } from '../llm-wiki.constants';
 import {
   KnowledgeAnswerProvider,
   KnowledgeAnswerProviderInput,
 } from './knowledge-answer-provider.service';
 import { KnowledgeCitationResolverService } from './knowledge-citation-resolver.service';
+import type { KnowledgeCitation, KnowledgeContextPackingItem } from './knowledge-context-pack.service';
 import {
   KnowledgeContextPackService,
   KnowledgeSourceWindow,
 } from './knowledge-context-pack.service';
-import type { KnowledgeCitation } from './knowledge-context-pack.service';
-import type { KnowledgeContextPackingItem } from './knowledge-context-pack.service';
-import { createHash } from 'crypto';
 import {
-  KnowledgeRetrievalDiagnostics,
   KnowledgeRetrievalAuthorizationMode,
+  KnowledgeRetrievalDiagnostics,
   KnowledgeRetrievalObservation,
   KnowledgeRetrievalOrigin,
   KnowledgeRetrievalScope,
   KnowledgeRetrievalService,
 } from './knowledge-retrieval.service';
-import { KnowledgeSourceAuthorizationService } from './knowledge-source-authorization.service';
 import { KnowledgeAuthorizationCache } from './knowledge-source-authorization.cache';
-import {
-  AiChatDebugTiming,
-  measureAiChatPhase,
-} from '../../../common/observability/ai-chat-debug-timing';
+import { KnowledgeSourceAuthorizationService } from './knowledge-source-authorization.service';
 
 export { KnowledgeAnswerProvider, KnowledgeAnswerProviderInput };
 
@@ -63,7 +62,6 @@ type AiKnowledgeChatInput = {
   chatId?: string;
   query: string;
   spaceIds: string[];
-  /** Normalized page label names; multiple values use OR semantics. */
   labelNames?: string[];
   chatContext?: string[];
   workspace?: Workspace;
@@ -71,24 +69,20 @@ type AiKnowledgeChatInput = {
   contextPageId?: string;
   attachmentIds?: string[];
   responseMode?: 'knowledge' | 'general';
-  /** Whether an empty/insufficient knowledge retrieval may fall back to general AI. */
   generalKnowledgeEnabled?: boolean;
-  /** Maximum semantic cosine distance accepted during recall. */
   scoreThreshold?: number;
-  /**
-   * Skip the answer-generation LLM and return the packed retrieval results
-   * directly. No general-knowledge fallback is attempted in this mode.
-   */
   rawResultsOnly?: boolean;
-  /**
-   * Whether to run the LLM query-rewrite step. Defaults to enabled; set false
-   * to retrieve with the original query verbatim.
-   */
   queryRewriteEnabled?: boolean;
   onToken?: (token: string) => void;
   onStage?: (stage: 'understanding' | 'retrieval' | 'generation') => void;
   onThinking?: (event: AiChatThinkingEvent) => void;
   debugTiming?: AiChatDebugTiming;
+  collectTimings?: boolean;
+};
+
+
+type TimedChatInput = AiKnowledgeChatInput & {
+  timings: AiKnowledgeChatTimingCollector;
 };
 
 export type AiChatThinkingStep =
@@ -118,6 +112,14 @@ export type AiChatThinkingEvent = {
   durationMs?: number;
   stats?: AiChatThinkingStats;
   outcome?: 'knowledge' | 'insufficient' | 'general';
+};
+
+export type AiKnowledgeChatTimings = {
+  rewriteMs?: number;
+  retrievalMs?: number;
+  ttftMs?: number;
+  generationMs?: number;
+  totalMs: number;
 };
 
 export type AiKnowledgeChatResult = {
@@ -154,16 +156,13 @@ export type AiKnowledgeChatResult = {
     mode: ReturnType<KnowledgeRetrievalService['retrieve']> extends Promise<
       infer Result
     >
-      ? Result extends { mode: infer Mode }
-        ? Mode
-        : never
-      : never;
+    ? Result extends { mode: infer Mode }
+    ? Mode
+    : never
+    : never;
   };
   retrievalScope?: KnowledgeRetrievalScope;
-  // Internal-only: the final direct-hit chunk ids from retrieval, carried on
-  // every normal return path so the controller can resolve hit-chunk
-  // attachments independently of the answer branch (§7.1). Never serialized to
-  // the API response; the controller strips it before assembling the payload.
+  timings?: AiKnowledgeChatTimings;
   attachmentHitContext?: { directHitChunkIds: string[] };
   queryObservation: KnowledgeQueryObservation;
 };
@@ -195,7 +194,6 @@ export type KnowledgeQueryObservation = {
   answerContextHash: string | null;
 };
 
-/** Result returned to external agents that perform their own answer judgment. */
 export type AiKnowledgeRetrievalResult = {
   query: string;
   citations: ReturnType<
@@ -240,13 +238,9 @@ export class AiKnowledgeChatService {
     @Optional()
     private readonly sourceAuthorization?: KnowledgeSourceAuthorizationService,
     @Optional() private readonly attachmentRepo?: AttachmentRepo,
-  ) {}
+  ) { }
 
-  /**
-   * Retrieve and format authorized knowledge without invoking any answer LLM.
-   * This is intentionally separate from `chat` so external agents can decide
-   * themselves whether and how to use the returned evidence.
-   */
+
   async retrieveOnly(input: {
     workspaceId: string;
     userId: string;
@@ -273,21 +267,21 @@ export class AiKnowledgeChatService {
     });
     const chunkCitations = retrieval.chunks.length
       ? await this.citationResolver.resolveForChunks({
-          workspaceId: input.workspaceId,
-          query: input.query,
-          chunks: retrieval.chunks,
-        })
+        workspaceId: input.workspaceId,
+        query: input.query,
+        chunks: retrieval.chunks,
+      })
       : undefined;
     // Keep the same precedence as chat(): chunk evidence is authoritative;
     // capsule citations are only resolved for capsule-only retrieval results.
     const capsuleCitations =
       !chunkCitations && retrieval.capsules.length
         ? await this.citationResolver.resolveForCapsules({
-            workspaceId: input.workspaceId,
-            userId: input.userId,
-            capsules: retrieval.capsules,
-            authCache,
-          })
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          capsules: retrieval.capsules,
+          authCache,
+        })
         : undefined;
     const pack = this.contextPack.buildContextPack({
       chunks: chunkCitations,
@@ -322,15 +316,35 @@ export class AiKnowledgeChatService {
     };
   }
 
+
+  private recordFirstToken(
+    input: TimedChatInput,
+    generationStartedAt: number,
+    attempt: 'knowledge' | 'general',
+  ): void {
+    input.timings.markFirstToken();
+    input.debugTiming?.record(
+      'generation.provider_first_token',
+      performance.now() - generationStartedAt,
+      { attempt },
+    );
+  }
+
   async chat(input: AiKnowledgeChatInput): Promise<AiKnowledgeChatResult> {
     if (input.workspace && !this.isEnabledForWorkspace(input.workspace)) {
       throw new ForbiddenException('AI knowledge chat is disabled');
     }
 
+    const timings = new AiKnowledgeChatTimingCollector();
+    const result = await this.runChat({ ...input, timings });
+    return input.collectTimings
+      ? { ...result, timings: timings.snapshot() }
+      : result;
+  }
+
+  private async runChat(input: TimedChatInput): Promise<AiKnowledgeChatResult> {
     const thinking = new AiChatThinkingProgress(input.onThinking);
     if (input.responseMode === 'general') {
-      // No retrieval runs on this path, so there is no hit set; keep the field
-      // present and empty for a uniform internal contract (§7.1).
       const { result: generalAnswer, generalAnswerReason } =
         await this.answerFromGeneralKnowledge(input, thinking, 'preparing');
       return {
@@ -351,21 +365,13 @@ export class AiKnowledgeChatService {
       };
     }
 
-    // One request-scoped authorization cache, bound to this (workspace, user),
-    // shared across retrieval, capsule citations and explicit context so the
-    // same pages/spaces are not re-authorized multiple times in one request.
+
     const authCache = new KnowledgeAuthorizationCache({
       workspaceId: input.workspaceId,
       userId: input.userId,
       chatId: input.chatId,
     });
 
-    // The page side panel supplies the open page as direct context. Answering
-    // that page must not depend on semantic recall: broad retrieval can add
-    // unrelated documents and cause a simple question such as "what is this
-    // page about?" to be rejected as insufficient. Removing the page chip in
-    // the client omits contextPageId and restores the normal knowledge-search
-    // path below.
     if (input.contextPageId) {
       return this.answerFromAttachedPage(input, authCache, thinking);
     }
@@ -381,31 +387,35 @@ export class AiKnowledgeChatService {
     });
     input.onStage?.('retrieval');
     thinking.start('searching');
-    const retrieval = await measureAiChatPhase(
-      input.debugTiming,
-      'retrieval.total',
-      () =>
-        this.retrieval.retrieve({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          supplementalUserId: input.supplementalUserId,
-          query: retrievalQuery,
-          spaceIds: input.spaceIds,
-          ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
-          authCache,
-          ...(input.scoreThreshold !== undefined
-            ? { maxCosineDistance: input.scoreThreshold }
-            : {}),
-          ...(input.debugTiming ? { debugTiming: input.debugTiming } : {}),
+    const retrieval = await input.timings.measure('retrievalMs', () =>
+      measureAiChatPhase(
+        input.debugTiming,
+        'retrieval.total',
+        () =>
+          this.retrieval.retrieve({
+            workspaceId: input.workspaceId,
+            userId: input.userId,
+            supplementalUserId: input.supplementalUserId,
+            query: retrievalQuery,
+            spaceIds: input.spaceIds,
+            ...(input.labelNames?.length
+              ? { labelNames: input.labelNames }
+              : {}),
+            authCache,
+            ...(input.scoreThreshold !== undefined
+              ? { maxCosineDistance: input.scoreThreshold }
+              : {}),
+            ...(input.debugTiming ? { debugTiming: input.debugTiming } : {}),
+          }),
+        (result) => ({
+          retrievalMode: result.mode,
+          chunkCount: result.chunks.length,
+          capsuleCount: result.capsules.length,
+          embeddingAvailable:
+            result.diagnostics?.queryEmbeddingAvailable ?? false,
+          fallbackUsed: result.diagnostics?.accessPolicyFallbackUsed ?? false,
         }),
-      (result) => ({
-        retrievalMode: result.mode,
-        chunkCount: result.chunks.length,
-        capsuleCount: result.capsules.length,
-        embeddingAvailable:
-          result.diagnostics?.queryEmbeddingAvailable ?? false,
-        fallbackUsed: result.diagnostics?.accessPolicyFallbackUsed ?? false,
-      }),
+      ),
     );
     thinking.complete('searching', {
       matchedChunkCount:
@@ -421,49 +431,46 @@ export class AiKnowledgeChatService {
     thinking.start('analyzing');
     const chunkCitations = retrieval.chunks.length
       ? await measureAiChatPhase(
-          input.debugTiming,
-          'citations.resolve_chunks',
-          () =>
-            this.citationResolver.resolveForChunks({
-              workspaceId: input.workspaceId,
-              query: retrievalQuery,
-              chunks: retrieval.chunks,
-              ...(input.debugTiming ? { debugTiming: input.debugTiming } : {}),
-            }),
-          (citations) => ({ resolvedChunkCount: citations.length }),
-        )
+        input.debugTiming,
+        'citations.resolve_chunks',
+        () =>
+          this.citationResolver.resolveForChunks({
+            workspaceId: input.workspaceId,
+            query: retrievalQuery,
+            chunks: retrieval.chunks,
+            ...(input.debugTiming ? { debugTiming: input.debugTiming } : {}),
+          }),
+        (citations) => ({ resolvedChunkCount: citations.length }),
+      )
       : undefined;
     const capsuleCitations =
       !chunkCitations && retrieval.capsules.length
         ? await measureAiChatPhase(
-            input.debugTiming,
-            'citations.resolve_capsules',
-            () =>
-              this.citationResolver.resolveForCapsules({
-                workspaceId: input.workspaceId,
-                userId: input.userId,
-                capsules: retrieval.capsules,
-                authCache,
-                ...(input.debugTiming
-                  ? { debugTiming: input.debugTiming }
-                  : {}),
-              }),
-            (citations) => ({ resolvedCapsuleCount: citations.length }),
-          )
+          input.debugTiming,
+          'citations.resolve_capsules',
+          () =>
+            this.citationResolver.resolveForCapsules({
+              workspaceId: input.workspaceId,
+              userId: input.userId,
+              capsules: retrieval.capsules,
+              authCache,
+              ...(input.debugTiming
+                ? { debugTiming: input.debugTiming }
+                : {}),
+            }),
+          (citations) => ({ resolvedCapsuleCount: citations.length }),
+        )
         : undefined;
     const contextPackStartedAt = performance.now();
     const pack = this.contextPack.buildContextPack({
       chunks: chunkCitations,
       capsules: capsuleCitations,
     });
-    input.debugTiming?.record(
-      'context.build_pack',
-      performance.now() - contextPackStartedAt,
-      {
-        includedItemCount: pack.budget.includedItemCount,
-        contextChars: pack.budget.usedContextLength,
-      },
-    );
+    const contextPackDurationMs = performance.now() - contextPackStartedAt;
+    input.debugTiming?.record('context.build_pack', contextPackDurationMs, {
+      includedItemCount: pack.budget.includedItemCount,
+      contextChars: pack.budget.usedContextLength,
+    });
     const explicit = await measureAiChatPhase(
       input.debugTiming,
       'context.load_explicit',
@@ -529,10 +536,6 @@ export class AiKnowledgeChatService {
     );
 
     if (input.rawResultsOnly) {
-      // Skip the answer-generation LLM entirely and return the packed retrieval
-      // results. No general-knowledge fallback runs here (that would invoke an
-      // LLM, defeating the purpose); citations carry the full retrieved set
-      // since no model selects which sources were actually cited.
       const rawSourceWindows = pack.primary.flatMap(
         (entry) => entry.sourceWindows,
       );
@@ -639,37 +642,39 @@ export class AiKnowledgeChatService {
     const streamed = Boolean(this.answerProvider.stream);
     input.onStage?.('generation');
     thinking.start('preparing');
+    input.timings.markGenerationStart();
     if (this.answerProvider.stream) {
       const streamRouter = new KnowledgeAnswerStreamRouter(input.onToken);
       const generationStartedAt = performance.now();
-      let providerFirstTokenLogged = false;
-      await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        async () => {
-          for await (const token of this.answerProvider.stream!(answerInput)) {
-            if (!providerFirstTokenLogged && token) {
-              providerFirstTokenLogged = true;
-              input.debugTiming?.record(
-                'generation.provider_first_token',
-                performance.now() - generationStartedAt,
-                { attempt: 'knowledge' },
-              );
+      await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          async () => {
+            for await (const token of this.answerProvider.stream!({
+              ...answerInput,
+              // Reported by the provider on its first token of any kind, so
+              // this fires during the thinking block rather than after it.
+              onFirstToken: () =>
+                this.recordFirstToken(input, generationStartedAt, 'knowledge'),
+            })) {
+              rawAnswer += token;
+              streamRouter.push(token);
             }
-            rawAnswer += token;
-            streamRouter.push(token);
-          }
-        },
-        { attempt: 'knowledge', streamed: true },
+          },
+          { attempt: 'knowledge', streamed: true },
+        ),
       );
       streamRouter.finish();
       generatedAnswer = parseGeneratedAnswer(rawAnswer);
     } else {
-      rawAnswer = await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        () => this.answerProvider.answer(answerInput),
-        { attempt: 'knowledge', streamed: false },
+      rawAnswer = await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          () => this.answerProvider.answer(answerInput),
+          { attempt: 'knowledge', streamed: false },
+        ),
       );
       generatedAnswer = parseGeneratedAnswer(rawAnswer);
     }
@@ -822,7 +827,7 @@ export class AiKnowledgeChatService {
   }
 
   private async answerFromAttachedPage(
-    input: AiKnowledgeChatInput,
+    input: TimedChatInput,
     authCache: KnowledgeAuthorizationCache,
     thinking: AiChatThinkingProgress,
   ): Promise<AiKnowledgeChatResult> {
@@ -906,15 +911,18 @@ export class AiKnowledgeChatService {
         input.debugTiming,
         'generation.provider',
         async () => {
-          for await (const token of this.answerProvider.stream!(answerInput)) {
-            if (!providerFirstTokenLogged && token) {
+          for await (const token of this.answerProvider.stream!({
+            ...answerInput,
+            onFirstToken: () => {
+              if (providerFirstTokenLogged) return;
               providerFirstTokenLogged = true;
               input.debugTiming?.record(
                 'generation.provider_first_token',
                 performance.now() - generationStartedAt,
                 { attempt: 'attached_page' },
               );
-            }
+            },
+          })) {
             rawAnswer += token;
             streamRouter.push(token);
           }
@@ -1009,7 +1017,7 @@ export class AiKnowledgeChatService {
   }
 
   private async answerFromGeneralKnowledge(
-    input: AiKnowledgeChatInput,
+    input: TimedChatInput,
     thinking = new AiChatThinkingProgress(input.onThinking),
     thinkingStep: Extract<
       AiChatThinkingStep,
@@ -1032,33 +1040,37 @@ export class AiKnowledgeChatService {
     input.onStage?.('generation');
     thinking.start(thinkingStep);
     input.onToken?.(disclaimer);
+    input.timings.markGenerationStart();
+    const streamed = Boolean(this.answerProvider.stream);
     if (this.answerProvider.stream) {
+      const sanitizer = new GeneralReasonStreamFilter(input.onToken);
       const generationStartedAt = performance.now();
-      let providerFirstTokenLogged = false;
-      await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        async () => {
-          for await (const token of this.answerProvider.stream!(answerInput)) {
-            if (!providerFirstTokenLogged && token) {
-              providerFirstTokenLogged = true;
-              input.debugTiming?.record(
-                'generation.provider_first_token',
-                performance.now() - generationStartedAt,
-                { attempt: 'general' },
-              );
+      await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          async () => {
+            for await (const token of this.answerProvider.stream!({
+              ...answerInput,
+              onFirstToken: () =>
+                this.recordFirstToken(input, generationStartedAt, 'general'),
+            })) {
+              generatedAnswer += token;
+              sanitizer.push(token);
             }
-            generatedAnswer += token;
-          }
-        },
-        { attempt: 'general', streamed: true },
+          },
+          { attempt: 'general', streamed: true },
+        ),
       );
+      sanitizer.finish();
     } else {
-      generatedAnswer = await measureAiChatPhase(
-        input.debugTiming,
-        'generation.provider',
-        () => this.answerProvider.answer(answerInput),
-        { attempt: 'general', streamed: false },
+      generatedAnswer = await input.timings.measure('generationMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'generation.provider',
+          () => this.answerProvider.answer(answerInput),
+          { attempt: 'general', streamed: false },
+        ),
       );
     }
 
@@ -1066,7 +1078,9 @@ export class AiKnowledgeChatService {
     const cleanAnswer =
       stripCitationMarkers(parsedGeneralAnswer.content) ||
       buildGenerationUnavailableAnswer(input.query);
-    input.onToken?.(cleanAnswer);
+    if (!streamed || !generatedAnswer.trim()) {
+      input.onToken?.(cleanAnswer);
+    }
 
     thinking.complete(thinkingStep, undefined, 'general');
 
@@ -1097,15 +1111,15 @@ export class AiKnowledgeChatService {
       retrievedSources: retrievedEvidence?.retrievedSources ?? [],
       snippets: retrievedEvidence
         ? pack.primary.map((entry) => ({
-            id: entry.id,
-            knowledgePageId: entry.knowledgePageId,
-            origin: entry.origin,
-            authorizationMode: entry.authorizationMode,
-            title: entry.title,
-            text: entry.text,
-            retrievalReasons: entry.retrievalReasons,
-            sourceWindows: entry.sourceWindows,
-          }))
+          id: entry.id,
+          knowledgePageId: entry.knowledgePageId,
+          origin: entry.origin,
+          authorizationMode: entry.authorizationMode,
+          title: entry.title,
+          text: entry.text,
+          retrievalReasons: entry.retrievalReasons,
+          sourceWindows: entry.sourceWindows,
+        }))
         : [],
       warnings: pack.warnings,
       budget: pack.budget,
@@ -1138,9 +1152,7 @@ export class AiKnowledgeChatService {
     };
   }
 
-  private async rewriteRetrievalQuery(
-    input: AiKnowledgeChatInput,
-  ): Promise<string> {
+  private async rewriteRetrievalQuery(input: TimedChatInput): Promise<string> {
     if (input.queryRewriteEnabled === false) {
       input.debugTiming?.mark('context.rewrite_skipped', {
         reason: 'disabled_by_request',
@@ -1158,18 +1170,20 @@ export class AiKnowledgeChatService {
 
     input.onStage?.('understanding');
     try {
-      const rewritten = await measureAiChatPhase(
-        input.debugTiming,
-        'context.rewrite',
-        () =>
-          this.answerProvider.rewriteQuery!({
-            query: input.query,
-            chatContext: input.chatContext!,
-          }),
-        {
-          historyMessageCount: input.chatContext.length,
-          historyChars: input.chatContext.join('\n').length,
-        },
+      const rewritten = await input.timings.measure('rewriteMs', () =>
+        measureAiChatPhase(
+          input.debugTiming,
+          'context.rewrite',
+          () =>
+            this.answerProvider.rewriteQuery!({
+              query: input.query,
+              chatContext: input.chatContext!,
+            }),
+          {
+            historyMessageCount: input.chatContext!.length,
+            historyChars: input.chatContext!.join('\n').length,
+          },
+        ),
       );
       return rewritten.trim() || input.query;
     } catch {
@@ -1297,7 +1311,6 @@ export function isKnowledgeAiEnabledForWorkspace(
   return (aiSettings as Record<string, unknown>).chat === true;
 }
 
-/** User preference defaults to enabled for backwards compatibility. */
 export function isGeneralKnowledgeEnabledForUser(user: User): boolean {
   const settings = user.settings;
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
@@ -1314,6 +1327,48 @@ export function isGeneralKnowledgeEnabledForUser(user: User): boolean {
   return (preferences as Record<string, unknown>).generalKnowledge !== false;
 }
 
+type TimedPhase = 'rewriteMs' | 'retrievalMs' | 'generationMs';
+
+class AiKnowledgeChatTimingCollector {
+  private readonly startedAt = performance.now();
+  private readonly phases: Partial<Record<TimedPhase, number>> = {};
+  private generationStartedAt?: number;
+  private firstTokenAt?: number;
+
+  record(phase: TimedPhase, durationMs: number): void {
+    this.phases[phase] = roundDuration((this.phases[phase] ?? 0) + durationMs);
+  }
+
+  async measure<T>(phase: TimedPhase, operation: () => Promise<T>): Promise<T> {
+    const phaseStartedAt = performance.now();
+    try {
+      return await operation();
+    } finally {
+      this.record(phase, performance.now() - phaseStartedAt);
+    }
+  }
+
+  markGenerationStart(): void {
+    this.generationStartedAt ??= performance.now();
+  }
+
+  markFirstToken(): void {
+    this.firstTokenAt ??= performance.now();
+  }
+
+  snapshot(): AiKnowledgeChatTimings {
+    const ttftMs =
+      this.firstTokenAt === undefined || this.generationStartedAt === undefined
+        ? undefined
+        : roundDuration(this.firstTokenAt - this.generationStartedAt);
+    return {
+      ...this.phases,
+      ...(ttftMs === undefined ? {} : { ttftMs }),
+      totalMs: roundDuration(performance.now() - this.startedAt),
+    };
+  }
+}
+
 class AiChatThinkingProgress {
   private readonly startedAt = new Map<AiChatThinkingStep, number>();
   private readonly startedStats = new Map<
@@ -1321,7 +1376,7 @@ class AiChatThinkingProgress {
     AiChatThinkingStats
   >();
 
-  constructor(private readonly emit?: (event: AiChatThinkingEvent) => void) {}
+  constructor(private readonly emit?: (event: AiChatThinkingEvent) => void) { }
 
   start(step: AiChatThinkingStep, stats?: AiChatThinkingStats): void {
     this.startedAt.set(step, performance.now());
@@ -1382,10 +1437,10 @@ const ANSWER_MODE_MARKERS: Array<{
   marker: string;
   mode: GeneratedAnswerMode;
 }> = [
-  { marker: KNOWLEDGE_ANSWER_MARKER, mode: 'knowledge' },
-  { marker: GENERAL_ANSWER_MARKER, mode: 'general' },
-  { marker: KNOWLEDGE_NO_MATCH_MARKER, mode: 'no_match' },
-];
+    { marker: KNOWLEDGE_ANSWER_MARKER, mode: 'knowledge' },
+    { marker: GENERAL_ANSWER_MARKER, mode: 'general' },
+    { marker: KNOWLEDGE_NO_MATCH_MARKER, mode: 'no_match' },
+  ];
 
 function buildAnswerContext(pack: KnowledgeContextPack): string {
   if (pack.primary.length === 0) {
@@ -1585,6 +1640,8 @@ function parseGeneratedAnswer(answer: string): ParsedGeneratedAnswer {
 }
 
 const GENERAL_REASON_PATTERN = /<general_reason>([\s\S]*?)<\/general_reason>/i;
+const GENERAL_REASON_OPEN = '<general_reason>';
+const GENERAL_REASON_CLOSE = '</general_reason>';
 
 function parseGeneralAnswerOutput(answer: string): {
   content: string;
@@ -1647,7 +1704,7 @@ function buildCitationEvidence(
       (window) =>
         window.quoteHash === sourceWindow.quoteHash &&
         window.sourceRange.startOffset ===
-          sourceWindow.sourceRange.startOffset &&
+        sourceWindow.sourceRange.startOffset &&
         window.sourceRange.endOffset === sourceWindow.sourceRange.endOffset,
     );
     if (!isDuplicate && windows.length < 2) {
@@ -1704,7 +1761,7 @@ function buildKnowledgeNoMatchAnswer(query: string): string {
 class CitationStreamSanitizer {
   private buffer = '';
 
-  constructor(private readonly emit?: (token: string) => void) {}
+  constructor(private readonly emit?: (token: string) => void) { }
 
   push(token: string): void {
     this.buffer += token;
@@ -1737,6 +1794,57 @@ class CitationStreamSanitizer {
 
   private output(value: string): void {
     if (value) this.emit?.(value);
+  }
+}
+
+class GeneralReasonStreamFilter {
+  private buffer = '';
+  private resolved = false;
+  private readonly sanitizer: CitationStreamSanitizer;
+
+  constructor(emit?: (token: string) => void) {
+    this.sanitizer = new CitationStreamSanitizer(emit);
+  }
+
+  push(token: string): void {
+    if (this.resolved) {
+      this.sanitizer.push(token);
+      return;
+    }
+
+    this.buffer += token;
+    const content = this.buffer.trimStart();
+    if (!content) return;
+
+    const lower = content.toLowerCase();
+    const closeIndex = lower.indexOf(GENERAL_REASON_CLOSE);
+    if (closeIndex >= 0) {
+      this.resolve(
+        content.slice(closeIndex + GENERAL_REASON_CLOSE.length).trimStart(),
+      );
+      return;
+    }
+    if (
+      lower.startsWith(GENERAL_REASON_OPEN) ||
+      GENERAL_REASON_OPEN.startsWith(lower)
+    ) {
+      return;
+    }
+
+    this.resolve(content);
+  }
+
+  finish(): void {
+    if (!this.resolved) {
+      this.resolve(parseGeneralAnswerOutput(this.buffer).content);
+    }
+    this.sanitizer.finish();
+  }
+
+  private resolve(content: string): void {
+    this.resolved = true;
+    this.buffer = '';
+    if (content) this.sanitizer.push(content);
   }
 }
 

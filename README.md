@@ -32,6 +32,7 @@ It brings together a collaborative Wiki, AI-powered knowledge compilation and re
 
 ## Table of Contents
 
+- [Table of Contents](#table-of-contents)
 - [Why Akasha](#why-akasha)
 - [Features](#features)
 - [How It Works](#how-it-works)
@@ -62,14 +63,14 @@ Most knowledge tools store pages, while most AI assistants retrieve isolated fra
 
 ## Features
 
-| Area | Capabilities |
-| :-- | :-- |
-| Collaborative workspace | Spaces, rich-text and Markdown pages, attachments, comments, version history, real-time collaboration, and access control |
-| Knowledge compilation | Asynchronous page and space compilation into entities, concepts, claims, relations, comparisons, contradictions, and evidence |
-| Retrieval and Q&A | Lexical and vector retrieval, source citations, supporting evidence, and permission-aware results |
-| Relationship graph | Visual exploration of direct page links and compiled semantic relationships |
-| Agent integration | MCP access to knowledge and permitted page, space, comment, attachment, and workspace operations |
-| Self-hosting | PostgreSQL with pgvector, configurable model endpoints, and local, S3, or Azure file storage |
+| Area                    | Capabilities                                                                                                                  |
+| :---------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
+| Collaborative workspace | Spaces, rich-text and Markdown pages, attachments, comments, version history, real-time collaboration, and access control     |
+| Knowledge compilation   | Asynchronous page and space compilation into entities, concepts, claims, relations, comparisons, contradictions, and evidence |
+| Retrieval and Q&A       | Lexical and vector retrieval, source citations, supporting evidence, and permission-aware results                             |
+| Relationship graph      | Visual exploration of direct page links and compiled semantic relationships                                                   |
+| Agent integration       | MCP access to knowledge and permitted page, space, comment, attachment, and workspace operations                              |
+| Self-hosting            | PostgreSQL with pgvector, configurable model endpoints, and local, S3, or Azure file storage                                  |
 
 ## How It Works
 
@@ -97,14 +98,14 @@ Akasha keeps source content and derived knowledge as distinct but connected laye
 
 Akasha is evaluated on three public multi-hop question-answering datasets using the `qwen-27b` model. `R@5` measures the proportion of gold evidence retrieved in the top five results, while `F1` balances retrieval precision and recall against the gold evidence.
 
-| Dataset | R@5 | F1 |
-| :-- | --: | --: |
-| MuSiQue | **89.33** | 65.10 |
-| 2WikiMultiHopQA | 91.00 | 65.02 |
-| HotpotQA | **99.00** | 62.15 |
-| **Average** | **93.11** | 64.09 |
+| Dataset         |       R@5 |        F1 |
+| :-------------- | --------: | --------: |
+| MuSiQue         | **89.33** | **67.01** |
+| 2WikiMultiHopQA |     91.00 |     71.95 |
+| HotpotQA        | **99.00** | **87.82** |
+| **Average**     | **93.11** | **75.59** |
 
-Under the benchmark configuration currently recorded in this repository, Akasha achieved an average Recall@5 (`R@5`) of **93.11** across MuSiQue, 2WikiMultiHopQA, and HotpotQA, with an average `F1` of **64.09**. These figures describe the recorded retrieval run and should be compared only under consistent dataset and evaluation settings.
+Under the benchmark configuration currently recorded in this repository, Akasha achieved an average Recall@5 (`R@5`) of **93.11** across MuSiQue, 2WikiMultiHopQA, and HotpotQA, with an average `F1` of **75.59**. These figures describe the recorded retrieval run and should be compared only under consistent dataset and evaluation settings.
 
 See the [complete benchmark comparison and local evaluation toolkit](benchmark/README.md#多跳问答基准综合对比) for baselines, per-dataset results, and instructions for running the evaluation pipeline.
 

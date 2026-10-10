@@ -9,7 +9,10 @@ import { createLanguageModelFromConfig } from '../llm-wiki/services/ai-model-fac
 import type { ResolvedAiModelConfig } from '../llm-wiki/services/ai-model-config.service';
 import { EditorAiAction, EditorAiGenerateDto } from './dto/editor-ai.dto';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
-import { answerProviderOptions } from '../llm-wiki/services/knowledge-answer-provider.service';
+import {
+  EDITOR_PROVIDER_NAME,
+  editorCallOptions,
+} from '../llm-wiki/services/knowledge-answer-provider.service';
 
 const SYSTEM_PROMPT = [
   'You are an inline writing assistant inside a document editor.',
@@ -44,7 +47,7 @@ export class EditorAiService {
       model,
       system: SYSTEM_PROMPT,
       prompt: buildEditorPrompt(input),
-      providerOptions: answerProviderOptions(config),
+      ...editorCallOptions(config),
       maxOutputTokens: EDITOR_AI_MAX_OUTPUT_TOKENS,
       abortSignal: AbortSignal.timeout(EDITOR_AI_TIMEOUT_MS),
     });
@@ -73,7 +76,7 @@ export class EditorAiService {
       model,
       system: SYSTEM_PROMPT,
       prompt: buildEditorPrompt(input),
-      providerOptions: answerProviderOptions(config),
+      ...editorCallOptions(config),
       maxOutputTokens: EDITOR_AI_MAX_OUTPUT_TOKENS,
       abortSignal,
     });
@@ -98,10 +101,7 @@ export class EditorAiService {
     config: ResolvedAiModelConfig;
   }> {
     const config = await this.configService.getResolvedConfig('answer');
-    const model = createLanguageModelFromConfig(
-      config,
-      'editor-ai-openai-compatible',
-    );
+    const model = createLanguageModelFromConfig(config, EDITOR_PROVIDER_NAME);
 
     if (!model) {
       throw new ServiceUnavailableException(
