@@ -1,8 +1,6 @@
 /**
- * Shared lexical matching helpers used by both retrieval ranking and image
- * citation resolution. Kept in one place so image weak-association scoring uses
- * the exact same tokenization/normalization as retrieval, avoiding drift and
- * flaky tests.
+ * Shared lexical matching helpers for image citation weak-association scoring.
+ * Kept separate so tokenization/normalization stays consistent and testable.
  */
 
 export function normalizeSearchText(value: string): string {
@@ -50,9 +48,3 @@ export function informativeTerms(value: string): string[] {
   return [...new Set([...ascii, ...han])];
 }
 
-export function hasInformativeTextOverlap(query: string, text: string): boolean {
-  const queryTerms = informativeTerms(query);
-  if (queryTerms.length === 0) return false;
-  const normalizedText = normalizeSearchText(text);
-  return queryTerms.some((term) => normalizedText.includes(term));
-}

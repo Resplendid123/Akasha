@@ -295,14 +295,13 @@ describe('KnowledgeRetrievalRankerService', () => {
 
     expect(
       ranker.isCandidateRelevant({
-        query: 'vacation policy',
         candidate: ranked,
         maxCosineDistance: 0.2,
       }),
     ).toBe(false);
   });
 
-  it('rejects a weak semantic-only candidate with no textual query overlap', () => {
+  it('rejects a semantic-only candidate whose distance exceeds the default threshold', () => {
     const ranker = new KnowledgeRetrievalRankerService();
     const ranked = ranker.fuseRecallLists({
       recallLists: [
@@ -335,7 +334,6 @@ describe('KnowledgeRetrievalRankerService', () => {
           isCandidateRelevant(input: unknown): boolean;
         }
       ).isCandidateRelevant({
-        query: 'employee vacation policy',
         candidate: ranked[0],
       }),
     ).toBe(false);
@@ -368,7 +366,6 @@ describe('KnowledgeRetrievalRankerService', () => {
 
     expect(
       ranker.isCandidateRelevant({
-        query: 'employee vacation policy',
         candidate: ranked[0],
       }),
     ).toBe(true);
@@ -401,11 +398,45 @@ describe('KnowledgeRetrievalRankerService', () => {
 
     expect(
       ranker.isCandidateRelevant({
-        query: 'employee vacation policy',
         candidate: ranked[0],
         maxCosineDistance: 1,
       }),
     ).toBe(true);
+  });
+
+  it('does not let incidental query/text term overlap rescue a semantically distant chunk', () => {
+    const ranker = new KnowledgeRetrievalRankerService();
+    // The query shares the term "云桌面" with the chunk text, but the chunk is
+    // semantically unrelated (distance 0.9). Overlap must not override the gate.
+    const ranked = ranker.fuseRecallLists({
+      recallLists: [
+        {
+          signal: 'semantic',
+          candidates: [
+            {
+              chunk: chunk(
+                'chunk-overlap',
+                'kp-overlap',
+                [0, 1],
+                '云桌面支持公共账号登录并多人共享使用',
+              ),
+              page: page('kp-overlap', '云桌面公共账号支持'),
+              sourcePageIds: ['source-overlap'],
+              signals: ['semantic'],
+              signalScore: 0.9,
+            },
+          ],
+        },
+      ],
+      limit: 10,
+    });
+
+    expect(
+      ranker.isCandidateRelevant({
+        candidate: ranked[0],
+        maxCosineDistance: 0.2,
+      }),
+    ).toBe(false);
   });
 });
 
