@@ -1,7 +1,10 @@
-import { generateText, streamText } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { generateText, streamText } from 'ai';
 import { EnvironmentService } from '../../../integrations/environment/environment.service';
-import { ConfiguredKnowledgeAnswerProvider } from './knowledge-answer-provider.service';
+import {
+  ANSWER_PROVIDER_NAME,
+  ConfiguredKnowledgeAnswerProvider,
+} from './knowledge-answer-provider.service';
 
 jest.mock('ai', () => ({
   generateText: jest.fn(),
@@ -37,7 +40,7 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     ).resolves.toBe('grounded answer');
 
     expect(createOpenAICompatible).toHaveBeenCalledWith({
-      name: 'openai-compatible',
+      name: ANSWER_PROVIDER_NAME,
       apiKey: 'openai-key',
       baseURL: 'https://api.openai.test/v1',
     });
@@ -57,12 +60,44 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
         'User question:',
         'How do we use Kafka?',
       ].join('\n'),
+      temperature: 0,
     });
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining(
           'When you use facts from the knowledge context, append the relevant citation marker to that sentence.',
         ),
+      }),
+    );
+  });
+
+  it('applies the sampling and thinking configured on the answer row', async () => {
+    const openaiProvider = jest.fn().mockReturnValue('openai-model');
+    (createOpenAICompatible as jest.Mock).mockReturnValue(openaiProvider);
+    (generateText as jest.Mock).mockResolvedValue({ text: 'grounded answer' });
+
+    const service = createService({
+      parameters: {
+        temperature: 0.4,
+        seed: 11,
+        thinkingMode: 'qwen',
+        reasoningEffort: 'medium',
+      },
+    });
+    await service.answer({ query: 'Q', context: 'Context' });
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        temperature: 0.4,
+        seed: 11,
+        providerOptions: {
+          [ANSWER_PROVIDER_NAME]: {
+            chat_template_kwargs: {
+              enable_thinking: true,
+              reasoning_effort: 'medium',
+            },
+          },
+        },
       }),
     );
   });
@@ -80,7 +115,7 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     await service.answer({ query: 'Q', context: 'Context' });
 
     expect(createOpenAICompatible).toHaveBeenCalledWith({
-      name: 'openai-compatible',
+      name: ANSWER_PROVIDER_NAME,
       apiKey: 'compatible-key',
       baseURL: 'https://llm.example/v1',
     });
@@ -277,9 +312,9 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
     const openaiProvider = jest.fn().mockReturnValue('openai-model');
     (createOpenAICompatible as jest.Mock).mockReturnValue(openaiProvider);
     (streamText as jest.Mock).mockReturnValue({
-      textStream: (async function* () {
-        yield 'first ';
-        yield 'second';
+      fullStream: (async function* () {
+        yield { type: 'text-delta', id: '1', text: 'first ' };
+        yield { type: 'text-delta', id: '1', text: 'second' };
       })(),
     });
     const service = createService({ aiDriver: 'openai-compatible' });
@@ -297,6 +332,39 @@ describe('ConfiguredKnowledgeAnswerProvider', () => {
       expect.objectContaining({ model: 'openai-model' }),
     );
   });
+
+  it('reports the first token while thinking, and still yields answer text only', async () => {
+    const openaiProvider = jest.fn().mockReturnValue('openai-model');
+    (createOpenAICompatible as jest.Mock).mockReturnValue(openaiProvider);
+    const seenBeforeFirstYield: string[] = [];
+    (streamText as jest.Mock).mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: 'reasoning-start', id: 'r1' };
+        yield { type: 'reasoning-delta', id: 'r1', text: 'let me check ' };
+        yield { type: 'reasoning-delta', id: 'r1', text: 'the context' };
+        yield { type: 'reasoning-end', id: 'r1' };
+        yield { type: 'text-delta', id: 't1', text: 'Emad Hashim' };
+      })(),
+    });
+    const service = createService({ aiDriver: 'openai-compatible' });
+
+    const tokens: string[] = [];
+    let firstTokenCalls = 0;
+    for await (const token of service.stream({
+      query: 'Q',
+      context: 'Context',
+      onFirstToken: () => {
+        firstTokenCalls += 1;
+        seenBeforeFirstYield.push(...tokens);
+      },
+    })) {
+      tokens.push(token);
+    }
+
+    expect(firstTokenCalls).toBe(1);
+    expect(seenBeforeFirstYield).toEqual([]);
+    expect(tokens).toEqual(['Emad Hashim']);
+  });
 });
 
 function createService(input: {
@@ -305,6 +373,7 @@ function createService(input: {
   aiChatMaxInputChars?: number;
   openAiApiKey?: string;
   openAiApiUrl?: string;
+  parameters?: Record<string, unknown>;
 }) {
   const environmentService = {
     getAiChatMaxInputChars: jest
@@ -319,7 +388,7 @@ function createService(input: {
       model: input.aiChatModel ?? 'model',
       apiKey: input.openAiApiKey ?? 'openai-key',
       baseUrl: input.openAiApiUrl ?? 'https://openai.example/v1',
-      parameters: {},
+      parameters: input.parameters ?? {},
       fromDatabase: false,
     })),
     invalidate: jest.fn(),

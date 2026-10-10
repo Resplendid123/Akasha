@@ -6,10 +6,20 @@ export type AiModelConfigFeature =
 
 export type AiModelProvider = "openai-compatible";
 
+export type ThinkingMode = "qwen" | "openai";
+
+export type ReasoningEffort = "low" | "medium" | "high";
+
 export interface AiModelConfigParameters {
   // Embedding tuning.
   dimension?: number;
   supportsMrl?: boolean;
+  temperature?: number;
+  topP?: number;
+  seed?: number;
+  thinkingMode?: ThinkingMode;
+  thinkingEnabled?: boolean;
+  reasoningEffort?: ReasoningEffort;
   [key: string]: unknown;
 }
 
