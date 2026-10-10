@@ -65,6 +65,11 @@ export class IsElfLlmWikiController {
     @AuthWorkspace() workspace: Workspace,
     @AgentAccess() agentAccess: AgentAccessContext,
   ) {
+    this.logger.log(
+      `iself knowledge query: workspace=${workspace.id} user=${user.id} ` +
+        `query=${JSON.stringify(dto.query)} body=${JSON.stringify(dto)}`,
+    );
+
     if (!this.chatService.isEnabledForWorkspace(workspace)) {
       throw new ForbiddenException('AI knowledge chat is disabled');
     }
