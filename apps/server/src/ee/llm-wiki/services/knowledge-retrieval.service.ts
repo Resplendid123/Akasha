@@ -320,7 +320,6 @@ export class KnowledgeRetrievalService {
     ) =>
       candidates.filter((candidate) =>
         this.ranker.isCandidateRelevant({
-          query: input.query,
           candidate,
           maxCosineDistance: input.maxCosineDistance,
         }),
