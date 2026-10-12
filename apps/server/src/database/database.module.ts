@@ -44,6 +44,7 @@ import { KnowledgeImageExtractionRepo } from '@akasha/db/repos/llm-wiki/knowledg
 import { AiChatRepo } from '@akasha/db/repos/ai-chat/ai-chat.repo';
 import { AiModelConfigRepo } from '@akasha/db/repos/llm-wiki/ai-model-config.repo';
 import { PageVisitRepo } from '@akasha/db/repos/page/page-visit.repo';
+import { AnalyticsEventRepo } from '@akasha/db/repos/analytics/analytics-event.repo';
 import { buildDatabasePostgresOptions } from './database-postgres-options';
 
 export {
@@ -90,6 +91,7 @@ export {
     PageTransclusionReferencesRepo,
     PageHistoryRepo,
     PageVisitRepo,
+    AnalyticsEventRepo,
     CommentRepo,
     FavoriteRepo,
     AttachmentRepo,
@@ -128,6 +130,7 @@ export {
     PageTransclusionReferencesRepo,
     PageHistoryRepo,
     PageVisitRepo,
+    AnalyticsEventRepo,
     CommentRepo,
     FavoriteRepo,
     AttachmentRepo,

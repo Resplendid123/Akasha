@@ -67,6 +67,18 @@ export interface AiModelConfigs {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface AnalyticsEvents {
+  createdAt: Generated<Timestamp>;
+  event: string;
+  id: Generated<string>;
+  metadata: Json | null;
+  pageId: string | null;
+  route: string | null;
+  spaceId: string | null;
+  userId: string | null;
+  workspaceId: string;
+}
+
 export interface ApiKeys {
   agentUserId: string | null;
   createdAt: Generated<Timestamp>;
@@ -1156,6 +1168,7 @@ export interface DB {
   aiChatMessages: AiChatMessages;
   aiChats: AiChats;
   aiModelConfigs: AiModelConfigs;
+  analyticsEvents: AnalyticsEvents;
   apiKeys: ApiKeys;
   apiKeySpaces: ApiKeySpaces;
   attachments: Attachments;

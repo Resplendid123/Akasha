@@ -7,6 +7,7 @@ import {
 import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
 import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';
 import { SpaceMemberRepo } from '@akasha/db/repos/space/space-member.repo';
+import { SpaceListOptions } from '@akasha/db/repos/space/types';
 import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import { AddSpaceMembersDto } from '../dto/add-space-members.dto';
 import { InjectKysely } from 'nestjs-kysely';
@@ -430,8 +431,13 @@ export class SpaceMemberService {
 
   async getUserSpaces(
     userId: string,
-    pagination: PaginationOptions,
+    pagination: SpaceListOptions,
+    allowedSpaceIds?: string[],
   ): Promise<CursorPaginationResult<Space>> {
-    return this.spaceMemberRepo.getUserSpaces(userId, pagination);
+    return this.spaceMemberRepo.getUserSpaces(
+      userId,
+      pagination,
+      allowedSpaceIds,
+    );
   }
 }

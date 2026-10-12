@@ -37,4 +37,8 @@ export class SpacePaginationOptions {
   @IsOptional()
   @IsIn([SpaceRole.ADMIN, SpaceRole.WRITER, SpaceRole.READER])
   role?: SpaceRole;
+
+  @IsOptional()
+  @IsIn(['public', 'personal'])
+  type?: 'public' | 'personal';
 }

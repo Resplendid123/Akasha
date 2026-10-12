@@ -12,7 +12,12 @@ import {
   UpdatableSpaceMember,
 } from '@akasha/db/types/entity.types';
 import { PaginationOptions } from '../../pagination/pagination-options';
-import { MemberInfo, UserSpaceRole, UserSpaceRoleWithSpaceId } from './types';
+import {
+  MemberInfo,
+  SpaceListOptions,
+  UserSpaceRole,
+  UserSpaceRoleWithSpaceId,
+} from './types';
 import {
   emptyCursorPaginationResult,
   executeWithCursorPagination,
@@ -426,12 +431,30 @@ export class SpaceMemberRepo {
     return spaceIds;
   }
 
-  async getUserSpaces(userId: string, pagination: PaginationOptions) {
+  async getUserSpaces(
+    userId: string,
+    pagination: SpaceListOptions,
+    allowedSpaceIds?: string[],
+  ) {
+    if (allowedSpaceIds?.length === 0) {
+      return emptyCursorPaginationResult<Space>(pagination.limit, 0);
+    }
     let query = this.db
       .selectFrom('spaces')
       .selectAll()
       .select((eb) => [this.spaceRepo.withMemberCount(eb)])
       .where('id', 'in', this.getUserSpaceIdsQuery(userId));
+
+    if (allowedSpaceIds) {
+      query = query.where('id', 'in', allowedSpaceIds);
+    }
+    if (pagination.type) {
+      query = query.where(
+        'personalOwnerId',
+        pagination.type === 'personal' ? 'is not' : 'is',
+        null,
+      );
+    }
 
     if (pagination.role) {
       const roleSpaceIds = await this.getUserSpaceIdsByHighestRole(
@@ -439,7 +462,7 @@ export class SpaceMemberRepo {
         pagination.role,
       );
       if (roleSpaceIds.length === 0) {
-        return emptyCursorPaginationResult<Space>(pagination.limit);
+        return emptyCursorPaginationResult<Space>(pagination.limit, 0);
       }
       query = query.where('id', 'in', roleSpaceIds);
     }
@@ -458,7 +481,11 @@ export class SpaceMemberRepo {
       );
     }
 
-    return executeWithCursorPagination(query, {
+    const count = await query
+      .clearSelect()
+      .select((eb) => eb.fn.countAll().as('total'))
+      .executeTakeFirstOrThrow();
+    const result = await executeWithCursorPagination(query, {
       perPage: pagination.limit,
       cursor: pagination.cursor,
       beforeCursor: pagination.beforeCursor,
@@ -468,5 +495,6 @@ export class SpaceMemberRepo {
       ],
       parseCursor: (cursor) => ({ name: cursor.name, id: cursor.id }),
     });
+    return { ...result, meta: { ...result.meta, total: Number(count.total) } };
   }
 }

@@ -4,6 +4,7 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  Logger,
   Req,
   Res,
 } from '@nestjs/common';
@@ -12,12 +13,17 @@ import { SkipTransform } from '../../common/decorators/skip-transform.decorator'
 import { McpAuthService } from './mcp-auth.service';
 import { McpService } from './mcp.service';
 import { McpDisabledException } from './mcp.errors';
+import { AnalyticsEventRepo } from '@akasha/db/repos/analytics/analytics-event.repo';
+import { extractMcpToolCalls } from '../analytics/agent-op-category';
 
 @Controller('mcp')
 export class McpController {
+  private readonly logger = new Logger(McpController.name);
+
   constructor(
     private readonly mcpAuthService: McpAuthService,
     private readonly mcpService: McpService,
+    private readonly analyticsEventRepo: AnalyticsEventRepo,
   ) {}
 
   @All()
@@ -56,7 +62,35 @@ export class McpController {
       });
     }
 
+    this.recordAgentToolCalls(ctx, body);
+
     reply.hijack();
     await this.mcpService.handleRequest(ctx, req.raw, reply.raw, body);
+  }
+
+  // Outcome is 'called': the response is streamed by the MCP transport and
+  // tool errors live inside the JSON-RPC result.
+  private recordAgentToolCalls(
+    ctx: Awaited<ReturnType<McpAuthService['authenticate']>>,
+    body: unknown,
+  ): void {
+    const agentAccess = ctx.agentAccess;
+    if (!agentAccess) return;
+
+    for (const tool of extractMcpToolCalls(body)) {
+      this.analyticsEventRepo
+        .insertAgentOp({
+          workspaceId: agentAccess.workspace.id,
+          agentUserId: agentAccess.agentUser.id,
+          op: `mcp:${tool}`,
+          channel: 'mcp',
+          apiKeyId: agentAccess.apiKeyId,
+          delegatedUserId: agentAccess.delegatedUser?.id,
+          outcome: 'called',
+        })
+        .catch((error) =>
+          this.logger.warn(`Failed to record agent_op event: ${error}`),
+        );
+    }
   }
 }

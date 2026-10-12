@@ -97,5 +97,34 @@ describe('SpaceService personal spaces', () => {
       service.deleteSpace('personal-1', workspaceId),
     ).rejects.toThrow(BadRequestException);
   });
+
+  it('records a space_deleted analytics event with the creation time', async () => {
+    const service = createService();
+    const createdAt = new Date('2026-01-02T03:04:05.000Z');
+    service.spaceRepo.findById.mockResolvedValue({
+      id: 'team-1',
+      name: 'Team',
+      personalOwnerId: null,
+      createdAt,
+    });
+    service.spaceRepo.deleteSpace = jest.fn().mockResolvedValue(undefined);
+    service.attachmentQueue = { add: jest.fn().mockResolvedValue(undefined) };
+    service.auditService = { log: jest.fn() };
+    service.analyticsEventRepo = {
+      insertSpaceDeleted: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await service.deleteSpace('team-1', workspaceId, user.id);
+
+    expect(service.analyticsEventRepo.insertSpaceDeleted).toHaveBeenCalledWith(
+      {
+        workspaceId,
+        userId: user.id,
+        spaceId: 'team-1',
+        spaceCreatedAt: createdAt,
+        name: 'Team',
+      },
+    );
+  });
 });
 

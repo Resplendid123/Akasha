@@ -2,6 +2,24 @@ import { validate } from 'class-validator';
 import { SpacePaginationOptions } from './space-pagination-options.dto';
 
 describe('SpacePaginationOptions', () => {
+  it.each(['public', 'personal'] as const)(
+    'accepts the %s space type',
+    async (type) => {
+      const pagination = new SpacePaginationOptions();
+      pagination.type = type;
+      await expect(validate(pagination)).resolves.toEqual([]);
+    },
+  );
+
+  it('rejects unsupported space types', async () => {
+    const pagination = Object.assign(new SpacePaginationOptions(), {
+      type: 'private',
+    });
+    const errors = await validate(pagination);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('type');
+  });
+
   it('keeps the default spaces page size bounded at 20', () => {
     expect(new SpacePaginationOptions().limit).toBe(20);
   });

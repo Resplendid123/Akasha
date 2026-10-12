@@ -8,6 +8,7 @@ import {
   IconSettings,
   IconTemplate,
   IconDatabaseSearch,
+  IconChartBar,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router-dom";
 import classes from "./global-sidebar.module.css";
@@ -30,7 +31,7 @@ export default function GlobalSidebar() {
   const [mobileSidebarOpened] = useAtom(mobileSidebarAtom);
   const toggleMobileSidebar = useToggleSidebar(mobileSidebarAtom);
   const hasTemplates = useHasFeature(Feature.TEMPLATES);
-  const { isOwner } = useUserRole();
+  const { isOwner, isAdmin } = useUserRole();
   const settingsPath = isOwner
     ? "/settings/account/profile"
     : "/settings/account/preferences";
@@ -39,6 +40,9 @@ export default function GlobalSidebar() {
     { label: "AI Q&A", icon: IconDatabaseSearch, path: "/ai" },
     { label: "Favorites", icon: IconStar, path: "/favorites" },
     { label: "Spaces", icon: IconLayoutGrid, path: "/spaces" },
+    ...(isAdmin
+      ? [{ label: "User analytics", icon: IconChartBar, path: "/analytics" }]
+      : []),
     ...(hasTemplates
       ? [{ label: "Templates", icon: IconTemplate, path: "/templates" }]
       : []),
