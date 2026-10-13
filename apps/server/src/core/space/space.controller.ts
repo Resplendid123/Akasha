@@ -80,12 +80,28 @@ export class SpaceController {
       pagination.role &&
       pagination.role !== SpaceRole.ADMIN
     ) {
-      return emptyCursorPaginationResult<Space>(pagination.limit);
+      return emptyCursorPaginationResult<Space>(pagination.limit, 0);
     }
 
+    let allowedSpaceIds: string[] | undefined;
+    if (agentAccess) {
+      if (!this.agentAccessService) {
+        throw new ForbiddenException('Agent space authorization unavailable');
+      }
+      allowedSpaceIds =
+        await this.agentAccessService.getBoundSpaceIds(agentAccess);
+    }
     const result = useAdminView
-      ? await this.spaceService.getWorkspaceSpaces(workspace.id, pagination)
-      : await this.spaceMemberService.getUserSpaces(user.id, pagination);
+      ? await this.spaceService.getWorkspaceSpaces(
+          workspace.id,
+          pagination,
+          allowedSpaceIds,
+        )
+      : await this.spaceMemberService.getUserSpaces(
+          user.id,
+          pagination,
+          allowedSpaceIds,
+        );
 
     if (result.items.length > 0) {
       if (useAdminView) {
@@ -121,16 +137,6 @@ export class SpaceController {
           };
         });
       }
-    }
-
-    if (agentAccess) {
-      if (!this.agentAccessService) {
-        throw new ForbiddenException('Agent space authorization unavailable');
-      }
-      const boundIds = new Set(
-        await this.agentAccessService.getBoundSpaceIds(agentAccess),
-      );
-      result.items = result.items.filter((space) => boundIds.has(space.id));
     }
 
     return result;
@@ -231,7 +237,11 @@ export class SpaceController {
     if (ability.cannot(SpaceCaslAction.Manage, SpaceCaslSubject.Settings)) {
       throw new ForbiddenException();
     }
-    return this.spaceService.deleteSpace(spaceIdDto.spaceId, workspace.id);
+    return this.spaceService.deleteSpace(
+      spaceIdDto.spaceId,
+      workspace.id,
+      user.id,
+    );
   }
 
   @HttpCode(HttpStatus.OK)

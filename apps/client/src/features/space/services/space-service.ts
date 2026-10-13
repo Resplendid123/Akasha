@@ -6,12 +6,13 @@ import {
   IRemoveSpaceMember,
   ISpace,
   ISpaceMember,
+  SpaceQueryParams,
 } from "@/features/space/types/space.types";
 import { IPagination, QueryParams } from "@/lib/types.ts";
 import { saveAs } from "file-saver";
 
 export async function getSpaces(
-  params?: QueryParams,
+  params?: SpaceQueryParams,
 ): Promise<IPagination<ISpace>> {
   const req = await api.post("/spaces", params);
   return req.data;

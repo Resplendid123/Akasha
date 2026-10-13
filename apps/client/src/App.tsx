@@ -48,6 +48,7 @@ import KnowledgeAdminPage from "@/ee/llm-wiki/pages/knowledge-admin";
 import KnowledgeGraphPage from "@/ee/llm-wiki/pages/knowledge-graph";
 import VerifyEmail from "@/ee/pages/verify-email.tsx";
 import LabelPage from "@/pages/label/label-page";
+import AnalyticsPage from "@/pages/analytics/analytics-page";
 import { ThemeFavicon } from "@/components/common/brand-logo.tsx";
 import ImageViewer from "@/components/ui/image-viewer.tsx";
 
@@ -102,6 +103,7 @@ export default function App() {
           <Route path={"/knowledge/admin"} element={<KnowledgeAdminPage />} />
           <Route path={"/spaces"} element={<SpacesPage />} />
           <Route path={"/favorites"} element={<FavoritesPage />} />
+          <Route path={"/analytics"} element={<AnalyticsPage />} />
           <Route path={"/labels/:labelName"} element={<LabelPage />} />
           <Route path={"/templates"} element={<TemplateList />} />
           <Route path={"/templates/:templateId"} element={<TemplateEditor />} />

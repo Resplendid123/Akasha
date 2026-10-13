@@ -6,10 +6,12 @@ import { isCloud } from "@/lib/config.ts";
 import { SearchSpotlight } from "@/features/search/components/search-spotlight.tsx";
 import React from "react";
 import { useGetSpaceBySlugQuery } from "@/features/space/queries/space-query.ts";
+import { useRouteTracker } from "@/features/analytics/hooks/use-route-tracker.ts";
 
 export default function Layout() {
   const { spaceSlug } = useParams();
   const { data: space } = useGetSpaceBySlugQuery(spaceSlug);
+  useRouteTracker();
 
   return (
     <UserProvider>

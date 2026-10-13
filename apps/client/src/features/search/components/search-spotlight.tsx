@@ -1,6 +1,6 @@
 import { Spotlight, useSpotlight } from "@mantine/spotlight";
 import { IconSearch } from "@tabler/icons-react";
-import { Group, VisuallyHidden } from "@mantine/core";
+import { Center, Group, Loader, Text, VisuallyHidden } from "@mantine/core";
 import React, { useState, useMemo, useEffect } from "react";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useTranslation } from "react-i18next";
@@ -9,7 +9,10 @@ import {
   SearchSpotlightFilters,
   SearchSpotlightFilterValues,
 } from "./search-spotlight-filters.tsx";
-import { useUnifiedSearch } from "../hooks/use-unified-search.ts";
+import {
+  usePageSearchInfinite,
+  useUnifiedSearch,
+} from "../hooks/use-unified-search.ts";
 import { SearchResultItem } from "./search-result-item.tsx";
 import { useRecentPageVisitsQuery } from "@/features/page-visit/queries/page-visit-query";
 import { RecentPageVisits } from "@/features/page-visit/components/recent-page-visits";
@@ -56,7 +59,29 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
     return params;
   }, [debouncedSearchQuery, filters]);
 
-  const { data: searchResults, isLoading } = useUnifiedSearch(searchParams);
+  // Determine result type for rendering
+  const isAttachmentSearch = filters.contentType === "attachment";
+
+  const attachmentQuery = useUnifiedSearch(searchParams);
+  const pageQuery = usePageSearchInfinite(searchParams);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = pageQuery;
+
+  const searchResults = isAttachmentSearch
+    ? attachmentQuery.data
+    : pageQuery.data?.pages.flatMap((page) => page.items);
+  const totalCount = isAttachmentSearch
+    ? (attachmentQuery.data?.length ?? 0)
+    : (pageQuery.data?.pages[0]?.total ?? 0);
+  const isLoading = isAttachmentSearch
+    ? attachmentQuery.isLoading
+    : pageQuery.isLoading;
+
+  // 滚动到列表底部时加载下一页
+  const handleBottomReached = () => {
+    if (!isAttachmentSearch && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  };
   const {
     data: recentVisits = [],
     isLoading: isRecentLoading,
@@ -66,9 +91,6 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
   useEffect(() => {
     if (!opened) setQuery("");
   }, [opened]);
-
-  // Determine result type for rendering
-  const isAttachmentSearch = filters.contentType === "attachment";
 
   const resultItems = (searchResults || []).map((result) => (
     <SearchResultItem
@@ -118,11 +140,23 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
           {!isRecentMode && !isLoading
             ? resultItems.length === 0
               ? t("No results found")
-              : t("{{count}} results found", { count: resultItems.length })
+              : t("{{count}} results found", { count: totalCount })
             : ""}
         </VisuallyHidden>
 
-        <Spotlight.ActionsList>
+        {!isRecentMode && !isLoading && totalCount > 0 && (
+          <Text size="sm" c="dimmed" px="md" pb={4}>
+            {t("{{count}} results found", { count: totalCount })}
+          </Text>
+        )}
+
+        {/* 默认 max-height 只预留了搜索框高度，上方还有筛选栏和结果数时
+            列表底部会被外层 overflow:hidden 裁掉，导致滚不到底；改为占满剩余空间 */}
+        <Spotlight.ActionsList
+          style={{ maxHeight: "none", minHeight: 0 }}
+          // 运行时会透传给内部的 ScrollArea.Autosize，类型定义未声明
+          {...({ onBottomReached: handleBottomReached } as object)}
+        >
           {isRecentMode ? (
             <RecentPageVisits
               items={recentVisits}
@@ -136,6 +170,11 @@ export function SearchSpotlight({ spaceId }: SearchSpotlightProps) {
                 <Spotlight.Empty>{t("No results found...")}</Spotlight.Empty>
               )}
               {resultItems.length > 0 && <>{resultItems}</>}
+              {!isAttachmentSearch && isFetchingNextPage && (
+                <Center py="sm">
+                  <Loader size="sm" />
+                </Center>
+              )}
             </>
           )}
         </Spotlight.ActionsList>

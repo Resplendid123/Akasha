@@ -8,8 +8,11 @@ import {
   UpdatableSpace,
 } from '@akasha/db/types/entity.types';
 import { ExpressionBuilder, sql } from 'kysely';
-import { PaginationOptions } from '../../pagination/pagination-options';
-import { executeWithCursorPagination } from '@akasha/db/pagination/cursor-pagination';
+import { SpaceListOptions } from './types';
+import {
+  emptyCursorPaginationResult,
+  executeWithCursorPagination,
+} from '@akasha/db/pagination/cursor-pagination';
 import { DB } from '@akasha/db/types/db';
 import { validate as isValidUUID } from 'uuid';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -200,14 +203,28 @@ export class SpaceRepo {
 
   async getSpacesInWorkspace(
     workspaceId: string,
-    pagination: PaginationOptions,
+    pagination: SpaceListOptions,
+    allowedSpaceIds?: string[],
   ) {
-    // todo: show spaces user have access based on visibility and memberships
+    if (allowedSpaceIds?.length === 0) {
+      return emptyCursorPaginationResult<Space>(pagination.limit, 0);
+    }
     let query = this.db
       .selectFrom('spaces')
       .selectAll('spaces')
       .select((eb) => [this.withMemberCount(eb)])
       .where('workspaceId', '=', workspaceId);
+
+    if (allowedSpaceIds) {
+      query = query.where('id', 'in', allowedSpaceIds);
+    }
+    if (pagination.type) {
+      query = query.where(
+        'personalOwnerId',
+        pagination.type === 'personal' ? 'is not' : 'is',
+        null,
+      );
+    }
 
     if (pagination.query) {
       query = query.where((eb) =>
@@ -223,7 +240,11 @@ export class SpaceRepo {
       );
     }
 
-    return executeWithCursorPagination(query, {
+    const count = await query
+      .clearSelect()
+      .select((eb) => eb.fn.countAll().as('total'))
+      .executeTakeFirstOrThrow();
+    const result = await executeWithCursorPagination(query, {
       perPage: pagination.limit,
       cursor: pagination.cursor,
       beforeCursor: pagination.beforeCursor,
@@ -233,6 +254,7 @@ export class SpaceRepo {
       ],
       parseCursor: (cursor) => ({ name: cursor.name, id: cursor.id }),
     });
+    return { ...result, meta: { ...result.meta, total: Number(count.total) } };
   }
 
   withMemberCount(eb: ExpressionBuilder<DB, 'spaces'>) {
