@@ -51,6 +51,8 @@ import { KnowledgeSpaceProcessor } from './processors/knowledge-space.processor'
 import { KnowledgeRunReaperService } from './services/knowledge-run-reaper.service';
 import { KnowledgeImageReaperService } from './services/knowledge-image-reaper.service';
 import { KnowledgePageMergeReaperService } from './services/knowledge-page-merge-reaper.service';
+import { KnowledgeRunRetentionService } from './services/knowledge-run-retention.service';
+import { KnowledgeRunRetentionScheduler } from './services/knowledge-run-retention.scheduler';
 import { KnowledgeQualityService } from './services/knowledge-quality.service';
 import { AiModelConfigModule } from './services/ai-model-config.module';
 import { ApiKeyModule } from '../api-key/api-key.module';
@@ -106,6 +108,8 @@ import { SsoModule } from '../sso/sso.module';
     KnowledgeRunReaperService,
     KnowledgeImageReaperService,
     KnowledgePageMergeReaperService,
+    KnowledgeRunRetentionService,
+    KnowledgeRunRetentionScheduler,
     KnowledgeTextJobHandler,
     KnowledgeLinkResolverService,
     KnowledgeSpaceFinalizerService,
