@@ -1,18 +1,8 @@
 import { KnowledgeRunRetentionScheduler } from './knowledge-run-retention.scheduler';
 
 describe('KnowledgeRunRetentionScheduler', () => {
-  it('does not access retention data while disabled', async () => {
-    const fixture = createFixture({ enabled: false });
-
-    await fixture.scheduler.purgeExpiredRunHistory();
-
-    expect(
-      fixture.retention.purgeExpiredRunHistoryBatch,
-    ).not.toHaveBeenCalled();
-  });
-
   it('stops when a batch finds no more eligible history', async () => {
-    const fixture = createFixture({ enabled: true });
+    const fixture = createFixture();
     fixture.retention.purgeExpiredRunHistoryBatch
       .mockResolvedValueOnce(batch({ deletedImages: 10 }))
       .mockResolvedValueOnce(batch());
@@ -25,7 +15,7 @@ describe('KnowledgeRunRetentionScheduler', () => {
   });
 
   it('runs at most twenty batches in one daily schedule', async () => {
-    const fixture = createFixture({ enabled: true });
+    const fixture = createFixture();
     fixture.retention.purgeExpiredRunHistoryBatch.mockResolvedValue(
       batch({ deletedImages: 1 }),
     );
@@ -38,7 +28,7 @@ describe('KnowledgeRunRetentionScheduler', () => {
   });
 
   it('can run again after a failed batch', async () => {
-    const fixture = createFixture({ enabled: true });
+    const fixture = createFixture();
     fixture.retention.purgeExpiredRunHistoryBatch
       .mockRejectedValueOnce(new Error('database unavailable'))
       .mockResolvedValueOnce(batch());
@@ -52,19 +42,13 @@ describe('KnowledgeRunRetentionScheduler', () => {
   });
 });
 
-function createFixture(input: { enabled: boolean }) {
+function createFixture() {
   const retention = {
     purgeExpiredRunHistoryBatch: jest.fn(),
   };
-  const environment = {
-    isKnowledgeRunRetentionEnabled: jest.fn().mockReturnValue(input.enabled),
-  };
   return {
     retention,
-    scheduler: new KnowledgeRunRetentionScheduler(
-      retention as never,
-      environment as never,
-    ),
+    scheduler: new KnowledgeRunRetentionScheduler(retention as never),
   };
 }
 

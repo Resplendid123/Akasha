@@ -410,24 +410,6 @@ export class EnvironmentService {
     );
   }
 
-  isKnowledgeRunRetentionEnabled(): boolean {
-    return (
-      this.configService
-        .get<string>('KNOWLEDGE_RUN_RETENTION_ENABLED', 'false')
-        .toLowerCase() === 'true'
-    );
-  }
-
-  getKnowledgeRunRetentionDays(): number {
-    const configured = Number(
-      this.configService.get<string | number>(
-        'KNOWLEDGE_RUN_RETENTION_DAYS',
-        30,
-      ),
-    );
-    return Number.isInteger(configured) && configured >= 1 ? configured : 30;
-  }
-
   getEventStoreDriver(): string {
     return this.configService
       .get<string>('EVENT_STORE_DRIVER', 'postgres')
