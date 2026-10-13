@@ -96,7 +96,7 @@ Akasha keeps source content and derived knowledge as distinct but connected laye
 
 ## Benchmark Results
 
-Akasha is evaluated on three public multi-hop question-answering datasets using the `qwen-27b` model. `R@5` measures the proportion of gold evidence retrieved in the top five results, while `F1` balances retrieval precision and recall against the gold evidence.
+Akasha is evaluated on three public multi-hop question-answering datasets using the `qwen-27b` model. `R@5` measures the proportion of gold evidence retrieved in the top five results, while `F1` balances the precision and recall between answer and reference answer.
 
 | Dataset         |       R@5 |        F1 |
 | :-------------- | --------: | --------: |
