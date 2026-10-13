@@ -1062,6 +1062,8 @@
   "Choose destination": "Choose destination",
   "Search pages and spaces...": "Search pages and spaces...",
   "No results found": "No results found",
+  "{{count}} results found_one": "1 search result",
+  "{{count}} results found_other": "{{count}} search results",
   "You don't have permission to create pages here": "You don't have permission to create pages here",
   "Chat menu": "Chat menu",
   "API key menu": "API key menu",

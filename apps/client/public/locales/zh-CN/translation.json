@@ -1060,6 +1060,8 @@
   "Choose destination": "选择目标位置",
   "Search pages and spaces...": "搜索页面和空间……",
   "No results found": "未找到结果",
+  "{{count}} results found_one": "1 个搜索结果",
+  "{{count}} results found_other": "{{count}} 个搜索结果",
   "You don't have permission to create pages here": "你无权在此处创建页面",
   "Chat menu": "聊天菜单",
   "API key menu": "API 密钥菜单",

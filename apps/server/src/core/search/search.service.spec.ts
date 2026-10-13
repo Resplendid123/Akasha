@@ -148,6 +148,51 @@ describe('SearchService attachment search', () => {
   });
 });
 
+describe('SearchService page search', () => {
+  it('returns the permission-filtered total and only the requested page', async () => {
+    const query = fluentQuery([]);
+    query.execute
+      .mockResolvedValueOnce([
+        { id: 'page-1', rank: 0.9 },
+        { id: 'page-hidden', rank: 0.8 },
+        { id: 'page-2', rank: 0.7 },
+        { id: 'page-3', rank: 0.6 },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'page-3', title: 'Third', highlight: 'c\n  d' },
+        { id: 'page-2', title: 'Second', highlight: 'a\nb' },
+      ]);
+    const pagePermissionRepo = {
+      filterAccessiblePageIds: jest
+        .fn()
+        .mockResolvedValue(['page-1', 'page-2', 'page-3']),
+    };
+    const service = new SearchService(
+      { selectFrom: jest.fn().mockReturnValue(query) } as never,
+      { withSpace: jest.fn() } as never,
+      {} as never,
+      {
+        getUserSpaceIdsQuery: jest.fn().mockReturnValue('readable-space-ids'),
+      } as never,
+      pagePermissionRepo as never,
+    );
+
+    const result = await service.searchPage(
+      { query: 'guide', limit: 2, offset: 1 } as never,
+      { userId: 'user-1', workspaceId: 'workspace-1' },
+    );
+
+    expect(query.limit).toHaveBeenCalledWith(500);
+    expect(result.total).toBe(3);
+    expect(result.items.map((item) => item.id)).toEqual(['page-2', 'page-3']);
+    expect(result.items[0].highlight).toBe('a b');
+    expect(query.where).toHaveBeenLastCalledWith('id', 'in', [
+      'page-2',
+      'page-3',
+    ]);
+  });
+});
+
 function attachmentRow(id: string, pageId: string) {
   return {
     id,

@@ -17,6 +17,11 @@ export interface IPageSearch {
   space: Partial<ISpace>;
 }
 
+export interface IPageSearchPage {
+  items: IPageSearch[];
+  total: number;
+}
+
 export interface SearchSuggestionParams {
   query: string;
   includeUsers?: boolean;

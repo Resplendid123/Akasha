@@ -2,6 +2,7 @@ import api from "@/lib/api-client";
 import {
   IAttachmentSearch,
   IPageSearch,
+  IPageSearchPage,
   IPageSearchParams,
   ISuggestionResult,
   SearchSuggestionParams,
@@ -12,6 +13,13 @@ export async function searchPage(
 ): Promise<IPageSearch[]> {
   const req = await api.post<{ items: IPageSearch[] }>("/search", params);
   return req.data.items;
+}
+
+export async function searchPagePaged(
+  params: IPageSearchParams,
+): Promise<IPageSearchPage> {
+  const req = await api.post<IPageSearchPage>("/search", params);
+  return req.data;
 }
 
 export async function searchSuggestions(

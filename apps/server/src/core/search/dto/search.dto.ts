@@ -9,6 +9,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { normalizeLabelName } from '../../label/utils';
@@ -65,10 +67,13 @@ export class SearchDTO {
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(500)
   limit?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   offset?: number;
 }
 
