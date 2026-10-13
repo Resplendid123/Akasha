@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { EnvironmentService } from '../../../integrations/environment/environment.service';
 import { KnowledgeRunRetentionService } from './knowledge-run-retention.service';
 
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -13,19 +12,11 @@ const SCHEDULE_TIME_BUDGET_MS = 30_000;
 export class KnowledgeRunRetentionScheduler {
   private running = false;
 
-  constructor(
-    private readonly retention: KnowledgeRunRetentionService,
-    private readonly environmentService: EnvironmentService,
-  ) {}
+  constructor(private readonly retention: KnowledgeRunRetentionService) {}
 
   @Interval('knowledge-run-retention', RETENTION_INTERVAL_MS)
   async purgeExpiredRunHistory(): Promise<void> {
-    if (
-      this.running ||
-      !this.environmentService.isKnowledgeRunRetentionEnabled()
-    ) {
-      return;
-    }
+    if (this.running) return;
 
     this.running = true;
     const startedAt = Date.now();

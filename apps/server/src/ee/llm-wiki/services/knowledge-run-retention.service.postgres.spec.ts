@@ -30,13 +30,7 @@ describePostgres('KnowledgeRunRetentionService PostgreSQL', () => {
       plugins: [new CamelCasePlugin()],
     });
     await createTables(db);
-    service = new KnowledgeRunRetentionService(
-      db as never,
-      {
-        getKnowledgeRunRetentionDays: () => 30,
-        isKnowledgeRunRetentionEnabled: () => true,
-      } as never,
-    );
+    service = new KnowledgeRunRetentionService(db as never);
   });
 
   beforeEach(async () => {
@@ -73,13 +67,7 @@ describePostgres('KnowledgeRunRetentionService PostgreSQL', () => {
   });
 
   it('does not double-delete rows when two instances run concurrently', async () => {
-    const other = new KnowledgeRunRetentionService(
-      db as never,
-      {
-        getKnowledgeRunRetentionDays: () => 30,
-        isKnowledgeRunRetentionEnabled: () => true,
-      } as never,
-    );
+    const other = new KnowledgeRunRetentionService(db as never);
 
     const results = await Promise.all([
       service.purgeExpiredRunHistoryBatch(),

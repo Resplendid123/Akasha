@@ -42,8 +42,6 @@ describe('EnvironmentService', () => {
     expect(service.getKnowledgeSpaceLeaseMaxMs()).toBe(300_000);
     expect(service.getKnowledgeSpaceHeartbeatMs()).toBe(30_000);
     expect(service.getKnowledgeSpaceLeaseTtlMs()).toBe(180_000);
-    expect(service.isKnowledgeRunRetentionEnabled()).toBe(false);
-    expect(service.getKnowledgeRunRetentionDays()).toBe(30);
   });
 
   it('reads configured database and compilation execution limits', () => {
@@ -61,8 +59,6 @@ describe('EnvironmentService', () => {
       KNOWLEDGE_COMPILER_MAX_OUTPUT_TOKENS: '12000',
       KNOWLEDGE_IMAGE_MERGE_MAX_OUTPUT_TOKENS: '6000',
       KNOWLEDGE_COMPILER_TIMEOUT_MS: '45000',
-      KNOWLEDGE_RUN_RETENTION_ENABLED: 'true',
-      KNOWLEDGE_RUN_RETENTION_DAYS: '45',
     };
     const configured = new EnvironmentService({
       get: jest.fn((key: string, fallback: unknown) =>
@@ -83,8 +79,6 @@ describe('EnvironmentService', () => {
     expect(configured.getKnowledgeCompilerMaxOutputTokens()).toBe(12_000);
     expect(configured.getKnowledgeImageMergeMaxOutputTokens()).toBe(6_000);
     expect(configured.getKnowledgeCompilerTimeoutMs()).toBe(45_000);
-    expect(configured.isKnowledgeRunRetentionEnabled()).toBe(true);
-    expect(configured.getKnowledgeRunRetentionDays()).toBe(45);
   });
 
   it('reads a configured knowledge compiler timeout', () => {

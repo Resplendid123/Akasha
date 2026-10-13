@@ -3,8 +3,8 @@ import { InjectKysely } from 'nestjs-kysely';
 import { sql } from 'kysely';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
 import { executeTx } from '@akasha/db/utils';
-import { EnvironmentService } from '../../../integrations/environment/environment.service';
 
+const RUN_RETENTION_DAYS = 30;
 const RUN_IMAGE_BATCH_SIZE = 1_000;
 const RUN_PAGE_BATCH_SIZE = 1_000;
 const RUN_BATCH_SIZE = 100;
@@ -18,20 +18,12 @@ export type KnowledgeRunRetentionBatchResult = {
 
 @Injectable()
 export class KnowledgeRunRetentionService {
-  constructor(
-    @InjectKysely() private readonly db: KyselyDB,
-    private readonly environmentService: EnvironmentService,
-  ) {}
+  constructor(@InjectKysely() private readonly db: KyselyDB) {}
 
   async purgeExpiredRunHistoryBatch(): Promise<KnowledgeRunRetentionBatchResult> {
     const startedAt = Date.now();
     const cutoff = new Date(
-      startedAt -
-        this.environmentService.getKnowledgeRunRetentionDays() *
-          24 *
-          60 *
-          60 *
-          1_000,
+      startedAt - RUN_RETENTION_DAYS * 24 * 60 * 60 * 1_000,
     );
 
     const deletedImages = await executeTx(this.db, async (trx) => {
