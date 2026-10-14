@@ -21,13 +21,14 @@ import { PageRepo } from '@akasha/db/repos/page/page.repo';
 import { isDeepStrictEqual } from 'node:util';
 import { CollabHistoryService } from '../services/collab-history.service';
 import { WatcherService } from '../../core/watcher/watcher.service';
-import { isEmptyParagraphDoc, tiptapExtensions } from '../collaboration.util';
-import { getSchema } from '@tiptap/core';
+import { isEmptyParagraphDoc } from '../collaboration.util';
 import {
-  createHistoryDiff,
   HISTORY_DIFF_ALGORITHM_VERSION,
   HISTORY_DIFF_SCHEMA_VERSION,
+  HistoryDiffResult,
 } from '@docmost/editor-ext';
+import { Worker as NodeWorker } from 'node:worker_threads';
+import { resolve } from 'node:path';
 
 @Processor(QueueName.HISTORY_QUEUE)
 export class HistoryProcessor extends WorkerHost implements OnModuleDestroy {
@@ -186,15 +187,81 @@ export class HistoryProcessor extends WorkerHost implements OnModuleDestroy {
   }
 }
 
+const DIFF_THREAD_PATH = resolve(__dirname, '../workers/diff-thread.worker.js');
+const DIFF_TIMEOUT_MS = 120_000;
+
+class DiffWorkerPool {
+  private readonly logger = new Logger(DiffWorkerPool.name);
+  private worker: NodeWorker | null = null;
+
+  private ensureWorker(): NodeWorker {
+    if (!this.worker) {
+      this.worker = new NodeWorker(DIFF_THREAD_PATH);
+      this.worker.on('exit', (code) => {
+        this.logger.warn(`Diff worker exited with code ${code}`);
+        this.worker = null;
+      });
+    }
+    return this.worker;
+  }
+
+  async runDiff(
+    fromContent: unknown,
+    toContent: unknown,
+  ): Promise<HistoryDiffResult> {
+    const w = this.ensureWorker();
+
+    return new Promise<HistoryDiffResult>((rs, rj) => {
+      const timer = setTimeout(() => {
+        w.terminate();
+        this.worker = null;
+        rj(new Error('diff_worker_timeout'));
+      }, DIFF_TIMEOUT_MS);
+
+      const onMessage = (msg: { ok: boolean; result?: HistoryDiffResult; error?: string }) => {
+        clearTimeout(timer);
+        w.off('message', onMessage);
+        w.off('error', onError);
+        if (msg.ok) rs(msg.result!);
+        else rj(new Error(msg.error));
+      };
+
+      const onError = (err: Error) => {
+        clearTimeout(timer);
+        w.off('message', onMessage);
+        this.worker = null;
+        rj(err);
+      };
+
+      w.on('message', onMessage);
+      w.on('error', onError);
+      w.postMessage({ fromContent, toContent });
+    });
+  }
+
+  async destroy(): Promise<void> {
+    if (this.worker) {
+      await this.worker.terminate();
+      this.worker = null;
+    }
+  }
+}
+
 const MAX_HISTORY_DIFF_CONTENT_BYTES = 5 * 1024 * 1024;
 const MAX_HISTORY_DIFF_RESULT_BYTES = 5 * 1024 * 1024;
 
-@Processor(QueueName.HISTORY_DIFF_QUEUE, { concurrency: 1 })
+@Processor(QueueName.HISTORY_DIFF_QUEUE, {
+  concurrency: 1,
+  lockDuration: 120_000,
+  stalledInterval: 120_000,
+  maxStalledCount: 2,
+})
 export class HistoryDiffProcessor
   extends WorkerHost
   implements OnModuleDestroy
 {
   private readonly logger = new Logger(HistoryDiffProcessor.name);
+  private readonly diffPool = new DiffWorkerPool();
 
   constructor(private readonly pageHistoryRepo: PageHistoryRepo) {
     super();
@@ -248,9 +315,7 @@ export class HistoryDiffProcessor
         return;
       }
 
-      const schema = getSchema(tiptapExtensions);
-      const result = createHistoryDiff(
-        schema,
+      const result = await this.diffPool.runDiff(
         fromHistory.content,
         toHistory.content,
       );
@@ -293,6 +358,7 @@ export class HistoryDiffProcessor
   }
 
   async onModuleDestroy(): Promise<void> {
+    await this.diffPool.destroy();
     if (this.worker) {
       await this.worker.close();
     }
