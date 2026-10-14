@@ -47,6 +47,7 @@ import {
   KnowledgePageSources,
   KnowledgeParentSections,
   KnowledgeParentSectionSources,
+  KnowledgeEmbeddingRebuildBatches,
   KnowledgeQueryAudit,
   KnowledgeQuarantinedArtifacts,
   KnowledgeSourceAccessPolicy as _KnowledgeSourceAccessPolicy,
@@ -167,6 +168,8 @@ export type InsertableKnowledgeClaimSource = Insertable<KnowledgeClaimSources>;
 type SelectedKnowledgeChunk = Selectable<KnowledgeChunks>;
 type KnowledgeChunkMigrationColumn =
   | 'chunkRole'
+  | 'embeddingDurationMs'
+  | 'embeddingTotalTokens'
   | 'embeddingDimensions'
   | 'embeddingLegacy'
   | 'embeddingModel'
@@ -231,6 +234,10 @@ export type InsertableKnowledgeSourceAccessPrincipal =
 export type KnowledgeQueryAuditEntry = Selectable<KnowledgeQueryAudit>;
 export type InsertableKnowledgeQueryAuditEntry =
   Insertable<KnowledgeQueryAudit>;
+export type KnowledgeEmbeddingRebuildBatch =
+  Selectable<KnowledgeEmbeddingRebuildBatches>;
+export type InsertableKnowledgeEmbeddingRebuildBatch =
+  Insertable<KnowledgeEmbeddingRebuildBatches>;
 
 export type KnowledgeQuarantinedArtifact =
   Selectable<KnowledgeQuarantinedArtifacts>;

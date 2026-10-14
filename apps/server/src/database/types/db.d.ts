@@ -306,6 +306,8 @@ export interface KnowledgeArtifactContributions {
 }
 
 export interface KnowledgeChunks {
+  embeddingDurationMs: Generated<number | null>;
+  embeddingTotalTokens: Generated<number | null>;
   chunkRole: Generated<string>;
   claimId: string | null;
   compilerRunId: string | null;
@@ -596,6 +598,19 @@ export interface KnowledgeQueryAudit {
   queryHash: string;
   retrievalMode: string;
   userId: string | null;
+  workspaceId: string;
+}
+
+export interface KnowledgeEmbeddingRebuildBatches {
+  chunkCount: number;
+  createdAt: Generated<Timestamp>;
+  durationMs: number;
+  embeddingModel: string | null;
+  embeddingProfile: string | null;
+  failedCount: Generated<number>;
+  id: Generated<string>;
+  spaceId: string;
+  totalTokens: number | null;
   workspaceId: string;
 }
 
@@ -1200,6 +1215,7 @@ export interface DB {
   knowledgeParentSections: KnowledgeParentSections;
   knowledgeParentSectionSources: KnowledgeParentSectionSources;
   knowledgeQuarantinedArtifacts: KnowledgeQuarantinedArtifacts;
+  knowledgeEmbeddingRebuildBatches: KnowledgeEmbeddingRebuildBatches;
   knowledgeQueryAudit: KnowledgeQueryAudit;
   knowledgeSourceAccessPolicy: KnowledgeSourceAccessPolicy;
   knowledgeSourceAccessPrincipals: KnowledgeSourceAccessPrincipals;
