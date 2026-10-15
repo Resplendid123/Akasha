@@ -148,6 +148,7 @@ export class IsElfLlmWikiController {
       authorizedCapsuleCount: retrievalDiagnostics?.authorizedChunkCount ?? 0,
       metadata: {
         origin: 'iself_knowledge_query',
+        answerMode: response.answerMode,
         spaceIds: dto.spaceIds,
         ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,

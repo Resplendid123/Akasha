@@ -1,15 +1,13 @@
-import { ForbiddenException } from '@nestjs/common';
 import { Workspace } from '@akasha/db/types/entity.types';
-import { KnowledgeContextPackService } from './knowledge-context-pack.service';
-import { KnowledgeCitationResolverService } from './knowledge-citation-resolver.service';
-import { KNOWLEDGE_COMPLETENESS_NOTICE } from './knowledge-retrieval.service';
-import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
+import { createHash } from 'crypto';
 import {
   AiKnowledgeChatService,
   KnowledgeAnswerProvider,
 } from './ai-knowledge-chat.service';
+import { KnowledgeCitationResolverService } from './knowledge-citation-resolver.service';
+import { KnowledgeContextPackService } from './knowledge-context-pack.service';
+import { KNOWLEDGE_COMPLETENESS_NOTICE, KnowledgeRetrievalService } from './knowledge-retrieval.service';
 import { KnowledgeAuthorizationCache } from './knowledge-source-authorization.cache';
-import { createHash } from 'crypto';
 
 describe('AiKnowledgeChatService', () => {
   it('does not associate sources when a knowledge answer omits citation markers', async () => {
@@ -130,6 +128,7 @@ describe('AiKnowledgeChatService', () => {
         labelNames: ['项目计划', 'kafka'],
         chatContext: ['Previous turn'],
         onThinking,
+        collectTimings: true,
       }),
     ).resolves.toEqual({
       answer: 'Kafka is used for async events.',
@@ -203,6 +202,14 @@ describe('AiKnowledgeChatService', () => {
         filteredChunkCount: 0,
       },
       attachmentHitContext: { directHitChunkIds: ['chunk-1'] },
+      // Durations are wall-clock, so only their presence and shape are asserted.
+      // This provider has no `rewriteQuery` and no `stream`, so `rewriteMs` and
+      // `ttftMs` must stay absent rather than be reported as 0.
+      timings: {
+        retrievalMs: expect.any(Number),
+        generationMs: expect.any(Number),
+        totalMs: expect.any(Number),
+      },
       queryObservation: {
         decisionReason: 'knowledge',
         finalChunkIds: ['chunk-1'],
@@ -593,6 +600,9 @@ describe('AiKnowledgeChatService', () => {
       context: '',
       chatContext: undefined,
       mode: 'general',
+      // Stamping first-token latency is the provider's job now: it is the only
+      // layer that sees reasoning deltas, which arrive before any answer text.
+      onFirstToken: expect.any(Function),
     });
     const knowledgeContext = stream.mock.calls[0][0].context;
     expect(result.queryObservation).toMatchObject({
@@ -621,6 +631,48 @@ describe('AiKnowledgeChatService', () => {
       },
       { step: 'fallback', status: 'started', outcome: undefined },
       { step: 'fallback', status: 'completed', outcome: 'general' },
+    ]);
+  });
+
+  it('reports one first-token latency when a general fallback streams twice', async () => {
+    const stream = jest
+      .fn()
+      .mockImplementationOnce((input: { onFirstToken?: () => void }) =>
+        (async function* () {
+          input.onFirstToken?.();
+          yield '[[answer:general]]\n';
+          yield '知识库中提到了公司推荐接口。';
+        })(),
+      )
+      .mockImplementationOnce((input: { onFirstToken?: () => void }) =>
+        (async function* () {
+          input.onFirstToken?.();
+          yield '孙悟空是文学角色，';
+          yield '没有现实世界中的公司。';
+        })(),
+      );
+    const service = createService(
+      verifiedKnowledgeOverrides({ stream } as never),
+    );
+
+    const result = await service.chat({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: '孙悟空的公司是什么',
+      spaceIds: ['space-1'],
+      collectTimings: true,
+    });
+
+    expect(stream).toHaveBeenCalledTimes(2);
+    const timings = result.timings!;
+    expect(timings.ttftMs).toBeGreaterThanOrEqual(0);
+    expect(timings.ttftMs).toBeLessThanOrEqual(timings.generationMs!);
+    expect(timings.generationMs).toBeGreaterThan(0);
+    expect(Object.keys(timings).sort()).toEqual([
+      'generationMs',
+      'retrievalMs',
+      'totalMs',
+      'ttftMs',
     ]);
   });
 
@@ -871,7 +923,6 @@ describe('AiKnowledgeChatService', () => {
       rawResultsOnly: true,
     });
 
-    // The whole point: the slow answer-generation LLM is never called.
     expect(answer).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -920,8 +971,6 @@ describe('AiKnowledgeChatService', () => {
       query: '如何配置未知功能？',
       spaceIds: ['space-1'],
       rawResultsOnly: true,
-      // Even with general knowledge allowed, rawResultsOnly must not fall back
-      // to an LLM answer.
       generalKnowledgeEnabled: true,
     });
 

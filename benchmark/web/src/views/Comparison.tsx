@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import type { AttributionDetail, CompileRun, EvalDetail, EvalRun, QueryRun } from '../types'
-import { Failed, Loading, downloadText, duration, useAsync } from '../ui'
+import type { AttributionDetail, CompileRun, EvalDetail, EvalRun, QueryRun, QueryStats } from '../types'
+import { Failed, Loading, downloadText, duration, formatDateTime, useAsync } from '../ui'
 
 type EvalOption = {
   compile: CompileRun
@@ -102,7 +102,7 @@ const METRIC_SECTIONS = [
     ],
   },
   {
-    title: '### 3.5 生成答案质量（提示词未约束简短，因此答案冗长，字面量计算偏低正常）',
+    title: '### 3.5 生成答案质量',
     metrics: [
       ['em', 'EM'],
       ['f1', 'F1'],
@@ -113,9 +113,12 @@ const METRIC_SECTIONS = [
     metrics: [
       ['graph_neighbor_gold_snippets', 'Graph Neighbor Gold Snippets'],
       ['graph_neighbor_precision', 'Graph Neighbor Precision'],
+      ['graph_exclusive_gold_share', 'Graph Exclusive Gold Share'],
     ],
   },
 ] as const
+
+const TIMELINE_WIDTH = 48
 
 const KNOWLEDGE_METRICS = [
   ['mrr', 'MRR'],
@@ -126,6 +129,7 @@ const KNOWLEDGE_METRICS = [
   ['full_coverage@5', 'Full Coverage@5'],
   ['citation_precision', 'Citation Precision'],
   ['citation_recall', 'Citation Recall'],
+  ['f1', 'F1'],
 ] as const
 
 function datasetLabel(name: string): string {
@@ -158,6 +162,78 @@ function timingCell(perValue: number | null | undefined, total: number | null, u
 
 function datasetSummary(item: LoadedItem, dataset: string) {
   return item.detail.datasets.find((entry) => entry.dataset === dataset)
+}
+
+function queryStats(item: LoadedItem, dataset: string) {
+  return item.option.query.stats[dataset]
+}
+
+type Segment = { label: string; startMs: number; durationMs: number; fill: string }
+
+/** 按管线顺序把均值摊成首尾相接的区段；生成段对齐到合计末尾。 */
+function timelineSegments(stats: QueryStats): { segments: Segment[]; totalMs: number } | null {
+  const total = stats.server_total_ms_mean
+  if (total === null || total === undefined || total <= 0) return null
+
+  const segments: Segment[] = []
+  let cursor = 0
+  for (const [value, label, fill] of [
+    [stats.rewrite_ms_mean, '改写', '░'],
+    [stats.retrieval_ms_mean, '检索', '▓'],
+  ] as const) {
+    if (value === null || value === undefined) continue
+    segments.push({ label, startMs: cursor, durationMs: value, fill })
+    cursor += value
+  }
+
+  const generation = stats.generation_ms_mean
+  if (generation !== null && generation !== undefined) {
+    const startMs = Math.max(cursor, total - generation)
+    if (startMs - cursor > total * 0.01) {
+      segments.push({ label: '未计', startMs: cursor, durationMs: startMs - cursor, fill: '·' })
+    }
+    segments.push({ label: '生成', startMs, durationMs: generation, fill: '▒' })
+  }
+  return segments.length > 0 ? { segments, totalMs: total } : null
+}
+
+function timelineBlock(item: LoadedItem, dataset: string, index: number): string[] {
+  const stats = queryStats(item, dataset)
+  if (!stats) return []
+  const timeline = timelineSegments(stats)
+  if (!timeline) return []
+
+  const { segments, totalMs } = timeline
+  const scale = TIMELINE_WIDTH / totalMs
+
+  const cells = Array.from({ length: TIMELINE_WIDTH }, () => ' ')
+  for (const segment of segments) {
+    const from = Math.min(TIMELINE_WIDTH - 1, Math.round(segment.startMs * scale))
+    const to = Math.min(TIMELINE_WIDTH, Math.max(from + 1, Math.round((segment.startMs + segment.durationMs) * scale)))
+    cells.fill(segment.fill, from, to)
+  }
+
+  // ttft_ms 自生成请求起算，标记锚在生成段内；各阶段均值取自不同子集，夹住防止越界。
+  const generation = segments.find((segment) => segment.label === '生成')
+  const ttft = generation === undefined ? null : stats.ttft_ms_mean ?? null
+  const marks = Array.from({ length: TIMELINE_WIDTH }, () => ' ')
+  if (ttft !== null && generation !== undefined) {
+    const offset = generation.startMs + Math.min(ttft, generation.durationMs)
+    const from = Math.round(generation.startMs * scale)
+    const to = Math.round((generation.startMs + generation.durationMs) * scale) - 1
+    marks[Math.min(Math.max(Math.round(offset * scale), from), Math.max(from, to))] = '▲'
+  }
+
+  const legend = segments.map((segment) => `${segment.fill} ${segment.label} ${duration(segment.durationMs)}`)
+  if (ttft !== null) legend.push(`▲ TTFT ${duration(ttft)}`)
+  return [
+    `${circledNumber(index + 1)} ${modelLabel(item.option)} · ${datasetLabel(dataset)}`,
+    '',
+    `0 ▌${cells.join('')}▐ ${duration(totalMs)}`,
+    ...(ttft === null ? [] : [`  ▌${marks.join('')}▐`]),
+    '',
+    `  ${legend.join('   ')}`,
+  ]
 }
 
 function metricValue(item: LoadedItem, dataset: string, scope: string, name: string): number | null {
@@ -202,6 +278,17 @@ function MarkdownPreview({ source }: { source: string }) {
     const line = lines[index] ?? ''
     if (!line.trim()) {
       index += 1
+      continue
+    }
+    if (line.startsWith('```')) {
+      const body: string[] = []
+      index += 1
+      while (index < lines.length && !(lines[index] ?? '').startsWith('```')) {
+        body.push(lines[index] ?? '')
+        index += 1
+      }
+      index += 1
+      blocks.push(<pre className="markdown-pre" key={`pre-${index}`}>{body.join('\n')}</pre>)
       continue
     }
     const heading = /^(#{1,4})\s+(.+)$/.exec(line)
@@ -263,6 +350,20 @@ function buildMarkdown(items: LoadedItem[]): string {
       const stats = item.option.compile.stats[dataset]
       lines.push(`| ${circledNumber(itemIndex + 1)} | ${escapeCell(modelLabel(item.option))} | ${escapeCell(datasetLabel(dataset))} | ${stats?.imported ?? stats?.docs ?? '—'} | ${timingCell(item.option.compile.pace?.per_page_ms, compileMs, '/篇')} | ${datasetSummary(item, dataset)?.responses_evaluated ?? '—'} | ${timingCell(item.option.query.stats[dataset]?.latency_mean, queryMs, '/条')} |`)
     }
+  }
+
+  const timelines = columns
+    .filter(({ dataset, item }) => (queryStats(item, dataset)?.timed_responses ?? 0) > 0)
+    .map(({ dataset, item }) => timelineBlock(item, dataset, items.indexOf(item)))
+    .filter((block) => block.length > 0)
+  if (timelines.length > 0) {
+    lines.push('', '### 1.1 查询耗时时间轴', '')
+    lines.push('```')
+    for (const [blockIndex, block] of timelines.entries()) {
+      if (blockIndex > 0) lines.push('')
+      lines.push(...block)
+    }
+    lines.push('```')
   }
 
   lines.push('', '## 二、路由率对比', '')
@@ -425,7 +526,7 @@ export function Comparison() {
                 <div>
                   <span className="comparison-drag-handle" title="拖动调整顺序">☷</span>
                   <strong>{index + 1}. {option.eval.name}</strong> <span className="mono small muted">#{option.eval.id}</span>
-                  <div className="small muted">{option.compile.datasets.join(', ')} · {modelLabel(option)} · {option.eval.sample_count} 条样本</div>
+                  <div className="small muted">{option.compile.datasets.join(', ')} · {modelLabel(option)} · {option.eval.sample_count} 条样本 · {formatDateTime(option.eval.finished_at ?? option.eval.created_at)}</div>
                 </div>
                 <div className="row tight">
                   <button className="action small danger" onClick={() => updateItems(items.filter((entry) => entry.evalId !== item.evalId))}>删除</button>

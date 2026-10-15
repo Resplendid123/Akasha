@@ -102,7 +102,6 @@ describe('ConfiguredKnowledgeImageUnderstandingProvider', () => {
       temperature: 0,
       maxOutputTokens: 8_000,
       abortSignal: expect.any(AbortSignal),
-      providerOptions: {},
       output: expect.objectContaining({
         name: 'knowledge_image_understanding_v1',
         type: 'json',
@@ -112,7 +111,7 @@ describe('ConfiguredKnowledgeImageUnderstandingProvider', () => {
     timeoutSpy.mockRestore();
   });
 
-  it('uses fixed low reasoning effort and omits temperature for GPT vision models', async () => {
+  it('omits temperature when the OpenAI reasoning dialect is configured', async () => {
     (createOpenAICompatible as jest.Mock).mockReturnValue(
       jest.fn().mockReturnValue('vision-model-instance'),
     );
@@ -120,7 +119,10 @@ describe('ConfiguredKnowledgeImageUnderstandingProvider', () => {
       output: { ocrText: 'Visible', caption: 'Caption' },
     });
 
-    await createProvider({ visionModel: 'openai-gpt-5.6-luna' }).describe({
+    await createProvider({
+      visionModel: 'o4-mini',
+      parameters: { thinkingMode: 'openai', reasoningEffort: 'low' },
+    }).describe({
       bytes: imageBytes,
       mimeType: 'image/png',
     });
@@ -330,6 +332,7 @@ function createProvider(
     timeoutMs?: number;
     apiKey?: string;
     apiUrl?: string;
+    parameters?: Record<string, unknown>;
   } = {},
 ): ConfiguredKnowledgeImageUnderstandingProvider {
   const environmentService = {
@@ -342,7 +345,7 @@ function createProvider(
       model: input.visionModel ?? 'vision-model',
       apiKey: input.apiKey ?? 'openai-key',
       baseUrl: input.apiUrl ?? 'https://llm.example/v1',
-      parameters: {},
+      parameters: input.parameters ?? {},
       fromDatabase: false,
     })),
     invalidate: jest.fn(),

@@ -3,9 +3,11 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -25,6 +27,34 @@ export class AiModelConfigParametersDto {
   @IsOptional()
   @IsBoolean()
   supportsMrl?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(2)
+  temperature?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  topP?: number;
+
+  @IsOptional()
+  @IsInt()
+  seed?: number;
+
+  @IsOptional()
+  @IsIn(['qwen', 'openai'])
+  thinkingMode?: 'qwen' | 'openai';
+
+  @IsOptional()
+  @IsBoolean()
+  thinkingEnabled?: boolean;
+
+  @IsOptional()
+  @IsIn(['low', 'medium', 'high'])
+  reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 export class UpdateAiModelConfigDto {
@@ -51,7 +81,7 @@ export class UpdateAiModelConfigDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => AiModelConfigParametersDto)
-  parameters?: AiModelConfigParametersDto;
+  parameters?: AiModelConfigParametersDto | null;
 }
 
 // Payload for a connectivity test. Mirrors UpdateAiModelConfigDto: the admin
