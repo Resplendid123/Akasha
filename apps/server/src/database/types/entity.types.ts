@@ -45,6 +45,7 @@ import {
   KnowledgeLinkSources,
   KnowledgePages,
   KnowledgePageSources,
+  KnowledgePageIndexSettings,
   KnowledgeParentSections,
   KnowledgeParentSectionSources,
   KnowledgeEmbeddingRebuildBatches,
@@ -146,6 +147,10 @@ export type KnowledgePage = Omit<Selectable<KnowledgePages>, 'generationMode'> &
   Partial<Pick<Selectable<KnowledgePages>, 'generationMode'>>;
 export type InsertableKnowledgePage = Insertable<KnowledgePages>;
 export type UpdatableKnowledgePage = Updateable<Omit<KnowledgePages, 'id'>>;
+
+export type KnowledgePageIndexSetting = Selectable<KnowledgePageIndexSettings>;
+export type InsertableKnowledgePageIndexSetting =
+  Insertable<KnowledgePageIndexSettings>;
 
 export type KnowledgePageSource = Selectable<KnowledgePageSources>;
 export type InsertableKnowledgePageSource = Insertable<KnowledgePageSources>;

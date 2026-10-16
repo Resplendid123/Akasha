@@ -516,6 +516,15 @@ export interface KnowledgePageCompileSchedules {
   workspaceId: string;
 }
 
+export interface KnowledgePageIndexSettings {
+  createdAt: Generated<Timestamp>;
+  indexMode: string;
+  sourcePageId: string;
+  updatedAt: Generated<Timestamp>;
+  updatedBy: string | null;
+  workspaceId: string;
+}
+
 export interface KnowledgePages {
   body: string;
   canonicalKey: string | null;
@@ -730,6 +739,7 @@ export interface KnowledgeSpaceCompileRunPages {
   id: Generated<string>;
   imageJobId: string | null;
   imageStatus: Generated<string>;
+  indexMode: Generated<string>;
   jobId: string | null;
   mergeAttemptCount: Generated<number>;
   mergedEffectiveKnowledgeHash: string | null;
@@ -1210,6 +1220,7 @@ export interface DB {
   knowledgeLinks: KnowledgeLinks;
   knowledgeLinkSources: KnowledgeLinkSources;
   knowledgePageCompileSchedules: KnowledgePageCompileSchedules;
+  knowledgePageIndexSettings: KnowledgePageIndexSettings;
   knowledgePages: KnowledgePages;
   knowledgePageSources: KnowledgePageSources;
   knowledgeParentSections: KnowledgeParentSections;

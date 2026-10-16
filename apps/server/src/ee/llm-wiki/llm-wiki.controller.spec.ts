@@ -867,6 +867,7 @@ describe('LlmWikiController', () => {
       disposition: 'created',
       mode: 'incremental',
       knowledgeGeneration: 7,
+      indexMode: 'compiled',
     });
 
     expect(pageAccessService.validateCanEdit).toHaveBeenCalledWith(
@@ -879,6 +880,8 @@ describe('LlmWikiController', () => {
       workspaceId: 'workspace-1',
       spaceId: 'space-1',
       sourcePageId: '11111111-1111-4111-8111-111111111111',
+      indexMode: 'compiled',
+      updatedBy: 'user-1',
     });
     expect(auditService.log).toHaveBeenCalledWith({
       event: AuditEvent.KNOWLEDGE_COMPILE_QUEUED,
@@ -890,6 +893,7 @@ describe('LlmWikiController', () => {
         runId: 'run-1',
         disposition: 'created',
         priority: 0,
+        indexMode: 'compiled',
       },
     });
   });
