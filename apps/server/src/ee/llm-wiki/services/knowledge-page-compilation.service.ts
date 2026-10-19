@@ -309,17 +309,6 @@ export class KnowledgePageCompilationService {
       }
 
       const bypassCache = (await input.execution.bypassCache?.()) ?? false;
-      const compilationRepo = this
-        .compilationRepo as KnowledgeCompilationRepo & {
-        hasLastSuccessfulPublication?: KnowledgeCompilationRepo['hasLastSuccessfulPublication'];
-        markResultQuality?: KnowledgeCompilationRepo['markResultQuality'];
-      };
-      const hasLastSuccess =
-        (await compilationRepo.hasLastSuccessfulPublication?.({
-          workspaceId: data.workspaceId,
-          spaceId: data.spaceId,
-          sourcePageId,
-        })) ?? false;
       // Prepared-import reuse is deliberately disabled. Its historical key did
       // not include the DB Top-K candidate set, so it could replay generation
       // produced from stale Catalog identities. Analysis has a complete cache
@@ -339,7 +328,6 @@ export class KnowledgePageCompilationService {
         compileMode: 'pages' as const,
         indexMode: data.indexMode,
         bypassCache,
-        hasLastSuccess,
         ...(catalogEntries ? { catalog: catalogEntries } : {}),
         sources,
         publicationGuard: input.execution.publicationGuard,
@@ -395,6 +383,10 @@ export class KnowledgePageCompilationService {
         effectiveKnowledgeHash,
       });
       const resultQuality = compileResult.resultQuality ?? 'normal';
+      const compilationRepo = this
+        .compilationRepo as KnowledgeCompilationRepo & {
+        markResultQuality?: KnowledgeCompilationRepo['markResultQuality'];
+      };
       await compilationRepo.markResultQuality?.({
         workspaceId: data.workspaceId,
         sourcePageId,

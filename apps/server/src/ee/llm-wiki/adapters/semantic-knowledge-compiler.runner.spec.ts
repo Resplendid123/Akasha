@@ -329,41 +329,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     ).toEqual([ATTACHMENT_ID, secondId]);
   });
 
-  it('keeps attachment evidence blocks on the raw fallback path', async () => {
-    const provider = createProvider();
-    provider.generate.mockResolvedValueOnce({
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'page-1',
-          title: 'Architecture notes',
-          markdown: 'Event sourcing records changes as an append-only log.',
-          claims: [],
-          links: [],
-          tags: [],
-        },
-      ],
-      compilerRecovery: 'source_summary_fallback',
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(
-      withAttachmentSource(compileInput()),
-    );
-    const summary = result.artifacts[0];
-
-    expect(summary.generationMode).toBe('raw_fallback');
-    expect(
-      summary.chunks?.some(
-        (chunk) => (chunk.attachmentOccurrences?.length ?? 0) > 0,
-      ),
-    ).toBe(true);
-  });
-
   it('reuses an exact cached analysis and skips the Stage 1 call', async () => {
     const provider = createProvider();
     const compilationRepo = createCompilationRepo(analysis);
@@ -379,11 +344,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
       expect.objectContaining({
         prompt: expect.stringContaining('<stage_1_analysis>'),
       }),
-      {
-        canonicalKey: 'page-1',
-        title: 'Architecture notes',
-        markdown: 'Event sourcing records changes as an append-only log.',
-      },
     );
     expect(compilationRepo.saveAnalysis).not.toHaveBeenCalled();
   });
@@ -523,88 +483,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     );
     expect(cacheKeys[0]).not.toBe(cacheKeys[1]);
     expect(cacheKeys.join(' ')).not.toContain('Error rate');
-  });
-
-  it('marks deterministic source-summary recovery as raw fallback', async () => {
-    const provider = createProvider();
-    provider.generate.mockResolvedValueOnce({
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'page-1',
-          title: 'Architecture notes',
-          markdown: 'Event sourcing records changes as an append-only log.',
-          claims: [],
-          links: [],
-          tags: [],
-        },
-      ],
-      compilerRecovery: 'source_summary_fallback',
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(compileInput());
-
-    expect(result.artifacts).toEqual([
-      expect.objectContaining({
-        artifactKind: 'source_summary',
-        generationMode: 'raw_fallback',
-      }),
-    ]);
-    expect(result.diagnostics.warnings).toContainEqual(
-      expect.objectContaining({
-        code: 'compiler_source_summary_fallback',
-        sourcePageId: 'page-1',
-      }),
-    );
-  });
-
-  it('builds the degraded fallback only from bounded validated analysis', async () => {
-    const provider = createProvider();
-    provider.analyze.mockResolvedValueOnce({
-      ...analysis,
-      synopsis: 'Validated synopsis. '.repeat(1_000),
-      claims: [
-        {
-          text: 'Validated claim.',
-          evidenceQuote: 'Validated evidence.',
-        },
-      ],
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-    const input = compileInput();
-    input.sources[0].text = `PRIVATE_FULL_SOURCE_BODY\n${'z'.repeat(20_000)}`;
-
-    await runner.compileSpace(input);
-
-    const fallback = provider.generate.mock.calls[0][1];
-    expect(fallback?.markdown).toContain('Validated synopsis.');
-    expect(fallback?.markdown).toContain('Validated claim.');
-    expect(fallback?.markdown).toContain('Validated evidence.');
-    expect(fallback?.markdown).not.toContain('PRIVATE_FULL_SOURCE_BODY');
-    expect(fallback?.markdown.length).toBeLessThanOrEqual(8_000);
-  });
-
-  it('does not offer a degraded fallback when a last-success exists', async () => {
-    const provider = createProvider();
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    await runner.compileSpace({ ...compileInput(), hasLastSuccess: true });
-
-    expect(provider.generate).toHaveBeenCalledWith(
-      expect.any(Object),
-      undefined,
-    );
   });
 
   it('maps generated evidence quotes back to exact source ranges', async () => {

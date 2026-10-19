@@ -36,8 +36,6 @@ import {
   KnowledgeArtifactContributions,
   KnowledgeCompilationAttempts,
   KnowledgeChunkSources,
-  KnowledgeClaims,
-  KnowledgeClaimSources,
   KnowledgeGraphEdges,
   KnowledgeGraphEdgeSources,
   KnowledgeImageExtractions,
@@ -162,13 +160,6 @@ export type KnowledgeParentSectionSource =
   Selectable<KnowledgeParentSectionSources>;
 export type InsertableKnowledgeParentSectionSource =
   Insertable<KnowledgeParentSectionSources>;
-
-export type KnowledgeClaim = Selectable<KnowledgeClaims>;
-export type InsertableKnowledgeClaim = Insertable<KnowledgeClaims>;
-export type UpdatableKnowledgeClaim = Updateable<Omit<KnowledgeClaims, 'id'>>;
-
-export type KnowledgeClaimSource = Selectable<KnowledgeClaimSources>;
-export type InsertableKnowledgeClaimSource = Insertable<KnowledgeClaimSources>;
 
 type SelectedKnowledgeChunk = Selectable<KnowledgeChunks>;
 type KnowledgeChunkMigrationColumn =

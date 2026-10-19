@@ -84,7 +84,6 @@ export interface KnowledgeCompilerLlmProvider {
   ): Promise<SemanticAnalysis>;
   generate(
     messages: SemanticCompilerMessages,
-    fallback?: KnowledgeCompilerGenerationFallback,
     options?: KnowledgeCompilerRequestOptions,
   ): Promise<SemanticGenerationResult>;
   completeMerge?(
@@ -98,16 +97,7 @@ export type KnowledgeCompilerRequestOptions = {
 };
 
 export type SemanticGenerationResult = SemanticGeneration & {
-  compilerRecovery?:
-    | 'local_repair'
-    | 'model_repair'
-    | 'source_summary_fallback';
-};
-
-export type KnowledgeCompilerGenerationFallback = {
-  canonicalKey: string;
-  title: string;
-  markdown: string;
+  compilerRecovery?: 'local_repair' | 'model_repair';
 };
 
 export const COMPILER_PROVIDER_NAME = 'akashaCompiler';
@@ -150,14 +140,12 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       semanticAnalysisSchema,
       'analysis',
       'knowledge_compiler_analysis_v1',
-      undefined,
       options,
     );
   }
 
   async generate(
     messages: SemanticCompilerMessages,
-    fallback?: KnowledgeCompilerGenerationFallback,
     options?: KnowledgeCompilerRequestOptions,
   ): Promise<SemanticGenerationResult> {
     return this.completeStructured(
@@ -165,7 +153,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       semanticGenerationSchema,
       'generation',
       'knowledge_compiler_generation_v1',
-      fallback,
       options,
     );
   }
@@ -179,7 +166,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       mergeCompletionSchema,
       'merge',
       'knowledge_compiler_merge_v1',
-      undefined,
       options,
     );
     return JSON.stringify(result);
@@ -190,7 +176,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
     schema: z.ZodType<T>,
     stage: 'analysis' | 'generation' | 'merge',
     name: string,
-    fallback?: KnowledgeCompilerGenerationFallback,
     options?: KnowledgeCompilerRequestOptions,
   ): Promise<T> {
     const config = await this.configService.getResolvedConfig('compiler');
@@ -242,10 +227,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
             initial.hadNoOutput || !retryParsed.repaired ? 'model' : 'local',
           )
         : retryParsed.data;
-    }
-
-    if (stage === 'generation' && fallback) {
-      return sourceSummaryFallback(fallback) as unknown as T;
     }
 
     this.logger.warn({
@@ -508,40 +489,6 @@ function withRecovery<T>(value: T, recovery: false | 'local' | 'model'): T {
     ...value,
     compilerRecovery: recovery === 'local' ? 'local_repair' : 'model_repair',
   } as T;
-}
-
-function sourceSummaryFallback(
-  fallback: KnowledgeCompilerGenerationFallback,
-): SemanticGenerationResult {
-  const candidate = {
-    version: '1',
-    artifacts: [
-      {
-        kind: 'source_summary',
-        canonicalKey: fallback.canonicalKey,
-        title: fallback.title.trim().slice(0, 300),
-        markdown: fallback.markdown
-          .trim()
-          .slice(0, SEMANTIC_COMPILER_LIMITS.fallbackMarkdownChars),
-        claims: [],
-        links: [],
-        tags: [],
-      },
-    ],
-  };
-  const parsed = semanticGenerationSchema.safeParse(candidate);
-  if (!parsed.success) {
-    throw invalidOutputError(
-      'generation',
-      new SemanticCompilerOutputError(
-        `bounded generation fallback is invalid: ${formatSchemaIssues(parsed.error)}`,
-      ),
-    );
-  }
-  return {
-    ...parsed.data,
-    compilerRecovery: 'source_summary_fallback',
-  };
 }
 
 function classifyProviderError(

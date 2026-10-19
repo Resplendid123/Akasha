@@ -309,7 +309,6 @@ describe('IsElfLlmWikiController', () => {
         workspaceId: 'workspace-1',
         spaceId: 'space-1',
         knowledgePageId: 'kp-1',
-        claimId: null,
         text: 'Kafka setup guide',
         contentHash: 'chunk-hit-hash',
         embedding: null,

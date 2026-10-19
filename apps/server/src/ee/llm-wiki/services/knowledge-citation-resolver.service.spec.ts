@@ -758,7 +758,6 @@ function chunk(id: string, knowledgePageId: string) {
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
     knowledgePageId,
-    claimId: null,
     text: `Text ${id}`,
     contentHash: `hash-${id}`,
     embedding: [0.1, 0.2],

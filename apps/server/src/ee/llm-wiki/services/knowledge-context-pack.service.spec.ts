@@ -333,7 +333,6 @@ function chunk(id: string, knowledgePageId: string, text: string) {
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
     knowledgePageId,
-    claimId: null,
     text,
     contentHash: `${id}-hash`,
     embedding: [1, 0],

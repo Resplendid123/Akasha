@@ -672,59 +672,6 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
       }),
     );
   });
-
-  it('publishes a deterministic source summary fallback after generation repair fails', async () => {
-    (createOpenAICompatible as jest.Mock).mockReturnValue(
-      jest.fn().mockReturnValue('compiler-model'),
-    );
-    (generateText as jest.Mock).mockResolvedValue({ output: { version: 1 } });
-
-    await expect(
-      createProvider({ aiDriver: 'openai-compatible' }).generate(
-        { system: 'system', prompt: 'prompt' },
-        {
-          canonicalKey: 'source-page-1',
-          title: 'Original title',
-          markdown: 'Original source body.',
-        },
-      ),
-    ).resolves.toEqual({
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'source-page-1',
-          title: 'Original title',
-          markdown: 'Original source body.',
-          claims: [],
-          links: [],
-          tags: [],
-        },
-      ],
-      compilerRecovery: 'source_summary_fallback',
-    });
-    expect(generateText).toHaveBeenCalledTimes(2);
-  });
-
-  it('hard-bounds fallback Markdown even when a caller supplies too much text', async () => {
-    (createOpenAICompatible as jest.Mock).mockReturnValue(
-      jest.fn().mockReturnValue('compiler-model'),
-    );
-    (generateText as jest.Mock).mockResolvedValue({ output: { version: 1 } });
-
-    const result = await createProvider({
-      aiDriver: 'openai-compatible',
-    }).generate(
-      { system: 'system', prompt: 'prompt' },
-      {
-        canonicalKey: 'source-page-1',
-        title: 'Original title',
-        markdown: 'x'.repeat(20_000),
-      },
-    );
-
-    expect(result.artifacts[0].markdown).toHaveLength(8_000);
-  });
 });
 
 function createProvider(input: {
