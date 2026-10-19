@@ -37,6 +37,8 @@ export class MigrationService {
   protected createMigrator(db: KyselyDB): Migrator {
     return new Migrator({
       db,
+      // Keep startup compatible with migrations backfilled by the CLI.
+      allowUnorderedMigrations: true,
       provider: new FileMigrationProvider({
         fs,
         path,

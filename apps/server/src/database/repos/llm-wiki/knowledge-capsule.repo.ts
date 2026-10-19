@@ -1779,6 +1779,33 @@ export class KnowledgeCapsuleRepo {
     ]);
   }
 
+  async findSourceArtifactScopes(input: {
+    workspaceId: string;
+    sourcePageIds: string[];
+  }): Promise<Array<{ sourcePageId: string; spaceId: string }>> {
+    if (input.sourcePageIds.length === 0) return [];
+    return this.db
+      .selectFrom('knowledgePages')
+      .innerJoin(
+        'knowledgePageSources',
+        'knowledgePageSources.knowledgePageId',
+        'knowledgePages.id',
+      )
+      .select(['knowledgePageSources.sourcePageId', 'knowledgePages.spaceId'])
+      .distinct()
+      .where('knowledgePages.workspaceId', '=', input.workspaceId)
+      .where('knowledgePageSources.workspaceId', '=', input.workspaceId)
+      .where('knowledgePageSources.sourcePageId', 'in', input.sourcePageIds)
+      .where('knowledgePages.pageType', 'in', [
+        'source_summary',
+        'original_source',
+      ])
+      .where('knowledgePages.staleAt', 'is', null)
+      .orderBy('knowledgePages.spaceId', 'asc')
+      .orderBy('knowledgePageSources.sourcePageId', 'asc')
+      .execute();
+  }
+
   async markSourceArtifactsStaleBySourcePageIds(
     input: { workspaceId: string; spaceId?: string; sourcePageIds: string[] },
     trx?: KyselyTransaction,
@@ -1808,38 +1835,10 @@ export class KnowledgeCapsuleRepo {
     const knowledgePageIds = pageRows.map((row) => row.id);
     if (knowledgePageIds.length === 0) return;
 
-    await Promise.all([
-      db
-        .updateTable('knowledgePages')
-        .set({ staleAt: new Date() })
-        .where('workspaceId', '=', input.workspaceId)
-        .where('id', 'in', knowledgePageIds)
-        .execute(),
-      db
-        .updateTable('knowledgeClaims')
-        .set({ staleAt: new Date() })
-        .where('workspaceId', '=', input.workspaceId)
-        .where('knowledgePageId', 'in', knowledgePageIds)
-        .execute(),
-      db
-        .updateTable('knowledgeChunks')
-        .set({ staleAt: new Date() })
-        .where('workspaceId', '=', input.workspaceId)
-        .where('knowledgePageId', 'in', knowledgePageIds)
-        .execute(),
-      db
-        .updateTable('knowledgeLinks')
-        .set({ staleAt: new Date() })
-        .where('workspaceId', '=', input.workspaceId)
-        .where('fromKnowledgePageId', 'in', knowledgePageIds)
-        .execute(),
-      db
-        .updateTable('knowledgeGraphEdges')
-        .set({ staleAt: new Date() })
-        .where('workspaceId', '=', input.workspaceId)
-        .where('fromKnowledgePageId', 'in', knowledgePageIds)
-        .execute(),
-    ]);
+    await this.markArtifactsStaleByIds(
+      { workspaceId: input.workspaceId, artifactIds: knowledgePageIds },
+      trx,
+    );
   }
 
   private async markStale(
