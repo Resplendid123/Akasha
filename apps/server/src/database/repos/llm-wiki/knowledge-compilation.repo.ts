@@ -235,37 +235,6 @@ export class KnowledgeCompilationRepo {
       .execute();
   }
 
-  async hasLastSuccessfulPublication(input: {
-    workspaceId: string;
-    spaceId: string;
-    sourcePageId: string;
-  }): Promise<boolean> {
-    const row = await this.db
-      .selectFrom('knowledgeCompilationAttempts as attempt')
-      .innerJoin('knowledgeArtifactContributions as contribution', (join) =>
-        join
-          .onRef('contribution.workspaceId', '=', 'attempt.workspaceId')
-          .onRef('contribution.sourcePageId', '=', 'attempt.sourcePageId')
-          .on('contribution.spaceId', '=', input.spaceId)
-          .on('contribution.artifactKind', '=', 'source_summary'),
-      )
-      .innerJoin('knowledgePages as page', (join) =>
-        join
-          .onRef('page.id', '=', 'contribution.artifactId')
-          .onRef('page.workspaceId', '=', 'attempt.workspaceId')
-          .on('page.spaceId', '=', input.spaceId)
-          .on('page.staleAt', 'is', null),
-      )
-      .select('attempt.id')
-      .where('attempt.workspaceId', '=', input.workspaceId)
-      .where('attempt.spaceId', '=', input.spaceId)
-      .where('attempt.sourcePageId', '=', input.sourcePageId)
-      .where('attempt.lastSucceededAt', 'is not', null)
-      .limit(1)
-      .executeTakeFirst();
-    return Boolean(row);
-  }
-
   async failAttempt(
     input: FencedCompilationIdentity & {
       stage?: KnowledgeCompilationStage;

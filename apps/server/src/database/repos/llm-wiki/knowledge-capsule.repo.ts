@@ -7,8 +7,6 @@ import {
   InsertableKnowledgePageSource,
   InsertableKnowledgeParentSection,
   InsertableKnowledgeParentSectionSource,
-  InsertableKnowledgeClaim,
-  InsertableKnowledgeClaimSource,
   InsertableKnowledgeChunk,
   InsertableKnowledgeChunkSource,
   InsertableKnowledgeChunkAttachment,
@@ -46,8 +44,6 @@ export type UpsertCompiledArtifactInput = {
   pageSources?: InsertableKnowledgePageSource[];
   parentSections?: InsertableKnowledgeParentSection[];
   parentSectionSources?: InsertableKnowledgeParentSectionSource[];
-  claims?: InsertableKnowledgeClaim[];
-  claimSources?: InsertableKnowledgeClaimSource[];
   chunks?: InsertableKnowledgeChunk[];
   chunkSources?: InsertableKnowledgeChunkSource[];
   chunkAttachments?: InsertableKnowledgeChunkAttachment[];
@@ -470,16 +466,6 @@ export class KnowledgeCapsuleRepo {
     );
     await this.insertArtifactChildren(
       db,
-      inputs.flatMap((input) => input.claims ?? []),
-      'knowledgeClaims',
-    );
-    await this.insertArtifactChildren(
-      db,
-      inputs.flatMap((input) => input.claimSources ?? []),
-      'knowledgeClaimSources',
-    );
-    await this.insertArtifactChildren(
-      db,
       inputs.flatMap((input) => input.chunks ?? []),
       'knowledgeChunks',
     );
@@ -592,8 +578,6 @@ export class KnowledgeCapsuleRepo {
       | 'knowledgePageSources'
       | 'knowledgeParentSections'
       | 'knowledgeParentSectionSources'
-      | 'knowledgeClaims'
-      | 'knowledgeClaimSources'
       | 'knowledgeChunks'
       | 'knowledgeChunkSources'
       | 'knowledgeChunkAttachments'
@@ -650,7 +634,6 @@ export class KnowledgeCapsuleRepo {
         .execute(),
       ...(
         [
-          ['knowledgeClaims', 'knowledgePageId'],
           ['knowledgeChunks', 'knowledgePageId'],
           ['knowledgeLinks', 'fromKnowledgePageId'],
           ['knowledgeGraphEdges', 'fromKnowledgePageId'],
@@ -1493,17 +1476,6 @@ export class KnowledgeCapsuleRepo {
         )
         .execute(),
       db
-        .selectFrom('knowledgeClaimSources')
-        .innerJoin(
-          'knowledgeClaims',
-          'knowledgeClaimSources.claimId',
-          'knowledgeClaims.id',
-        )
-        .select('knowledgeClaimSources.sourcePageId')
-        .where('knowledgeClaims.workspaceId', '=', input.workspaceId)
-        .where('knowledgeClaims.knowledgePageId', 'in', input.knowledgePageIds)
-        .execute(),
-      db
         .selectFrom('knowledgeChunkSources')
         .innerJoin(
           'knowledgeChunks',
@@ -1687,23 +1659,13 @@ export class KnowledgeCapsuleRepo {
     if (input.sourcePageIds.length === 0) return;
 
     const db = dbOrTx(this.db, trx);
-    const [pageRows, claimRows, chunkRows, linkRows, graphEdgeRows] =
+    const [pageRows, chunkRows, linkRows, graphEdgeRows] =
       await Promise.all([
         db
           .selectFrom('knowledgePageSources')
           .select('knowledgePageSources.knowledgePageId')
           .where('knowledgePageSources.workspaceId', '=', input.workspaceId)
           .where('knowledgePageSources.sourcePageId', 'in', input.sourcePageIds)
-          .execute(),
-        db
-          .selectFrom('knowledgeClaimSources')
-          .select('knowledgeClaimSources.claimId')
-          .where('knowledgeClaimSources.workspaceId', '=', input.workspaceId)
-          .where(
-            'knowledgeClaimSources.sourcePageId',
-            'in',
-            input.sourcePageIds,
-          )
           .execute(),
         db
           .selectFrom('knowledgeChunkSources')
@@ -1745,12 +1707,6 @@ export class KnowledgeCapsuleRepo {
             (row) => (row as OwnerRow<'knowledgePageId'>).knowledgePageId,
           ),
         ),
-        input.workspaceId,
-        trx,
-      ),
-      this.markStale(
-        'knowledgeClaims',
-        unique(claimRows.map((row) => (row as OwnerRow<'claimId'>).claimId)),
         input.workspaceId,
         trx,
       ),
@@ -1844,7 +1800,6 @@ export class KnowledgeCapsuleRepo {
   private async markStale(
     table:
       | 'knowledgePages'
-      | 'knowledgeClaims'
       | 'knowledgeChunks'
       | 'knowledgeLinks'
       | 'knowledgeGraphEdges',
@@ -2060,10 +2015,6 @@ export class KnowledgeCapsuleRepo {
       .execute();
     await db
       .deleteFrom('knowledgeParentSections')
-      .where('knowledgePageId', '=', knowledgePageId)
-      .execute();
-    await db
-      .deleteFrom('knowledgeClaims')
       .where('knowledgePageId', '=', knowledgePageId)
       .execute();
     await db

@@ -1501,7 +1501,6 @@ function chunk(
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
     knowledgePageId,
-    claimId: null,
     text,
     contentHash: `${id}-hash`,
     embedding: embedding ? JSON.stringify(embedding) : null,
