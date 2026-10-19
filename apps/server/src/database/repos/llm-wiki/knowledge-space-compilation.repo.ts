@@ -1109,33 +1109,48 @@ export class KnowledgeSpaceCompilationRepo {
         errorMessage: supersededMessage,
         now,
       });
-      for (const oldRun of oldRuns) {
-        const counts = countsByRun.get(oldRun.id)!;
-        await trx
-          .updateTable('knowledgeSpaceCompileRuns')
-          .set({
-            status: 'superseded',
-            phase: 'complete',
-            succeededPageCount: counts.succeeded,
-            failedPageCount: counts.failed,
-            skippedPageCount: counts.skipped,
-            errorCode: 'run_superseded',
-            errorMessage: supersededMessage,
-            rerunRequested: false,
-            aggregateJobId: null,
-            spaceJobId: null,
-            spaceJobQueuedAt: null,
-            spaceJobDispatchedAt: null,
-            executionToken: null,
-            executionLeaseExpiresAt: null,
-            workerId: null,
-            heartbeatAt: null,
-            finishedAt: now,
-            updatedAt: now,
-          })
-          .where('id', '=', oldRun.id)
-          .where('status', 'in', NONTERMINAL_RUN_STATUSES)
-          .execute();
+      // All old runs belong to the same locked Space. Update them in one
+      // statement so a force rebuild does not hold the transaction open for
+      // one round trip per stale Run when recovery has left multiple active
+      // generations behind.
+      if (oldRuns.length > 0) {
+        await sql`
+        UPDATE knowledge_space_compile_runs AS run
+        SET
+          status = 'superseded',
+          phase = 'complete',
+          succeeded_page_count = counts.succeeded,
+          failed_page_count = counts.failed,
+          skipped_page_count = counts.skipped,
+          error_code = 'run_superseded',
+          error_message = ${supersededMessage},
+          rerun_requested = false,
+          aggregate_job_id = NULL,
+          space_job_id = NULL,
+          space_job_queued_at = NULL,
+          space_job_dispatched_at = NULL,
+          execution_token = NULL,
+          execution_lease_expires_at = NULL,
+          worker_id = NULL,
+          heartbeat_at = NULL,
+          finished_at = ${now},
+          updated_at = ${now}
+        FROM (VALUES ${sql.join(
+          oldRuns.map((oldRun) => {
+            const counts = countsByRun.get(oldRun.id)!;
+            return sql`(
+              ${oldRun.id},
+              ${counts.succeeded},
+              ${counts.failed},
+              ${counts.skipped}
+            )`;
+          }),
+        )}) AS counts(id, succeeded, failed, skipped)
+        WHERE run.id = counts.id
+          AND run.status IN (${sql.join(
+            NONTERMINAL_RUN_STATUSES.map((status) => sql`${status}`),
+          )})
+        `.execute(trx);
       }
 
       const generation = space.knowledgeGeneration + 1;
