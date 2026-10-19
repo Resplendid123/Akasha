@@ -1,5 +1,5 @@
 export const SEMANTIC_COMPILER_LIMITS = {
-  generatedArtifacts: 8,
+  generatedArtifacts: 16,
   analysisEntities: 32,
   analysisConcepts: 32,
   analysisClaims: 64,

@@ -1,6 +1,7 @@
 import {
   KnowledgeComplexityLimitError,
   KnowledgeOperationBudget,
+  MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE,
   createBoundedAbortSignal,
   mapKnowledgeOperations,
 } from './knowledge-operation-budget';
@@ -38,7 +39,11 @@ describe('knowledge operation budget', () => {
       'materializations',
       () => {
         const budget = new KnowledgeOperationBudget();
-        for (let index = 0; index < 9; index += 1) {
+        for (
+          let index = 0;
+          index <= MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE;
+          index += 1
+        ) {
           budget.consumeMaterialization();
         }
       },
