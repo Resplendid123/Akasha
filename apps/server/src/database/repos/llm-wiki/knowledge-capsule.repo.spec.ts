@@ -57,6 +57,14 @@ class FakeKyselyQuery {
     return this;
   }
 
+  distinct() {
+    return this;
+  }
+
+  $if(condition: boolean, callback: (query: this) => this) {
+    return condition ? callback(this) : this;
+  }
+
   orderBy(...args: unknown[]) {
     this.calls.push({ method: 'orderBy', args });
     return this;
@@ -167,6 +175,70 @@ function basePageSource(knowledgePageId: string, sourcePageId: string) {
 }
 
 describe('KnowledgeCapsuleRepo', () => {
+  it('discovers active source artifacts without requiring semantic contributions', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findSourceArtifactScopes({
+      workspaceId: 'workspace-1',
+      sourcePageIds: ['page-1'],
+    });
+
+    const query = queries[0];
+    expect(query.sql).toContain('"knowledge_pages"."stale_at" is null');
+    expect(query.sql).toContain('"knowledge_pages"."workspace_id" =');
+    expect(query.sql).toContain('"knowledge_page_sources"."workspace_id" =');
+    expect(query.sql).not.toContain('knowledge_artifact_contributions');
+    expect(query.parameters).toEqual(
+      expect.arrayContaining([
+        'workspace-1',
+        'page-1',
+        'source_summary',
+        'original_source',
+      ]),
+    );
+  });
+
+  it('retires source-owned artifacts and all their children only in the old Space', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [{ id: 'old-original' }],
+    });
+    const repo = createRepo(query);
+
+    await repo.markSourceArtifactsStaleBySourcePageIds({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-old',
+      sourcePageIds: ['page-1'],
+    });
+
+    expect(query.calls).toContainEqual({
+      method: 'where',
+      args: ['knowledgePages.spaceId', '=', 'space-old'],
+    });
+    expect(
+      query.calls
+        .filter((call) => call.method === 'updateTable')
+        .map((call) => call.args[0]),
+    ).toEqual(
+      expect.arrayContaining([
+        'knowledgePages',
+        'knowledgeParentSections',
+        'knowledgeClaims',
+        'knowledgeChunks',
+        'knowledgeLinks',
+        'knowledgeGraphEdges',
+      ]),
+    );
+    expect(query.calls.filter((call) => call.method === 'set')).toHaveLength(6);
+    expect(
+      query.calls
+        .filter((call) => call.method === 'set')
+        .every(
+          (call) =>
+            (call.args[0] as { staleAt: unknown }).staleAt instanceof Date,
+        ),
+    ).toBe(true);
+  });
+
   it('ranks a bounded compiler Catalog in SQL without returning bodies', async () => {
     const { repo, queries } = createSqlRepo();
 

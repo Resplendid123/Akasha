@@ -4,6 +4,7 @@ import {
   Box,
   Group,
   Menu,
+  Popover,
   SegmentedControl,
   Text,
   ThemeIcon,
@@ -17,6 +18,7 @@ import {
   IconEyeOff,
   IconFileExport,
   IconHistory,
+  IconInfoCircle,
   IconLink,
   IconList,
   IconMarkdown,
@@ -468,6 +470,49 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
                 <Group gap="xs" mb="xs">
                   <IconSparkles size={16} aria-hidden />
                   <Text size="sm">{t("Publish mode")}</Text>
+                  <Popover
+                    width={300}
+                    position="bottom-end"
+                    withinPortal={false}
+                    withArrow
+                  >
+                    <Popover.Target>
+                      <ActionIcon
+                        size="sm"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={t("About publish modes")}
+                        title={t("About publish modes")}
+                      >
+                        <IconInfoCircle size={16} aria-hidden />
+                      </ActionIcon>
+                    </Popover.Target>
+                    <Popover.Dropdown
+                      style={{ maxWidth: "calc(100vw - 24px)" }}
+                    >
+                      <Text size="sm" fw={600}>
+                        {t("Smart compilation")}
+                      </Text>
+                      <Text size="xs" mt={4}>
+                        {t(
+                          "AI extracts key points and connects related knowledge. Choose this for product guides, training materials, and project experience that need summarizing or explaining.",
+                        )}
+                      </Text>
+                      <Text size="sm" fw={600} mt="sm">
+                        {t("Original text indexing")}
+                      </Text>
+                      <Text size="xs" mt={4}>
+                        {t(
+                          "Uses the document text directly. Choose this for contracts, policies, procedures, and parameter lists when the original wording matters. Information inside images is not recognized.",
+                        )}
+                      </Text>
+                      <Text size="xs" c="dimmed" mt="sm">
+                        {t(
+                          "Both modes support AI Q&A and leave the original document unchanged.",
+                        )}
+                      </Text>
+                    </Popover.Dropdown>
+                  </Popover>
                 </Group>
                 <SegmentedControl
                   fullWidth

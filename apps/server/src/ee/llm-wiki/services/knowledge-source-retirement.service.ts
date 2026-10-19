@@ -4,6 +4,9 @@ import { InjectKysely } from 'nestjs-kysely';
 import { KnowledgeArtifactContribution } from '@akasha/db/types/entity.types';
 import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';
 import { KnowledgeArtifactContributionRepo } from '@akasha/db/repos/llm-wiki/knowledge-artifact-contribution.repo';
+import { KnowledgeCapsuleRepo } from '@akasha/db/repos/llm-wiki/knowledge-capsule.repo';
+import { KnowledgeSourceRepo } from '@akasha/db/repos/llm-wiki/knowledge-source.repo';
+import { executeTx } from '@akasha/db/utils';
 import { KnowledgeImportService } from './knowledge-import.service';
 import { KnowledgeLinkResolverService } from './knowledge-link-resolver.service';
 
@@ -28,6 +31,8 @@ export class KnowledgeSourceRetirementService {
     private readonly contributionRepo: KnowledgeArtifactContributionRepo,
     private readonly importService: KnowledgeImportService,
     private readonly linkResolver: KnowledgeLinkResolverService,
+    private readonly capsuleRepo: KnowledgeCapsuleRepo,
+    private readonly sourceRepo: KnowledgeSourceRepo,
   ) {}
 
   async retireOutOfScopeSources(input: {
@@ -43,8 +48,12 @@ export class KnowledgeSourceRetirementService {
       };
     }
 
-    const [scopes, livePages] = await Promise.all([
+    const [contributionScopes, artifactScopes, livePages] = await Promise.all([
       this.contributionRepo.findSourceScopes({
+        workspaceId: input.workspaceId,
+        sourcePageIds,
+      }),
+      this.capsuleRepo.findSourceArtifactScopes({
         workspaceId: input.workspaceId,
         sourcePageIds,
       }),
@@ -55,6 +64,14 @@ export class KnowledgeSourceRetirementService {
         .where('id', 'in', sourcePageIds)
         .execute(),
     ]);
+    // Original indexes have no semantic contributions, so discover their
+    // persisted Space ownership from the source artifacts themselves.
+    const scopes = new Map(
+      [...contributionScopes, ...artifactScopes].map((scope) => [
+        `${scope.spaceId}:${scope.sourcePageId}`,
+        scope,
+      ]),
+    );
     const liveSpaceByPageId = new Map(
       livePages
         .filter((page) => page.deletedAt === null)
@@ -64,7 +81,7 @@ export class KnowledgeSourceRetirementService {
     let skippedActiveSourceCount = 0;
     const affectedSpaces = new Set<string>();
 
-    for (const scope of scopes) {
+    for (const scope of scopes.values()) {
       if (liveSpaceByPageId.get(scope.sourcePageId) === scope.spaceId) {
         skippedActiveSourceCount += 1;
         continue;
@@ -102,7 +119,7 @@ export class KnowledgeSourceRetirementService {
     for (let attempt = 0; attempt < MAX_RETIREMENT_CAS_ATTEMPTS; attempt += 1) {
       if (await this.isSourceActiveInSpace(input)) return false;
       const previous = await this.contributionRepo.findBySourcePage(input);
-      if (previous.length === 0) return false;
+      if (previous.length === 0) return this.retireSourceArtifacts(input);
       const artifactIds = [...new Set(previous.map((row) => row.artifactId))];
       const affected = await this.contributionRepo.findByArtifactIds({
         workspaceId: input.workspaceId,
@@ -150,6 +167,27 @@ export class KnowledgeSourceRetirementService {
     );
   }
 
+  private async retireSourceArtifacts(input: {
+    workspaceId: string;
+    spaceId: string;
+    sourcePageId: string;
+  }): Promise<boolean> {
+    return executeTx(this.db, async (trx) => {
+      if (await this.isSourceActiveInSpace(input, trx)) return false;
+      const scope = {
+        workspaceId: input.workspaceId,
+        spaceId: input.spaceId,
+        sourcePageIds: [input.sourcePageId],
+      };
+      await this.sourceRepo.markSpaceSourcesStale(scope, trx);
+      await this.capsuleRepo.markSourceArtifactsStaleBySourcePageIds(
+        scope,
+        trx,
+      );
+      return true;
+    });
+  }
+
   private async matchesPublicationFence(
     input: { workspaceId: string; spaceId: string; sourcePageId: string },
     artifactIds: string[],
@@ -175,13 +213,12 @@ export class KnowledgeSourceRetirementService {
     const db = trx ?? this.db;
     const page = await db
       .selectFrom('pages')
-      .select('id')
+      .select(['spaceId', 'deletedAt'])
       .where('workspaceId', '=', input.workspaceId)
-      .where('spaceId', '=', input.spaceId)
       .where('id', '=', input.sourcePageId)
-      .where('deletedAt', 'is', null)
+      .$if(Boolean(trx), (query) => query.forUpdate())
       .executeTakeFirst();
-    return Boolean(page);
+    return page?.spaceId === input.spaceId && page.deletedAt === null;
   }
 }
 
