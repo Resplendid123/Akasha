@@ -962,7 +962,6 @@ export class KnowledgeSpaceCompilationRepo {
         .execute();
       for (const [table, ownerColumn] of [
         ['knowledgeParentSections', 'knowledgePageId'],
-        ['knowledgeClaims', 'knowledgePageId'],
         ['knowledgeChunks', 'knowledgePageId'],
         ['knowledgeLinks', 'fromKnowledgePageId'],
         ['knowledgeGraphEdges', 'fromKnowledgePageId'],

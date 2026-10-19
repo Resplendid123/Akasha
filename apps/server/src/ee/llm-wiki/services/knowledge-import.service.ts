@@ -231,18 +231,6 @@ export class KnowledgeImportService {
     for (const artifact of artifactsToPublish) {
       const artifactChunks =
         embeddedChunksByArtifactId.get(artifact.artifactId) ?? [];
-      const claims = (artifact.claims ?? []).map((claim, index) => ({
-        id: stableKnowledgeUuid(`${artifact.artifactId}:claim:${index}`),
-        workspaceId: artifact.workspaceId,
-        spaceId: artifact.spaceId,
-        knowledgePageId: artifact.artifactId,
-        text: claim.text,
-        confidence: claim.confidence ?? null,
-        position: index,
-        compilerRunId: artifact.compilerRunId ?? null,
-        compileTaskId: artifact.compileTaskId ?? null,
-        staleAt: null,
-      }));
       const parentSections = (artifact.parentSections ?? []).map((parent) => ({
         id: stableKnowledgeUuid(
           `${artifact.artifactId}:parent:${parent.stableKey}`,
@@ -278,32 +266,11 @@ export class KnowledgeImportService {
           attachmentId: null,
         })),
       );
-      const claimSources = claims.flatMap((claim, index) =>
-        (
-          artifact.claims?.[index]?.inputSourceRefs ??
-          artifact.inputSourceRefs ??
-          []
-        ).map((source) => ({
-          workspaceId: artifact.workspaceId,
-          claimId: claim.id,
-          sourcePageId: source.sourcePageId,
-          sourceVersion: source.sourceVersion,
-          sourceRange: toStoredSourceRange(source),
-          quoteHash: source.quoteHash ?? null,
-          contentHash: source.contentHash,
-          provenanceKind: 'synthesis_lineage',
-          attachmentId: null,
-        })),
-      );
       const chunks = artifactChunks.map((chunk, index) => ({
         id: stableKnowledgeUuid(`${artifact.artifactId}:chunk:${index}`),
         workspaceId: artifact.workspaceId,
         spaceId: artifact.spaceId,
         knowledgePageId: artifact.artifactId,
-        claimId:
-          chunk.claimIndex !== undefined && chunk.claimIndex !== null
-            ? (claims[chunk.claimIndex]?.id ?? null)
-            : null,
         text: chunk.text,
         contentHash: chunk.contentHash ?? hashContent(chunk.text),
         embedding: chunk.embedding ? vectorToSql(chunk.embedding.vector) : null,
@@ -470,8 +437,6 @@ export class KnowledgeImportService {
         })),
         parentSections,
         parentSectionSources,
-        claims,
-        claimSources,
         chunks,
         chunkSources,
         chunkAttachments,

@@ -15,8 +15,6 @@ export interface CompileSpaceInput extends KnowledgeScope {
   catalog?: KnowledgeArtifactCatalogEntry[];
   /** Explicit cache bypass used by administrator force rebuilds. */
   bypassCache?: boolean;
-  /** Prevents a degraded fallback from replacing an existing publication. */
-  hasLastSuccess?: boolean;
   publicationGuard?: (trx: KyselyTransaction) => Promise<boolean>;
   operationBudget?: KnowledgeOperationBudget;
   indexMode?: 'compiled' | 'original';

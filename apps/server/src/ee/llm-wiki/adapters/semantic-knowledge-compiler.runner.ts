@@ -126,29 +126,17 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           generationCatalog.candidateHash,
       },
     });
-    const generationFallback = input.hasLastSuccess
-      ? undefined
-      : {
-          canonicalKey: source.sourcePageId,
-          title: source.title.slice(0, 300),
-          markdown: buildBoundedFallbackMarkdown(analysis),
-        };
     const generation = operationBudget.signal
-      ? await this.provider.generate(generationMessages, generationFallback, {
+      ? await this.provider.generate(generationMessages, {
           abortSignal: operationBudget.signal,
         })
-      : await this.provider.generate(generationMessages, generationFallback);
+      : await this.provider.generate(generationMessages);
     operationBudget.assertArtifactCount(generation.artifacts.length);
     if (generation.compilerRecovery) {
       warnings.push({
-        code:
-          generation.compilerRecovery === 'source_summary_fallback'
-            ? 'compiler_source_summary_fallback'
-            : 'compiler_output_repaired',
+        code: 'compiler_output_repaired',
         message:
-          generation.compilerRecovery === 'source_summary_fallback'
-            ? 'The compiler published a deterministic source summary after structured generation could not be repaired.'
-            : 'The compiler normalized or repaired the model output before validation.',
+          'The compiler normalized or repaired the model output before validation.',
         sourcePageId: source.sourcePageId,
       });
     }
@@ -199,7 +187,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         compileTaskId,
         idByKey,
         warnings,
-        rawFallback: generation.compilerRecovery === 'source_summary_fallback',
       }),
     );
     const artifacts = enrichArtifactRelationships({
@@ -218,10 +205,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       compilerRunId,
       artifacts,
       diagnostics: { warnings, errors: [] },
-      resultQuality:
-        generation.compilerRecovery === 'source_summary_fallback'
-          ? 'degraded'
-          : 'normal',
+      resultQuality: 'normal',
     };
   }
 
@@ -394,30 +378,6 @@ function analysisCacheHash(input: {
   )}`;
 }
 
-function buildBoundedFallbackMarkdown(analysis: SemanticAnalysis): string {
-  // Reserve half of the fallback budget for structured claims/evidence so an
-  // unexpectedly verbose (but valid) synopsis cannot crowd them out.
-  const sections = [
-    analysis.synopsis
-      .trim()
-      .slice(0, Math.floor(SEMANTIC_COMPILER_LIMITS.fallbackMarkdownChars / 2)),
-  ];
-  if (analysis.claims.length > 0) {
-    sections.push(
-      [
-        '## Key claims',
-        ...analysis.claims.map(
-          (claim) => `- ${claim.text}\n  - Evidence: “${claim.evidenceQuote}”`,
-        ),
-      ].join('\n'),
-    );
-  }
-  return sections
-    .join('\n\n')
-    .trim()
-    .slice(0, SEMANTIC_COMPILER_LIMITS.fallbackMarkdownChars);
-}
-
 function carryAnalysisClaimsIntoSummary(
   artifacts: SemanticGeneratedArtifact[],
   analysis: SemanticAnalysis,
@@ -454,7 +414,6 @@ function toCompiledArtifact(input: {
   compileTaskId: string;
   idByKey: Map<string, string>;
   warnings: CompileDiagnostic[];
-  rawFallback: boolean;
 }): CompiledKnowledgeArtifact {
   const artifactId = stableArtifactId(
     input.input,
@@ -485,7 +444,6 @@ function toCompiledArtifact(input: {
   const structuralChunks = structuralParents.flatMap((parent) =>
     parent.children.map((child) => ({
       text: child.text,
-      claimIndex: null,
       inputSourceRefs: [sourceRef],
       contentHash: child.quoteHash,
       stableKey: child.stableKey,
@@ -564,7 +522,7 @@ function toCompiledArtifact(input: {
     sourcePageIds: [input.source.sourcePageId],
     compilerVersion: input.input.compilerVersion,
     promptVersion: input.input.promptVersion,
-    generationMode: input.rawFallback ? 'raw_fallback' : 'semantic',
+    generationMode: 'semantic',
     compilerRunId: input.compilerRunId,
     compileTaskId: input.compileTaskId,
     inputSourceRefs: [sourceRef],
@@ -600,7 +558,6 @@ function tableRowEvidenceChunks(
     const text = `${artifactTitle} Table row ${row.rowIndex + 1}: ${row.text}`;
     return {
       text,
-      claimIndex: null,
       inputSourceRefs: [rowSourceRef],
       contentHash: `sha256:${sha256(row.text)}`,
       stableKey: `table-row:${row.tableIndex}:${row.rowIndex}`,

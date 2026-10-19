@@ -222,13 +222,12 @@ describe('KnowledgeCapsuleRepo', () => {
       expect.arrayContaining([
         'knowledgePages',
         'knowledgeParentSections',
-        'knowledgeClaims',
         'knowledgeChunks',
         'knowledgeLinks',
         'knowledgeGraphEdges',
       ]),
     );
-    expect(query.calls.filter((call) => call.method === 'set')).toHaveLength(6);
+    expect(query.calls.filter((call) => call.method === 'set')).toHaveLength(5);
     expect(
       query.calls
         .filter((call) => call.method === 'set')
@@ -857,36 +856,12 @@ describe('KnowledgeCapsuleRepo', () => {
             provenanceKind: 'synthesis_lineage',
           },
         ],
-        claims: [
-          {
-            id: 'claim-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            knowledgePageId: 'knowledge-page-1',
-            text: 'Kafka is used for events.',
-            confidence: null,
-            position: 0,
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        claimSources: [
-          {
-            workspaceId: 'workspace-1',
-            claimId: 'claim-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
         chunks: [
           {
             id: 'chunk-1',
             workspaceId: 'workspace-1',
             spaceId: 'space-1',
             knowledgePageId: 'knowledge-page-1',
-            claimId: 'claim-1',
             text: 'Kafka is used for events.',
             contentHash: 'chunk-hash-1',
             embedding: null,
@@ -960,13 +935,10 @@ describe('KnowledgeCapsuleRepo', () => {
         { method: 'deleteFrom', args: ['knowledgeGraphEdges'] },
         { method: 'deleteFrom', args: ['knowledgeLinks'] },
         { method: 'deleteFrom', args: ['knowledgeChunks'] },
-        { method: 'deleteFrom', args: ['knowledgeClaims'] },
         { method: 'deleteFrom', args: ['knowledgePageSources'] },
         { method: 'insertInto', args: ['knowledgePages'] },
         { method: 'onConflict', args: [expect.any(Function)] },
         { method: 'insertInto', args: ['knowledgePageSources'] },
-        { method: 'insertInto', args: ['knowledgeClaims'] },
-        { method: 'insertInto', args: ['knowledgeClaimSources'] },
         { method: 'insertInto', args: ['knowledgeChunks'] },
         { method: 'insertInto', args: ['knowledgeChunkSources'] },
         { method: 'insertInto', args: ['knowledgeLinks'] },
@@ -1149,10 +1121,6 @@ describe('KnowledgeCapsuleRepo', () => {
         { sourcePageId: 'source-1' },
         { sourcePageId: 'source-2' },
       ],
-      knowledgeClaimSources: [
-        { sourcePageId: 'source-2' },
-        { sourcePageId: 'source-3' },
-      ],
       knowledgeChunkSources: [{ sourcePageId: 'source-4' }],
       knowledgeLinkSources: [{ sourcePageId: 'source-5' }],
       knowledgeGraphEdgeSources: [{ sourcePageId: 'source-6' }],
@@ -1167,7 +1135,6 @@ describe('KnowledgeCapsuleRepo', () => {
     ).resolves.toEqual([
       'source-1',
       'source-2',
-      'source-3',
       'source-4',
       'source-5',
       'source-6',
@@ -1187,19 +1154,6 @@ describe('KnowledgeCapsuleRepo', () => {
             'in',
             ['kp-1', 'kp-2'],
           ],
-        },
-        { method: 'selectFrom', args: ['knowledgeClaimSources'] },
-        {
-          method: 'innerJoin',
-          args: [
-            'knowledgeClaims',
-            'knowledgeClaimSources.claimId',
-            'knowledgeClaims.id',
-          ],
-        },
-        {
-          method: 'where',
-          args: ['knowledgeClaims.workspaceId', '=', 'workspace-1'],
         },
         { method: 'selectFrom', args: ['knowledgeChunkSources'] },
         {
@@ -1373,7 +1327,6 @@ describe('KnowledgeCapsuleRepo', () => {
   it('marks each capsule table stale by dependency source page ids', async () => {
     const query = new FakeKyselyQuery({
       knowledgePageSources: [{ knowledgePageId: 'kp-1' }],
-      knowledgeClaimSources: [{ claimId: 'claim-1' }],
       knowledgeChunkSources: [{ chunkId: 'chunk-1' }],
       knowledgeLinkSources: [{ linkId: 'link-1' }],
       knowledgeGraphEdgeSources: [{ graphEdgeId: 'edge-1' }],
@@ -1390,8 +1343,6 @@ describe('KnowledgeCapsuleRepo', () => {
         { method: 'updateTable', args: ['knowledgePages'] },
         { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
         { method: 'where', args: ['id', 'in', ['kp-1']] },
-        { method: 'updateTable', args: ['knowledgeClaims'] },
-        { method: 'where', args: ['id', 'in', ['claim-1']] },
         { method: 'updateTable', args: ['knowledgeChunks'] },
         { method: 'where', args: ['id', 'in', ['chunk-1']] },
         { method: 'updateTable', args: ['knowledgeLinks'] },

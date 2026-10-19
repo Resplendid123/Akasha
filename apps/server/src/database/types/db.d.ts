@@ -309,7 +309,6 @@ export interface KnowledgeChunks {
   embeddingDurationMs: Generated<number | null>;
   embeddingTotalTokens: Generated<number | null>;
   chunkRole: Generated<string>;
-  claimId: string | null;
   compilerRunId: string | null;
   compileTaskId: string | null;
   contentHash: string;
@@ -349,32 +348,6 @@ export interface KnowledgeChunkAttachments {
 export interface KnowledgeChunkSources {
   attachmentId: string | null;
   chunkId: string;
-  contentHash: string;
-  provenanceKind: string;
-  quoteHash: string | null;
-  sourcePageId: string;
-  sourceRange: Json | null;
-  sourceVersion: string;
-  workspaceId: string;
-}
-
-export interface KnowledgeClaims {
-  compilerRunId: string | null;
-  compileTaskId: string | null;
-  confidence: number | null;
-  createdAt: Generated<Timestamp>;
-  id: Generated<string>;
-  knowledgePageId: string;
-  position: number;
-  spaceId: string;
-  staleAt: Timestamp | null;
-  text: string;
-  workspaceId: string;
-}
-
-export interface KnowledgeClaimSources {
-  attachmentId: string | null;
-  claimId: string;
   contentHash: string;
   provenanceKind: string;
   quoteHash: string | null;
@@ -1212,8 +1185,6 @@ export interface DB {
   knowledgeChunkAttachments: KnowledgeChunkAttachments;
   knowledgeChunks: KnowledgeChunks;
   knowledgeChunkSources: KnowledgeChunkSources;
-  knowledgeClaims: KnowledgeClaims;
-  knowledgeClaimSources: KnowledgeClaimSources;
   knowledgeCompilationAttempts: KnowledgeCompilationAttempts;
   knowledgeGraphEdges: KnowledgeGraphEdges;
   knowledgeGraphEdgeSources: KnowledgeGraphEdgeSources;
