@@ -36,6 +36,7 @@ import { KnowledgeSourceRepo } from '@akasha/db/repos/llm-wiki/knowledge-source.
 import { KnowledgeCapsuleRepo } from '@akasha/db/repos/llm-wiki/knowledge-capsule.repo';
 import { KnowledgeAccessPolicyRepo } from '@akasha/db/repos/llm-wiki/knowledge-access-policy.repo';
 import { KnowledgeQueryAuditRepo } from '@akasha/db/repos/llm-wiki/knowledge-query-audit.repo';
+import { KnowledgeEmbeddingRebuildBatchRepo } from '@akasha/db/repos/llm-wiki/knowledge-embedding-rebuild-batch.repo';
 import { KnowledgeQuarantineRepo } from '@akasha/db/repos/llm-wiki/knowledge-quarantine.repo';
 import { KnowledgeCompilationRepo } from '@akasha/db/repos/llm-wiki/knowledge-compilation.repo';
 import { KnowledgeArtifactContributionRepo } from '@akasha/db/repos/llm-wiki/knowledge-artifact-contribution.repo';
@@ -109,6 +110,7 @@ export {
     KnowledgeCapsuleRepo,
     KnowledgeAccessPolicyRepo,
     KnowledgeQueryAuditRepo,
+    KnowledgeEmbeddingRebuildBatchRepo,
     KnowledgeQuarantineRepo,
     KnowledgeCompilationRepo,
     KnowledgeArtifactContributionRepo,
@@ -148,6 +150,7 @@ export {
     KnowledgeCapsuleRepo,
     KnowledgeAccessPolicyRepo,
     KnowledgeQueryAuditRepo,
+    KnowledgeEmbeddingRebuildBatchRepo,
     KnowledgeQuarantineRepo,
     KnowledgeCompilationRepo,
     KnowledgeArtifactContributionRepo,
