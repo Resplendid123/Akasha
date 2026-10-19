@@ -1,5 +1,5 @@
 export const MAX_KNOWLEDGE_ARTIFACTS_PER_PAGE = 20;
-export const MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE = 8;
+export const MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE = 16;
 /**
  * Prose/derived chunks stay deliberately small. Table rows are accounted for
  * separately because row-level retrieval fixed the poor recall produced by
