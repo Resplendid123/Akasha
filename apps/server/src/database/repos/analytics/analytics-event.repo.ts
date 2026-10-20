@@ -75,10 +75,10 @@ export class AnalyticsEventRepo {
         userId: input.userId ?? null,
         event: ANALYTICS_EVENT.SPACE_DELETED,
         spaceId: input.spaceId,
-        metadata: JSON.stringify({
+        metadata: {
           spaceCreatedAt: input.spaceCreatedAt.toISOString(),
           name: input.name,
-        }),
+        },
       })
       .execute();
   }
@@ -103,12 +103,12 @@ export class AnalyticsEventRepo {
         userId: input.agentUserId,
         event: ANALYTICS_EVENT.AGENT_OP,
         route: input.op.slice(0, 64),
-        metadata: JSON.stringify({
+        metadata: {
           channel: input.channel,
           apiKeyId: input.apiKeyId,
           delegatedUserId: input.delegatedUserId ?? null,
           outcome: input.outcome,
-        }),
+        },
       })
       .execute();
   }
