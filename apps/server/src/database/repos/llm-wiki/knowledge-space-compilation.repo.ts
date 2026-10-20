@@ -1297,11 +1297,7 @@ export class KnowledgeSpaceCompilationRepo {
       const supersededJobIds = [
         ...oldRuns.map((oldRun) => oldRun.spaceJobId),
         ...oldRuns.map((oldRun) => oldRun.aggregateJobId),
-        ...oldPages.flatMap((page) => [
-          page.jobId,
-          page.imageJobId,
-          page.mergeJobId,
-        ]),
+        ...oldPages.flatMap((page) => [page.jobId, page.mergeJobId]),
         ...oldImages.map((image) => image.jobId),
       ].filter((jobId): jobId is string => Boolean(jobId));
       return {
@@ -1685,39 +1681,6 @@ export class KnowledgeSpaceCompilationRepo {
     });
   }
 
-  async isRunActiveForImageWork(input: {
-    runId: string;
-    workspaceId: string;
-    spaceId: string;
-    sourcePageId: string;
-    sourceVersion: string;
-    sourceContentHash: string;
-    knowledgeGeneration: number;
-  }): Promise<boolean> {
-    const row = await this.db
-      .selectFrom('knowledgeSpaceCompileRunPages as rp')
-      .innerJoin('knowledgeSpaceCompileRuns as r', 'r.id', 'rp.runId')
-      .innerJoin('spaces as s', (join) =>
-        join
-          .onRef('s.id', '=', 'r.spaceId')
-          .onRef('s.workspaceId', '=', 'r.workspaceId'),
-      )
-      .select('rp.id')
-      .where('rp.runId', '=', input.runId)
-      .where('rp.workspaceId', '=', input.workspaceId)
-      .where('rp.spaceId', '=', input.spaceId)
-      .where('rp.sourcePageId', '=', input.sourcePageId)
-      .where('rp.expectedSourceVersion', '=', input.sourceVersion)
-      .where('rp.expectedSourceContentHash', '=', input.sourceContentHash)
-      .where('rp.imageStatus', 'in', ['queued', 'processing'])
-      .where('r.status', '=', 'compiling')
-      .where('r.phase', '=', 'images')
-      .where('r.knowledgeGeneration', '=', input.knowledgeGeneration)
-      .where('s.knowledgeGeneration', '=', input.knowledgeGeneration)
-      .executeTakeFirst();
-    return Boolean(row);
-  }
-
   private async reserveRunImagesForRun(
     runId: string,
     maxOutstandingPerRun: number,
@@ -1908,7 +1871,7 @@ export class KnowledgeSpaceCompilationRepo {
 
     const pages = await trx
       .selectFrom('knowledgeSpaceCompileRunPages')
-      .select(['id', 'runId', 'status', 'jobId', 'imageJobId', 'mergeJobId'])
+      .select(['id', 'runId', 'status', 'jobId', 'mergeJobId'])
       .where('runId', 'in', input.runIds)
       .orderBy('runId', 'asc')
       .orderBy('id', 'asc')
@@ -2138,11 +2101,7 @@ export class KnowledgeSpaceCompilationRepo {
       const jobIds = [
         run.spaceJobId,
         run.aggregateJobId,
-        ...pages.flatMap((page) => [
-          page.jobId,
-          page.imageJobId,
-          page.mergeJobId,
-        ]),
+        ...pages.flatMap((page) => [page.jobId, page.mergeJobId]),
         ...images.map((image) => image.jobId),
       ].filter((jobId): jobId is string => Boolean(jobId));
       return {
@@ -2207,23 +2166,6 @@ export class KnowledgeSpaceCompilationRepo {
       .orderBy('createdAt', 'desc')
       .limit(1)
       .executeTakeFirst();
-  }
-
-  async findRecentRuns(input: {
-    workspaceId: string;
-    spaceIds?: string[];
-    limit: number;
-  }) {
-    let query = this.db
-      .selectFrom('knowledgeSpaceCompileRuns')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .orderBy('createdAt', 'desc')
-      .limit(Math.min(Math.max(input.limit * 10, input.limit), 1_000));
-    if (input.spaceIds?.length) {
-      query = query.where('spaceId', 'in', input.spaceIds);
-    }
-    return query.execute();
   }
 }
 

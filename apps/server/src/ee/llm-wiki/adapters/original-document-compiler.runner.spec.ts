@@ -49,7 +49,6 @@ describe('OriginalDocumentCompilerRunner', () => {
         contentMarkdown: '',
       }),
     );
-    expect(result.artifacts[0].claims).toBeUndefined();
     expect(result.artifacts[0].links).toBeUndefined();
     expect(result.artifacts[0].graphEdges).toBeUndefined();
     expect(result.artifacts[0].chunks?.[0]).toEqual(

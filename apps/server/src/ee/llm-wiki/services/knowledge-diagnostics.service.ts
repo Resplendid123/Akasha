@@ -1094,14 +1094,6 @@ export class KnowledgeDiagnosticsService {
     return [...new Set(rows.map((row) => row.sourcePageId))];
   }
 
-  /** @deprecated Use findCompiledPageIds; successful pages are retryable too. */
-  async findRetryableFailedPageIds(input: {
-    workspaceId: string;
-    sourcePageIds: string[];
-  }): Promise<string[]> {
-    return this.findCompiledPageIds(input);
-  }
-
   async findWorkspaceSpaceIds(input: {
     workspaceId: string;
     requestedSpaceIds?: string[];

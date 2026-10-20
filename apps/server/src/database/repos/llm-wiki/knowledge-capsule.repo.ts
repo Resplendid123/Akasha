@@ -423,15 +423,6 @@ export class KnowledgeCapsuleRepo {
     });
   }
 
-  async upsertCompiledArtifact(
-    input: UpsertCompiledArtifactInput,
-    trx?: KyselyTransaction,
-  ): Promise<KnowledgePage> {
-    const [page] = await this.upsertCompiledArtifacts([input], trx);
-
-    return page;
-  }
-
   async upsertCompiledArtifacts(
     inputs: UpsertCompiledArtifactInput[],
     trx?: KyselyTransaction,
@@ -521,7 +512,6 @@ export class KnowledgeCapsuleRepo {
           pageType: input.page.pageType ?? null,
           canonicalKey: input.page.canonicalKey ?? null,
           body: input.page.body,
-          summary: input.page.summary ?? null,
           compiledAt: input.page.compiledAt,
           compilerVersion: input.page.compilerVersion,
           compilerRunId: input.page.compilerRunId ?? null,
@@ -647,57 +637,6 @@ export class KnowledgeCapsuleRepo {
           .execute(),
       ),
     ]);
-  }
-
-  async findPageCandidates(
-    input: {
-      workspaceId: string;
-      spaceIds: string[];
-      query: string;
-      limit: number;
-    },
-    trx?: KyselyTransaction,
-  ): Promise<KnowledgePage[]> {
-    if (input.spaceIds.length === 0) return [];
-
-    const normalizedQuery = `%${input.query.trim()}%`;
-
-    return dbOrTx(this.db, trx)
-      .selectFrom('knowledgePages')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .where('spaceId', 'in', input.spaceIds)
-      .where('staleAt', 'is', null)
-      .where((eb) =>
-        eb(sql`title`, 'ilike', normalizedQuery).or(
-          sql`body`,
-          'ilike',
-          normalizedQuery,
-        ),
-      )
-      .limit(input.limit)
-      .execute();
-  }
-
-  async findEmbeddedChunkCandidates(
-    input: {
-      workspaceId: string;
-      spaceIds: string[];
-      limit: number;
-    },
-    trx?: KyselyTransaction,
-  ): Promise<KnowledgeChunk[]> {
-    if (input.spaceIds.length === 0) return [];
-
-    return dbOrTx(this.db, trx)
-      .selectFrom('knowledgeChunks')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .where('spaceId', 'in', input.spaceIds)
-      .where('staleAt', 'is', null)
-      .where('embedding', 'is not', null)
-      .limit(input.limit)
-      .execute();
   }
 
   async findDenseChunkCandidates(
@@ -1523,20 +1462,6 @@ export class KnowledgeCapsuleRepo {
     );
   }
 
-  async findChunkSourcePageIds(
-    input: { workspaceId: string; chunkId: string },
-    trx?: KyselyTransaction,
-  ): Promise<string[]> {
-    const rows = await dbOrTx(this.db, trx)
-      .selectFrom('knowledgeChunkSources')
-      .select('knowledgeChunkSources.sourcePageId')
-      .where('knowledgeChunkSources.workspaceId', '=', input.workspaceId)
-      .where('knowledgeChunkSources.chunkId', '=', input.chunkId)
-      .execute();
-
-    return unique(rows.map((row) => row.sourcePageId));
-  }
-
   async findChunkSourcePageIdsByChunkIds(
     input: { workspaceId: string; chunkIds: string[] },
     trx?: KyselyTransaction,
@@ -1659,45 +1584,36 @@ export class KnowledgeCapsuleRepo {
     if (input.sourcePageIds.length === 0) return;
 
     const db = dbOrTx(this.db, trx);
-    const [pageRows, chunkRows, linkRows, graphEdgeRows] =
-      await Promise.all([
-        db
-          .selectFrom('knowledgePageSources')
-          .select('knowledgePageSources.knowledgePageId')
-          .where('knowledgePageSources.workspaceId', '=', input.workspaceId)
-          .where('knowledgePageSources.sourcePageId', 'in', input.sourcePageIds)
-          .execute(),
-        db
-          .selectFrom('knowledgeChunkSources')
-          .select('knowledgeChunkSources.chunkId')
-          .where('knowledgeChunkSources.workspaceId', '=', input.workspaceId)
-          .where(
-            'knowledgeChunkSources.sourcePageId',
-            'in',
-            input.sourcePageIds,
-          )
-          .execute(),
-        db
-          .selectFrom('knowledgeLinkSources')
-          .select('knowledgeLinkSources.linkId')
-          .where('knowledgeLinkSources.workspaceId', '=', input.workspaceId)
-          .where('knowledgeLinkSources.sourcePageId', 'in', input.sourcePageIds)
-          .execute(),
-        db
-          .selectFrom('knowledgeGraphEdgeSources')
-          .select('knowledgeGraphEdgeSources.graphEdgeId')
-          .where(
-            'knowledgeGraphEdgeSources.workspaceId',
-            '=',
-            input.workspaceId,
-          )
-          .where(
-            'knowledgeGraphEdgeSources.sourcePageId',
-            'in',
-            input.sourcePageIds,
-          )
-          .execute(),
-      ]);
+    const [pageRows, chunkRows, linkRows, graphEdgeRows] = await Promise.all([
+      db
+        .selectFrom('knowledgePageSources')
+        .select('knowledgePageSources.knowledgePageId')
+        .where('knowledgePageSources.workspaceId', '=', input.workspaceId)
+        .where('knowledgePageSources.sourcePageId', 'in', input.sourcePageIds)
+        .execute(),
+      db
+        .selectFrom('knowledgeChunkSources')
+        .select('knowledgeChunkSources.chunkId')
+        .where('knowledgeChunkSources.workspaceId', '=', input.workspaceId)
+        .where('knowledgeChunkSources.sourcePageId', 'in', input.sourcePageIds)
+        .execute(),
+      db
+        .selectFrom('knowledgeLinkSources')
+        .select('knowledgeLinkSources.linkId')
+        .where('knowledgeLinkSources.workspaceId', '=', input.workspaceId)
+        .where('knowledgeLinkSources.sourcePageId', 'in', input.sourcePageIds)
+        .execute(),
+      db
+        .selectFrom('knowledgeGraphEdgeSources')
+        .select('knowledgeGraphEdgeSources.graphEdgeId')
+        .where('knowledgeGraphEdgeSources.workspaceId', '=', input.workspaceId)
+        .where(
+          'knowledgeGraphEdgeSources.sourcePageId',
+          'in',
+          input.sourcePageIds,
+        )
+        .execute(),
+    ]);
 
     await Promise.all([
       this.markStale(

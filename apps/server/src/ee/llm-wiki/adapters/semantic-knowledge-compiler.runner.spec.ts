@@ -34,36 +34,21 @@ const generation = {
       canonicalKey: 'model-supplied-summary-key',
       title: 'Architecture notes',
       markdown: 'The source explains event sourcing.',
-      claims: [
-        {
-          text: 'Event sourcing records changes.',
-          confidence: 0.95,
-          evidenceQuote: 'records changes as an append-only log',
-        },
-      ],
       links: [
         {
           targetKind: 'concept' as const,
           targetCanonicalKey: 'event-sourcing',
           relation: 'explains',
-          evidenceQuote: 'Event sourcing',
+          evidenceQuote: 'records changes as an append-only log',
         },
       ],
-      tags: ['architecture'],
     },
     {
       kind: 'concept' as const,
       canonicalKey: 'event-sourcing',
       title: 'Event sourcing',
       markdown: 'Event sourcing stores state changes in an append-only log.',
-      claims: [
-        {
-          text: 'State changes are append-only.',
-          evidenceQuote: 'append-only log',
-        },
-      ],
       links: [],
-      tags: ['architecture'],
     },
   ],
 };
@@ -492,7 +477,7 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     );
 
     const result = await runner.compileSpace(compileInput());
-    const source = result.artifacts[0].claims?.[0].inputSourceRefs?.[0];
+    const source = result.artifacts[0].links?.[0].inputSourceRefs?.[0];
 
     expect(source?.sourceRange).toEqual({ startOffset: 15, endOffset: 52 });
     expect(source?.quoteHash).toMatch(/^sha256:/);
@@ -502,49 +487,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
         source!.sourceRange!.endOffset,
       ),
     ).toBe('records changes as an append-only log');
-  });
-
-  it('carries Stage 1 claims into the source summary when generation omits them', async () => {
-    const provider = createProvider();
-    provider.analyze.mockResolvedValueOnce({
-      ...analysis,
-      claims: [
-        {
-          text: 'Event sourcing records changes as an append-only log.',
-          confidence: 0.92,
-          evidenceQuote: 'records changes as an append-only log',
-        },
-      ],
-    });
-    provider.generate.mockResolvedValueOnce({
-      ...generation,
-      artifacts: generation.artifacts.map((artifact) => ({
-        ...artifact,
-        claims: [],
-      })),
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(compileInput());
-    const summary = result.artifacts.find(
-      (artifact) => artifact.artifactKind === 'source_summary',
-    );
-
-    expect(summary?.claims).toEqual([
-      expect.objectContaining({
-        text: 'Event sourcing records changes as an append-only log.',
-        confidence: 0.92,
-        inputSourceRefs: [
-          expect.objectContaining({
-            sourceRange: { startOffset: 15, endOffset: 52 },
-            quoteHash: expect.stringMatching(/^sha256:/),
-          }),
-        ],
-      }),
-    ]);
   });
 
   it('keeps generated direct links separate from semantic graph edges', async () => {

@@ -148,16 +148,13 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       throw new Error('generation must contain exactly one source_summary');
     }
 
-    const normalizedDrafts = carryAnalysisClaimsIntoSummary(
-      generation.artifacts.map((artifact) => ({
-        ...artifact,
-        canonicalKey:
-          artifact.kind === 'source_summary'
-            ? source.sourcePageId
-            : normalizeCanonicalKey(artifact.canonicalKey),
-      })),
-      analysis,
-    );
+    const normalizedDrafts = generation.artifacts.map((artifact) => ({
+      ...artifact,
+      canonicalKey:
+        artifact.kind === 'source_summary'
+          ? source.sourcePageId
+          : normalizeCanonicalKey(artifact.canonicalKey),
+    }));
     assertUniqueArtifacts(normalizedDrafts);
     const idByKey = new Map<string, string>();
     for (const entry of generationCatalog.entries) {
@@ -378,34 +375,6 @@ function analysisCacheHash(input: {
   )}`;
 }
 
-function carryAnalysisClaimsIntoSummary(
-  artifacts: SemanticGeneratedArtifact[],
-  analysis: SemanticAnalysis,
-): SemanticGeneratedArtifact[] {
-  if (analysis.claims.length === 0) return artifacts;
-
-  return artifacts.map((artifact) => {
-    if (artifact.kind !== 'source_summary') return artifact;
-    const seen = new Set(
-      artifact.claims.map((claim) => normalizeClaimText(claim.text)),
-    );
-    const recovered = analysis.claims.filter((claim) => {
-      const key = normalizeClaimText(claim.text);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    return {
-      ...artifact,
-      claims: [...artifact.claims, ...recovered].slice(0, 200),
-    };
-  });
-}
-
-function normalizeClaimText(value: string): string {
-  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
 function toCompiledArtifact(input: {
   input: CompileSpaceInput;
   source: KnowledgeSourceSnapshot;
@@ -421,13 +390,6 @@ function toCompiledArtifact(input: {
     input.artifact.canonicalKey,
   );
   const sourceRef = toSourceRef(input.source);
-  const claims = input.artifact.claims.map((claim) => ({
-    text: claim.text,
-    confidence: claim.confidence ?? null,
-    inputSourceRefs: [
-      sourceRefForEvidence(input.source, claim.evidenceQuote, input.warnings),
-    ],
-  }));
   const structuralParents = chunkKnowledgeSource({
     pageTitle: input.artifact.title,
     text: input.artifact.markdown,
@@ -527,7 +489,6 @@ function toCompiledArtifact(input: {
     compileTaskId: input.compileTaskId,
     inputSourceRefs: [sourceRef],
     parentSections: [...parentSections, ...attachmentEvidence.parentSections],
-    claims,
     chunks,
     links,
     graphEdges: [],
