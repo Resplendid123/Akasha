@@ -834,101 +834,103 @@ describe('KnowledgeCapsuleRepo', () => {
     const repo = createRepo(query);
 
     await expect(
-      repo.upsertCompiledArtifact({
-        page: {
-          id: 'knowledge-page-1',
-          workspaceId: 'workspace-1',
-          spaceId: 'space-1',
-          compileScope: 'page',
-          title: 'Compiled',
-          slug: 'compiled',
-          body: 'body',
-          compiledAt: new Date('2026-06-16T00:00:00.000Z'),
-          compilerVersion: 'compiler@1',
+      repo.upsertCompiledArtifacts([
+        {
+          page: {
+            id: 'knowledge-page-1',
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            compileScope: 'page',
+            title: 'Compiled',
+            slug: 'compiled',
+            body: 'body',
+            compiledAt: new Date('2026-06-16T00:00:00.000Z'),
+            compilerVersion: 'compiler@1',
+          },
+          pageSources: [
+            {
+              workspaceId: 'workspace-1',
+              knowledgePageId: 'knowledge-page-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
+          chunks: [
+            {
+              id: 'chunk-1',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              knowledgePageId: 'knowledge-page-1',
+              text: 'Kafka is used for events.',
+              contentHash: 'chunk-hash-1',
+              embedding: null,
+              compilerRunId: 'run-1',
+              compileTaskId: 'task-1',
+            },
+          ],
+          chunkSources: [
+            {
+              workspaceId: 'workspace-1',
+              chunkId: 'chunk-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
+          links: [
+            {
+              id: 'link-1',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              fromKnowledgePageId: 'knowledge-page-1',
+              toKnowledgePageId: null,
+              targetPageId: null,
+              targetSpaceId: 'space-2',
+              linkText: 'External page',
+              linkType: 'cross_space_reference',
+              isDangling: true,
+              compilerRunId: 'run-1',
+              compileTaskId: 'task-1',
+            },
+          ],
+          linkSources: [
+            {
+              workspaceId: 'workspace-1',
+              linkId: 'link-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
+          graphEdges: [
+            {
+              id: 'edge-1',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              fromKnowledgePageId: 'knowledge-page-1',
+              toKnowledgePageId: 'knowledge-page-2',
+              relation: 'depends_on',
+              compilerRunId: 'run-1',
+              compileTaskId: 'task-1',
+            },
+          ],
+          graphEdgeSources: [
+            {
+              workspaceId: 'workspace-1',
+              graphEdgeId: 'edge-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
         },
-        pageSources: [
-          {
-            workspaceId: 'workspace-1',
-            knowledgePageId: 'knowledge-page-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        chunks: [
-          {
-            id: 'chunk-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            knowledgePageId: 'knowledge-page-1',
-            text: 'Kafka is used for events.',
-            contentHash: 'chunk-hash-1',
-            embedding: null,
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        chunkSources: [
-          {
-            workspaceId: 'workspace-1',
-            chunkId: 'chunk-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        links: [
-          {
-            id: 'link-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            fromKnowledgePageId: 'knowledge-page-1',
-            toKnowledgePageId: null,
-            targetPageId: null,
-            targetSpaceId: 'space-2',
-            linkText: 'External page',
-            linkType: 'cross_space_reference',
-            isDangling: true,
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        linkSources: [
-          {
-            workspaceId: 'workspace-1',
-            linkId: 'link-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        graphEdges: [
-          {
-            id: 'edge-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            fromKnowledgePageId: 'knowledge-page-1',
-            toKnowledgePageId: 'knowledge-page-2',
-            relation: 'depends_on',
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        graphEdgeSources: [
-          {
-            workspaceId: 'workspace-1',
-            graphEdgeId: 'edge-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-      }),
-    ).resolves.toEqual(row);
+      ]),
+    ).resolves.toEqual([row]);
 
     expect(query.calls).toEqual(
       expect.arrayContaining([
@@ -955,13 +957,15 @@ describe('KnowledgeCapsuleRepo', () => {
     });
     const repo = createRepo(query);
 
-    await repo.upsertCompiledArtifact({
-      page: {
-        ...basePage('knowledge-page-1'),
-        compileScope: 'page',
-        generationMode: 'semantic',
+    await repo.upsertCompiledArtifacts([
+      {
+        page: {
+          ...basePage('knowledge-page-1'),
+          compileScope: 'page',
+          generationMode: 'semantic',
+        },
       },
-    });
+    ]);
 
     expect(query.calls).toContainEqual({
       method: 'doUpdateSet',
@@ -982,105 +986,6 @@ describe('KnowledgeCapsuleRepo', () => {
       repo.findDependencySourcePageIds({
         workspaceId: 'workspace-1',
         knowledgePageIds: [],
-      }),
-    ).resolves.toEqual([]);
-
-    expect(query.calls).toEqual([]);
-  });
-
-  it('finds non-stale page candidates within workspace and readable spaces', async () => {
-    const rows = [
-      {
-        id: 'kp-1',
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        title: 'Kafka',
-        body: 'Kafka deployment guide',
-      },
-    ];
-    const query = new FakeKyselyQuery({ knowledgePages: rows });
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findPageCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: ['space-1', 'space-2'],
-        query: 'kafka',
-        limit: 20,
-      }),
-    ).resolves.toEqual(rows);
-
-    expect(query.calls).toEqual([
-      { method: 'selectFrom', args: ['knowledgePages'] },
-      { method: 'selectAll', args: [] },
-      { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-      { method: 'where', args: ['spaceId', 'in', ['space-1', 'space-2']] },
-      { method: 'where', args: ['staleAt', 'is', null] },
-      { method: 'where', args: [expect.any(Function)] },
-      { method: 'limit', args: [20] },
-      { method: 'execute', args: [] },
-    ]);
-  });
-
-  it('does not query candidates when readable spaces are empty', async () => {
-    const query = new FakeKyselyQuery();
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findPageCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: [],
-        query: 'kafka',
-        limit: 20,
-      }),
-    ).resolves.toEqual([]);
-
-    expect(query.calls).toEqual([]);
-  });
-
-  it('finds non-stale embedded chunk candidates within readable spaces', async () => {
-    const rows = [
-      {
-        id: 'chunk-1',
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        knowledgePageId: 'kp-1',
-        text: 'Compiled chunk',
-        embedding: [1, 0],
-      },
-    ];
-    const query = new FakeKyselyQuery({ knowledgeChunks: rows });
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findEmbeddedChunkCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: ['space-1', 'space-2'],
-        limit: 200,
-      }),
-    ).resolves.toEqual(rows);
-
-    expect(query.calls).toEqual([
-      { method: 'selectFrom', args: ['knowledgeChunks'] },
-      { method: 'selectAll', args: [] },
-      { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-      { method: 'where', args: ['spaceId', 'in', ['space-1', 'space-2']] },
-      { method: 'where', args: ['staleAt', 'is', null] },
-      { method: 'where', args: ['embedding', 'is not', null] },
-      { method: 'limit', args: [200] },
-      { method: 'execute', args: [] },
-    ]);
-  });
-
-  it('does not query embedded chunks when readable spaces are empty', async () => {
-    const query = new FakeKyselyQuery();
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findEmbeddedChunkCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: [],
-        limit: 200,
       }),
     ).resolves.toEqual([]);
 

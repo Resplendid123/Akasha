@@ -91,7 +91,6 @@ export function buildAttachmentEvidenceContent(input: {
       chunks.push({
         text: child.text,
         embeddingText: child.embeddingText,
-        claimIndex: null,
         contentHash: child.quoteHash,
         stableKey: child.stableKey,
         parentStableKey: parent.stableKey,

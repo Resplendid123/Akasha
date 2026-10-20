@@ -347,35 +347,6 @@ describe('KnowledgeSourceRepo', () => {
     ]);
   });
 
-  it('loads the latest active source snapshot for last-known-good fencing', async () => {
-    const row = {
-      id: 'source-1',
-      sourcePageId: 'page-1',
-      contentHash: 'sha256:current',
-    };
-    const query = new FakeKyselyQuery([row]);
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findLatestActiveSourceByPageId({
-        workspaceId: 'workspace-1',
-        sourcePageId: 'page-1',
-      }),
-    ).resolves.toEqual(row);
-
-    expect(query.calls).toEqual([
-      { method: 'selectFrom', args: ['knowledgeSources'] },
-      { method: 'selectAll', args: [] },
-      { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-      { method: 'where', args: ['sourcePageId', '=', 'page-1'] },
-      { method: 'where', args: ['staleAt', 'is', null] },
-      { method: 'where', args: ['deletedAt', 'is', null] },
-      { method: 'orderBy', args: ['updatedAt', 'desc'] },
-      { method: 'orderBy', args: ['createdAt', 'desc'] },
-      { method: 'executeTakeFirst', args: [] },
-    ]);
-  });
-
   it('marks sources stale within the requested workspace', async () => {
     const query = new FakeKyselyQuery();
     const repo = createRepo(query);

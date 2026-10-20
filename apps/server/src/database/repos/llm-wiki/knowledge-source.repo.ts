@@ -156,22 +156,6 @@ export class KnowledgeSourceRepo {
     });
   }
 
-  async findLatestActiveSourceByPageId(input: {
-    workspaceId: string;
-    sourcePageId: string;
-  }): Promise<KnowledgeSource | undefined> {
-    return this.db
-      .selectFrom('knowledgeSources')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .where('sourcePageId', '=', input.sourcePageId)
-      .where('staleAt', 'is', null)
-      .where('deletedAt', 'is', null)
-      .orderBy('updatedAt', 'desc')
-      .orderBy('createdAt', 'desc')
-      .executeTakeFirst();
-  }
-
   async markSourcesStale(
     input: { workspaceId: string; sourcePageIds: string[] },
     trx?: KyselyTransaction,
@@ -236,22 +220,6 @@ export class KnowledgeSourceRepo {
       )
       .orderBy('sourcePageId', 'asc')
       .limit(input.limit)
-      .execute();
-    return rows.map((row) => row.sourcePageId);
-  }
-
-  async findActiveSourcePageIdsBySpace(input: {
-    workspaceId: string;
-    spaceId: string;
-  }): Promise<string[]> {
-    const rows = await this.db
-      .selectFrom('knowledgeSources')
-      .select('sourcePageId')
-      .distinct()
-      .where('workspaceId', '=', input.workspaceId)
-      .where('sourceSpaceId', '=', input.spaceId)
-      .where('staleAt', 'is', null)
-      .where('deletedAt', 'is', null)
       .execute();
     return rows.map((row) => row.sourcePageId);
   }

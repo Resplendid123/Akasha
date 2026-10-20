@@ -98,7 +98,6 @@ export function buildSemanticGenerationMessages(input: {
       'Order non-summary artifacts by independent retrieval value and omit trivial, overlapping, repetitive, or weakly supported artifacts.',
       'Do not generate overview, index, log, or unsupported page kinds.',
       'Write artifact titles and Markdown in the same language as the source unless the schema explicitly requires otherwise.',
-      'Every claim must include an evidenceQuote copied from the source document.',
       'Every link with evidence should include evidenceQuote and a canonical target.',
       ...(attachmentHints.length > 0
         ? [
@@ -140,7 +139,7 @@ export function buildSemanticGenerationMessages(input: {
       '<output_contract>',
       GENERATION_OUTPUT_CONTRACT,
       '</output_contract>',
-      'Follow the output contract exactly. version must be the string "1". Every artifact must include claims, links, and tags arrays. canonicalKey must start with a letter or number and contain only letters, numbers, dot, underscore, colon, or hyphen; it must not contain spaces.',
+      'Follow the output contract exactly. version must be the string "1". Every artifact must include a links array. canonicalKey must start with a letter or number and contain only letters, numbers, dot, underscore, colon, or hyphen; it must not contain spaces.',
     ].join('\n'),
     catalogCandidateHash: hashPromptCatalog(promptCatalog),
   };
@@ -253,13 +252,6 @@ const GENERATION_OUTPUT_CONTRACT = JSON.stringify({
       canonicalKey: 'stable_artifact_key',
       title: 'artifact title',
       markdown: 'non-empty Markdown body',
-      claims: [
-        {
-          text: 'complete source-grounded claim sentence',
-          confidence: 0.9,
-          evidenceQuote: 'short exact quote copied from source',
-        },
-      ],
       links: [
         {
           targetKind: 'source_summary | concept | entity | comparison',
@@ -268,7 +260,6 @@ const GENERATION_OUTPUT_CONTRACT = JSON.stringify({
           evidenceQuote: 'optional short exact quote copied from source',
         },
       ],
-      tags: ['short tag'],
     },
   ],
 });

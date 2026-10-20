@@ -383,16 +383,6 @@ export class KnowledgePageCompilationService {
         effectiveKnowledgeHash,
       });
       const resultQuality = compileResult.resultQuality ?? 'normal';
-      const compilationRepo = this
-        .compilationRepo as KnowledgeCompilationRepo & {
-        markResultQuality?: KnowledgeCompilationRepo['markResultQuality'];
-      };
-      await compilationRepo.markResultQuality?.({
-        workspaceId: data.workspaceId,
-        sourcePageId,
-        compileTaskId,
-        quality: resultQuality,
-      });
       await this.completeTextPage(input, {
         status: 'succeeded',
         qualityStatus: resultQuality,

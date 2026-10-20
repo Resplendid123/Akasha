@@ -132,8 +132,8 @@ describe('KnowledgeArtifactMaterializerService', () => {
       result.artifacts[0].inputSourceRefs?.map((ref) => ref.sourcePageId),
     ).toEqual(['page-2', 'page-3']);
     expect(
-      result.artifacts[0].claims?.map((claim) => claim.text),
-    ).not.toContain('Retired-only fact claim');
+      result.artifacts[0].chunks?.map((chunk) => chunk.text),
+    ).not.toContain('Retired-only fact chunk');
   });
 
   it('remerges survivors deterministically for original publication', async () => {
@@ -287,7 +287,6 @@ function artifact(
     compilerRunId: `run-${sourcePageId}`,
     compileTaskId: `task-${sourcePageId}`,
     inputSourceRefs: [sourceRef],
-    claims: [{ text: `${title} claim`, inputSourceRefs: [sourceRef] }],
     chunks: [{ text: `${title} chunk`, inputSourceRefs: [sourceRef] }],
     links: [],
     graphEdges: [],

@@ -148,15 +148,9 @@ describe('KnowledgeArtifactValidatorService', () => {
     ]);
   });
 
-  it('quarantines claims, chunks, and links with source refs outside the compile input', () => {
+  it('quarantines chunks, links, and graph edges with source refs outside the compile input', () => {
     const artifact = {
       ...validArtifact(),
-      claims: [
-        {
-          text: 'Bad claim',
-          inputSourceRefs: [outsideSourceRef()],
-        },
-      ],
       chunks: [
         {
           text: 'Bad chunk',
@@ -186,7 +180,6 @@ describe('KnowledgeArtifactValidatorService', () => {
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
-      'claim source is not in compile input',
       'chunk source is not in compile input',
       'link source is not in compile input',
       'graph edge source is not in compile input',
@@ -196,11 +189,6 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines child artifacts that do not carry explicit lineage', () => {
     const artifact = {
       ...validArtifact(),
-      claims: [
-        {
-          text: 'Claim without lineage',
-        },
-      ],
       chunks: [
         {
           text: 'Chunk without lineage',
@@ -227,7 +215,6 @@ describe('KnowledgeArtifactValidatorService', () => {
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
-      'claim lineage is incomplete',
       'chunk lineage is incomplete',
       'link lineage is incomplete',
       'graph edge lineage is incomplete',
@@ -334,7 +321,7 @@ describe('KnowledgeArtifactValidatorService', () => {
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
-      'graph edge target id must be a UUID',
+      'graph edge target identity is invalid',
     ]);
   });
 

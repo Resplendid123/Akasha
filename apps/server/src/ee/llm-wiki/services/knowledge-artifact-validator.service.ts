@@ -108,14 +108,6 @@ export class KnowledgeArtifactValidatorService {
     }
 
     validateChildSourceRefs(
-      'claim',
-      (artifact.claims ?? []).map((claim) => claim.inputSourceRefs),
-      input,
-      compileSourcesByKey,
-      reasons,
-    );
-
-    validateChildSourceRefs(
       'chunk',
       (artifact.chunks ?? []).map((chunk) => chunk.inputSourceRefs),
       input,

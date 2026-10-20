@@ -134,14 +134,12 @@ describe('semantic compiler prompts', () => {
       artifactKind: 'concept' as const,
       canonicalKey: `unrelated-${index}`,
       title: `Unrelated catalog entry ${index}`,
-      summary: 'x'.repeat(2_000),
     }));
     catalog[0] = {
       artifactId: 'artifact-target',
       artifactKind: 'concept',
       canonicalKey: 'target-architecture',
       title: 'Target architecture',
-      summary: 'The relevant architecture entry.'.repeat(20),
     };
 
     const messages = buildSemanticAnalysisMessages({
@@ -176,14 +174,12 @@ describe('semantic compiler prompts', () => {
           artifactKind: 'concept',
           canonicalKey: 'existing-platform',
           title: 'Existing platform',
-          summary: 'Existing platform summary.',
         },
         {
           artifactId: 'artifact-unrelated',
           artifactKind: 'concept',
           canonicalKey: 'unrelated-platform',
           title: 'Unrelated platform',
-          summary: 'Unrelated platform summary.',
         },
       ],
       analysis: {

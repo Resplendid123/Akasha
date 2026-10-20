@@ -263,7 +263,6 @@ export class KnowledgeImportService {
           quoteHash: source.quoteHash ?? null,
           contentHash: source.contentHash,
           provenanceKind: 'source_evidence',
-          attachmentId: null,
         })),
       );
       const chunks = artifactChunks.map((chunk, index) => ({
@@ -308,7 +307,6 @@ export class KnowledgeImportService {
           quoteHash: source.quoteHash ?? null,
           contentHash: source.contentHash,
           provenanceKind: 'synthesis_lineage',
-          attachmentId: null,
         })),
       );
       // Chunk id reuses the same deterministic key as the chunk row so the
@@ -367,7 +365,6 @@ export class KnowledgeImportService {
           quoteHash: source.quoteHash ?? null,
           contentHash: source.contentHash,
           provenanceKind: 'synthesis_lineage',
-          attachmentId: null,
         })),
       );
       const graphEdges = (artifact.graphEdges ?? []).map((edge, index) => ({
@@ -398,7 +395,6 @@ export class KnowledgeImportService {
           quoteHash: source.quoteHash ?? null,
           contentHash: source.contentHash,
           provenanceKind: 'synthesis_lineage',
-          attachmentId: null,
         })),
       );
 
@@ -413,7 +409,6 @@ export class KnowledgeImportService {
           body: artifact.contentMarkdown,
           canonicalKey:
             artifact.canonicalKey ?? artifact.rawArtifactKey ?? null,
-          summary: null,
           pageType: artifact.artifactKind ?? null,
           compiledAt: new Date(),
           compilerVersion: artifact.compilerVersion,
@@ -433,7 +428,6 @@ export class KnowledgeImportService {
           quoteHash: source.quoteHash ?? null,
           contentHash: source.contentHash,
           provenanceKind: 'synthesis_lineage',
-          attachmentId: null,
         })),
         parentSections,
         parentSectionSources,
@@ -857,13 +851,6 @@ const QUARANTINE_REASON_CODES = new Map<string, string>([
     'artifact source page ids must match synthesis lineage',
     'artifact_source_page_ids_mismatch',
   ],
-  ['claim lineage is incomplete', 'claim_lineage_incomplete'],
-  [
-    'claim source is not in compile input',
-    'claim_source_outside_compile_input',
-  ],
-  ['claim source range is invalid', 'claim_source_range_invalid'],
-  ['claim quote hash does not match source range', 'claim_quote_hash_mismatch'],
   ['cross-space references must be opaque', 'cross_space_reference_not_opaque'],
   ['link lineage is incomplete', 'link_lineage_incomplete'],
   ['link source is not in compile input', 'link_source_outside_compile_input'],
@@ -877,7 +864,7 @@ const QUARANTINE_REASON_CODES = new Map<string, string>([
     'chunk attachment occurrence does not match source snapshot',
     'chunk_attachment_occurrence_snapshot_mismatch',
   ],
-  ['graph edge target id must be a UUID', 'graph_edge_target_id_invalid'],
+  ['graph edge target identity is invalid', 'graph_edge_target_id_invalid'],
   ['graph edge lineage is incomplete', 'graph_edge_lineage_incomplete'],
   [
     'graph edge source is not in compile input',

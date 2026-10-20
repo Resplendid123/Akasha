@@ -57,53 +57,6 @@ export type KnowledgeCompilerCandidateStage = 'analysis' | 'generation';
 export class KnowledgeCompilationRepo {
   constructor(@InjectKysely() private readonly db: KyselyDB) {}
 
-  async queueAttempt(
-    input: CompilationAttemptInput,
-    trx?: KyselyTransaction,
-  ): Promise<void> {
-    const now = new Date();
-    await dbOrTx(this.db, trx)
-      .insertInto('knowledgeCompilationAttempts')
-      .values({
-        ...input,
-        sourceVersion: input.sourceVersion ?? null,
-        sourceContentHash: input.sourceContentHash ?? null,
-        effectiveKnowledgeHash: input.effectiveKnowledgeHash ?? null,
-        status: 'queued',
-        stage: 'queued',
-        attemptCount: 0,
-        errorCode: null,
-        errorMessage: null,
-        queuedAt: now,
-        startedAt: null,
-        finishedAt: null,
-        updatedAt: now,
-      })
-      .onConflict((oc) =>
-        oc.columns(['workspaceId', 'sourcePageId']).doUpdateSet({
-          spaceId: input.spaceId,
-          sourceVersion: input.sourceVersion ?? null,
-          sourceContentHash: input.sourceContentHash ?? null,
-          effectiveKnowledgeHash: input.effectiveKnowledgeHash ?? null,
-          compilerVersion: input.compilerVersion,
-          promptVersion: input.promptVersion,
-          compilerRunId: input.compilerRunId,
-          compileTaskId: input.compileTaskId,
-          status: 'queued',
-          stage: 'queued',
-          // attemptCount is cumulative worker starts; enqueueing does not
-          // represent an execution and deliberately leaves it unchanged.
-          errorCode: null,
-          errorMessage: null,
-          queuedAt: now,
-          startedAt: null,
-          finishedAt: null,
-          updatedAt: now,
-        }),
-      )
-      .execute();
-  }
-
   async startAttempt(
     input: CompilationAttemptInput,
     trx?: KyselyTransaction,
@@ -214,21 +167,6 @@ export class KnowledgeCompilationRepo {
         ...stageValues,
         updatedAt: new Date(),
       })
-      .where('workspaceId', '=', input.workspaceId)
-      .where('sourcePageId', '=', input.sourcePageId)
-      .where('compileTaskId', '=', input.compileTaskId)
-      .execute();
-  }
-
-  async markResultQuality(
-    input: FencedCompilationIdentity & {
-      quality: 'normal' | 'degraded' | 'partial_image';
-    },
-    trx?: KyselyTransaction,
-  ): Promise<void> {
-    await dbOrTx(this.db, trx)
-      .updateTable('knowledgeCompilationAttempts')
-      .set({ resultQuality: input.quality, updatedAt: new Date() })
       .where('workspaceId', '=', input.workspaceId)
       .where('sourcePageId', '=', input.sourcePageId)
       .where('compileTaskId', '=', input.compileTaskId)

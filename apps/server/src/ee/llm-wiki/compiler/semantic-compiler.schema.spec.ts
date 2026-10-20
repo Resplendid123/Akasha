@@ -3,6 +3,7 @@ import {
   parseSemanticAnalysisJson,
   parseSemanticGenerationJson,
   repairSemanticCompilerOutput,
+  semanticGenerationSchema,
 } from './semantic-compiler.schema';
 
 describe('semantic compiler schemas', () => {
@@ -219,8 +220,59 @@ describe('semantic compiler schemas', () => {
     );
 
     expect(parsed.artifacts[0]).toEqual(
-      expect.objectContaining({ claims: [], links: [], tags: [] }),
+      expect.objectContaining({ links: [] }),
     );
+    expect(parsed.artifacts[0]).not.toHaveProperty('claims');
+    expect(parsed.artifacts[0]).not.toHaveProperty('tags');
+  });
+
+  it('drops retired claims and tags without counting the answer as a repair', () => {
+    const answer = {
+      version: '1',
+      artifacts: [
+        {
+          kind: 'source_summary',
+          canonicalKey: 'source-page-1',
+          title: 'Source summary',
+          markdown: 'Source summary body.',
+          claims: Array.from({ length: 250 }, (_, index) => ({
+            text: `Claim ${index}`,
+            evidenceQuote: 'quote',
+          })),
+          links: [],
+          tags: Array.from({ length: 60 }, (_, index) => `tag-${index}`),
+        },
+      ],
+    };
+
+    const direct = semanticGenerationSchema.safeParse(answer);
+
+    expect(direct.success).toBe(true);
+    expect(direct.data?.artifacts[0]).toEqual({
+      kind: 'source_summary',
+      canonicalKey: 'source-page-1',
+      title: 'Source summary',
+      markdown: 'Source summary body.',
+      links: [],
+    });
+  });
+
+  it('still rejects unknown generated artifact fields', () => {
+    expect(
+      semanticGenerationSchema.safeParse({
+        version: '1',
+        artifacts: [
+          {
+            kind: 'source_summary',
+            canonicalKey: 'source-page-1',
+            title: 'Source summary',
+            markdown: 'Source summary body.',
+            links: [],
+            unexpected: true,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects unsupported generated artifact kinds', () => {
@@ -268,9 +320,7 @@ describe('semantic compiler schemas', () => {
           canonicalKey: 'api-overview',
           title: 'API overview',
           markdown: 'Source-grounded API overview.',
-          claims: [],
           links: [],
-          tags: [],
         },
       ],
     });
