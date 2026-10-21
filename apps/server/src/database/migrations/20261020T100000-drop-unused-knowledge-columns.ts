@@ -1,36 +1,50 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
-  // Drop knowledge claims tables and references
-  await db.schema
-    .dropTable('knowledge_claim_sources')
-    .ifExists()
-    .execute();
+/**
+ * Drops knowledge-base tables and columns that have no reader left.
+ *
+ * Knowledge claims were replaced by page-scoped compilation, so
+ * `knowledge_claims` / `knowledge_claim_sources` and the chunks foreign key to
+ * them are dead. The remaining columns only ever hold write-once defaults
+ * (`summary` stays NULL, `result_quality` stays 'normal', `image_job_id` is
+ * never read back), so dropping them cannot lose live state.
+ *
+ * Kysely's `AlterTableColumnAlteringBuilder` has no `ifExists()` (only
+ * `DropTableBuilder` and `CreateTableBuilder` do) and `DROP COLUMN` is not
+ * idempotent, so every drop goes through raw `IF EXISTS` SQL here. Dropping an
+ * index that backs a foreign key would make PostgreSQL refuse the `ALTER
+ * TABLE`, therefore the chunks/claim index is removed explicitly first.
+ */
+export async function up(db: Kysely<unknown>): Promise<void> {
+  // Dependents first: the sources table references knowledge_claims(id).
+  await sql`
+    DROP TABLE IF EXISTS knowledge_claim_sources
+  `.execute(db);
 
-  await db.schema
-    .alterTable('knowledge_chunks')
-    .dropColumn('claim_id')
-    .ifExists()
-    .execute();
+  await sql`
+    DROP INDEX IF EXISTS idx_knowledge_chunks_claim_fk
+  `.execute(db);
 
-  await db.schema
-    .dropTable('knowledge_claims')
-    .ifExists()
-    .execute();
+  await sql`
+    ALTER TABLE IF EXISTS knowledge_chunks
+      DROP COLUMN IF EXISTS claim_id
+  `.execute(db);
+
+  await sql`
+    DROP TABLE IF EXISTS knowledge_claims
+  `.execute(db);
 
   // Drop write-only columns from run pages
-  await db.schema
-    .alterTable('knowledge_space_compile_run_pages')
-    .dropColumn('image_job_id')
-    .ifExists()
-    .execute();
+  await sql`
+    ALTER TABLE IF EXISTS knowledge_space_compile_run_pages
+      DROP COLUMN IF EXISTS image_job_id
+  `.execute(db);
 
   // Drop summary from pages (always null)
-  await db.schema
-    .alterTable('knowledge_pages')
-    .dropColumn('summary')
-    .ifExists()
-    .execute();
+  await sql`
+    ALTER TABLE IF EXISTS knowledge_pages
+      DROP COLUMN IF EXISTS summary
+  `.execute(db);
 
   // Drop attachment_id from all sources tables (always null)
   for (const tableName of [
@@ -40,22 +54,21 @@ export async function up(db: Kysely<any>): Promise<void> {
     'knowledge_link_sources',
     'knowledge_graph_edge_sources',
   ]) {
-    await db.schema
-      .alterTable(tableName)
-      .dropColumn('attachment_id')
-      .ifExists()
-      .execute();
+    await sql`
+      ALTER TABLE IF EXISTS ${sql.table(tableName)}
+        DROP COLUMN IF EXISTS attachment_id
+    `.execute(db);
   }
 
-  // Drop result_quality from attempts (always 'normal')
-  await db.schema
-    .alterTable('knowledge_compilation_attempts')
-    .dropColumn('result_quality')
-    .ifExists()
-    .execute();
+  // Drop result_quality from attempts (always 'normal'); the CHECK constraint
+  // is dropped implicitly with its column.
+  await sql`
+    ALTER TABLE IF EXISTS knowledge_compilation_attempts
+      DROP COLUMN IF EXISTS result_quality
+  `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<unknown>): Promise<void> {
   // Recreate knowledge_claims table
   await db.schema
     .createTable('knowledge_claims')
@@ -116,6 +129,17 @@ export async function down(db: Kysely<any>): Promise<void> {
     .column('source_page_id')
     .execute();
 
+  // Restore indexes on knowledge_claims introduced by later migrations.
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_claims_page_fk
+      ON knowledge_claims (knowledge_page_id)
+  `.execute(db);
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_claim_sources_workspace_source
+      ON knowledge_claim_sources (workspace_id, source_page_id)
+  `.execute(db);
+
   // Restore claim_id to chunks
   await db.schema
     .alterTable('knowledge_chunks')
@@ -123,6 +147,12 @@ export async function down(db: Kysely<any>): Promise<void> {
       col.references('knowledge_claims.id').onDelete('cascade'),
     )
     .execute();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_claim_fk
+      ON knowledge_chunks (claim_id)
+      WHERE claim_id IS NOT NULL
+  `.execute(db);
 
   // Restore image_job_id
   await db.schema
@@ -152,11 +182,17 @@ export async function down(db: Kysely<any>): Promise<void> {
       .execute();
   }
 
-  // Restore result_quality with default
+  // Restore result_quality with default and its value-domain constraint
   await db.schema
     .alterTable('knowledge_compilation_attempts')
     .addColumn('result_quality', 'varchar', (col) =>
       col.notNull().defaultTo('normal'),
     )
     .execute();
+
+  await sql`
+    ALTER TABLE knowledge_compilation_attempts
+      ADD CONSTRAINT chk_knowledge_compilation_attempts_result_quality
+        CHECK (result_quality IN ('normal', 'degraded', 'partial_image'))
+  `.execute(db);
 }
