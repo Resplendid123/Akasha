@@ -10,9 +10,9 @@ import { getWorkspaceMembers } from "@/features/workspace/services/workspace-ser
 import { getLicenseInfo } from "@/ee/licence/services/license-service.ts";
 import { getSsoProviders } from "@/ee/security/services/security-service.ts";
 import { getShares } from "@/features/share/services/share-service.ts";
-import { getApiKeys } from "@/ee/api-key";
+import { getApiKeys } from "@/features/api-key";
 import { getAuditLogs } from "@/ee/audit/services/audit-service";
-import { getVerificationList } from "@/ee/page-verification/services/page-verification-service";
+import { getVerificationList } from "@/features/page-verification/services/page-verification-service";
 import { getScimTokens } from "@/ee/scim/services/scim-token-service";
 
 export const prefetchWorkspaceMembers = () => {

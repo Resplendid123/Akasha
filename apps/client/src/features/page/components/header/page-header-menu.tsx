@@ -70,7 +70,7 @@ import { PageShareModal } from "@/ee/page-permission";
 import {
   PageVerificationMenuItem,
   PageVerificationModal,
-} from "@/ee/page-verification";
+} from "@/features/page-verification";
 import {
   useFavoriteIds,
   useAddFavoriteMutation,

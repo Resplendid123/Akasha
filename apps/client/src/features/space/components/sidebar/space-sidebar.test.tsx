@@ -86,7 +86,7 @@ vi.mock("@/components/common/export-modal", () => ({
   default: () => null,
 }));
 
-vi.mock("@/ee/template/components/template-picker-modal", () => ({
+vi.mock("@/features/template/components/template-picker-modal", () => ({
   default: () => null,
 }));
 
