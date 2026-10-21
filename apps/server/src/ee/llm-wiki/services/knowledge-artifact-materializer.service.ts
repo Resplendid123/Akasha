@@ -28,6 +28,8 @@ export class KnowledgeArtifactMaterializerService {
     previousSourceContributions: KnowledgeArtifactContribution[];
     affectedContributions: KnowledgeArtifactContribution[];
     incomingArtifacts: CompiledKnowledgeArtifact[];
+    /** Withdrawal during original publication must not require a compiler LLM. */
+    mergeMode?: 'deterministic';
     operationBudget?: KnowledgeOperationBudget;
   }): Promise<{
     artifacts: CompiledKnowledgeArtifact[];
@@ -73,6 +75,7 @@ export class KnowledgeArtifactMaterializerService {
             contributions,
             input.sourcePageId,
             input.operationBudget ?? budget,
+            input.mergeMode,
           ),
         );
       }
@@ -85,8 +88,9 @@ export class KnowledgeArtifactMaterializerService {
     contributions: CompiledKnowledgeArtifact[],
     currentSourcePageId: string,
     operationBudget: KnowledgeOperationBudget,
+    mergeMode?: 'deterministic',
   ): Promise<CompiledKnowledgeArtifact> {
-    if (!this.provider.completeMerge) {
+    if (mergeMode !== 'deterministic' && !this.provider.completeMerge) {
       throw new KnowledgeCompilerLlmError(
         'configuration_error',
         'Knowledge compiler merge provider is not configured.',
@@ -115,16 +119,25 @@ export class KnowledgeArtifactMaterializerService {
         '</contributions>',
       ].join('\n'),
     };
-    const output = operationBudget.signal
-      ? await this.provider.completeMerge(messages, {
-          abortSignal: operationBudget.signal,
-        })
-      : await this.provider.completeMerge(messages);
-    const merged = parseMergeResult(output);
     const preferred =
       contributions.find((artifact) =>
         artifact.sourcePageIds.includes(currentSourcePageId),
       ) ?? contributions[0];
+    const merged =
+      mergeMode === 'deterministic'
+        ? {
+            title: preferred.title,
+            markdown: uniqueStrings(
+              contributions.map((artifact) => artifact.contentMarkdown),
+            ).join('\n\n'),
+          }
+        : parseMergeResult(
+            operationBudget.signal
+              ? await this.provider.completeMerge(messages, {
+                  abortSignal: operationBudget.signal,
+                })
+              : await this.provider.completeMerge(messages),
+          );
 
     return {
       ...preferred,
@@ -137,10 +150,9 @@ export class KnowledgeArtifactMaterializerService {
         contributions.flatMap((artifact) => artifact.inputSourceRefs ?? []),
         sourceRefKey,
       ),
-      claims: uniqueBy(
-        contributions.flatMap((artifact) => artifact.claims ?? []),
-        (claim) =>
-          `${claim.text}:${JSON.stringify(claim.inputSourceRefs ?? [])}`,
+      parentSections: uniqueBy(
+        contributions.flatMap((artifact) => artifact.parentSections ?? []),
+        (section) => section.stableKey,
       ),
       chunks: uniqueBy(
         contributions.flatMap((artifact) => artifact.chunks ?? []),
@@ -155,7 +167,8 @@ export class KnowledgeArtifactMaterializerService {
       ),
       graphEdges: uniqueBy(
         contributions.flatMap((artifact) => artifact.graphEdges ?? []),
-        (edge) => `${edge.relation}:${edge.toKnowledgePageId}`,
+        (edge) =>
+          `${edge.relation}:${edge.toKnowledgePageId ?? ''}:${edge.targetArtifactKind ?? ''}:${edge.targetCanonicalKey ?? ''}`,
       ),
     };
   }

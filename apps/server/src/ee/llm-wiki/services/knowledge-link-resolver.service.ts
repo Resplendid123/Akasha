@@ -11,7 +11,7 @@ export class KnowledgeLinkResolverService {
     abortSignal?: AbortSignal;
   }) {
     input.abortSignal?.throwIfAborted();
-    const result = await this.capsuleRepo.resolveCanonicalLinks({
+    const result = await this.capsuleRepo.resolveCanonicalReferences({
       workspaceId: input.workspaceId,
       spaceId: input.spaceId,
     });

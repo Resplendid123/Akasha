@@ -11,7 +11,12 @@ import {
   VisuallyHidden,
   Select,
 } from "@mantine/core";
-import { IconDots, IconSettings, IconEye, IconEyeOff } from "@tabler/icons-react";
+import {
+  IconDots,
+  IconSettings,
+  IconEye,
+  IconEyeOff,
+} from "@tabler/icons-react";
 import StarButton from "@/features/favorite/components/star-button";
 import {
   useWatchedSpaceIds,
@@ -36,8 +41,17 @@ import clsx from "clsx";
 import { CustomAvatar } from "@/components/ui/custom-avatar.tsx";
 import { AvatarIconType } from "@/features/attachments/types/attachment.types.ts";
 import { AutoTooltipText } from "@/components/ui/auto-tooltip-text.tsx";
+import { SpaceType } from "@/features/space/types/space.types";
 
-function WatchButton({ spaceId, watchedIds, size = 16 }: { spaceId: string; watchedIds: Set<string>; size?: number }) {
+function WatchButton({
+  spaceId,
+  watchedIds,
+  size = 16,
+}: {
+  spaceId: string;
+  watchedIds: Set<string>;
+  size?: number;
+}) {
   const { t } = useTranslation();
   const watchMutation = useWatchSpaceMutation();
   const unwatchMutation = useUnwatchSpaceMutation();
@@ -81,8 +95,11 @@ interface AllSpacesListProps {
   onSearch: (query: string) => void;
   role?: string | null;
   onRoleChange?: (role: string | null) => void;
+  type?: SpaceType | null;
+  onTypeChange?: (type: SpaceType | null) => void;
   hasPrevPage?: boolean;
   hasNextPage?: boolean;
+  total?: number;
   onNext: () => void;
   onPrev: () => void;
 }
@@ -92,8 +109,11 @@ export default function AllSpacesList({
   onSearch,
   role,
   onRoleChange,
+  type,
+  onTypeChange,
   hasPrevPage,
   hasNextPage,
+  total,
   onNext,
   onPrev,
 }: AllSpacesListProps) {
@@ -115,10 +135,22 @@ export default function AllSpacesList({
 
   return (
     <Box>
-      <Group align="center" gap="sm" wrap="nowrap">
-        <Box style={{ flex: 1 }}>
+      <Group align="center" gap="sm" wrap="wrap">
+        <Box style={{ flex: "1 1 200px", minWidth: 0 }}>
           <SearchInput onSearch={onSearch} />
         </Box>
+        <Select
+          data={[
+            { value: "public", label: t("Public space") },
+            { value: "personal", label: t("Personal space") },
+          ]}
+          value={type ?? null}
+          onChange={(value) => onTypeChange?.(value as SpaceType | null)}
+          placeholder={t("All space types")}
+          aria-label={t("Filter by space type")}
+          clearable
+          w={160}
+        />
         <Select
           data={roleFilterData}
           value={role ?? null}
@@ -178,7 +210,13 @@ export default function AllSpacesList({
                           variant="filled"
                           size="md"
                         />
-                        <div style={{ minWidth: 0, overflow: "hidden", maxWidth: 350 }}>
+                        <div
+                          style={{
+                            minWidth: 0,
+                            overflow: "hidden",
+                            maxWidth: 350,
+                          }}
+                        >
                           <AutoTooltipText fz="sm" fw={500} lineClamp={1}>
                             {space.name}
                           </AutoTooltipText>
@@ -198,8 +236,17 @@ export default function AllSpacesList({
                   </Table.Td>
                   <Table.Td>
                     <Group gap="xs" justify="flex-end" wrap="nowrap">
-                      <StarButton type="space" spaceId={space.id} name={space.name} size={16} />
-                      <WatchButton spaceId={space.id} watchedIds={watchedIds} size={16} />
+                      <StarButton
+                        type="space"
+                        spaceId={space.id}
+                        name={space.name}
+                        size={16}
+                      />
+                      <WatchButton
+                        spaceId={space.id}
+                        watchedIds={watchedIds}
+                        size={16}
+                      />
                       <Menu position="bottom-end">
                         <Menu.Target>
                           <ActionIcon
@@ -230,12 +277,17 @@ export default function AllSpacesList({
         </Table>
       </Table.ScrollContainer>
 
-      {spaces.length > 0 && (
+      {total !== undefined && (
         <Paginate
           hasPrevPage={hasPrevPage}
           hasNextPage={hasNextPage}
           onNext={onNext}
           onPrev={onPrev}
+          label={
+            <Text size="sm" c="dimmed">
+              {t("Total spaces")}: {total}
+            </Text>
+          }
         />
       )}
 

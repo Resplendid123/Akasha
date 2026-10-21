@@ -28,7 +28,7 @@ export type TestAiModelConfigResult = {
 };
 
 const TEST_TIMEOUT_MS = 15_000;
-const FACTORY_NAME = 'openai-compatible';
+const FACTORY_NAME = 'akashaConfigTest';
 
 @Injectable()
 export class AiModelConfigTestService {

@@ -9,6 +9,7 @@ import { AllSpacesList } from "@/features/space/components/spaces-page";
 import FavoriteSpacesGrid from "@/features/space/components/spaces-page/favorite-spaces-grid";
 import { usePaginateAndSearch } from "@/hooks/use-paginate-and-search";
 import useUserRole from "@/hooks/use-user-role";
+import { SpaceType } from "@/features/space/types/space.types";
 
 export default function Spaces() {
   const { t } = useTranslation();
@@ -16,6 +17,12 @@ export default function Spaces() {
   const { search, cursor, goNext, goPrev, handleSearch, resetCursor } =
     usePaginateAndSearch();
   const [role, setRole] = useState<string | null>(null);
+  const [type, setType] = useState<SpaceType | null>(null);
+
+  const handleTypeChange = (value: SpaceType | null) => {
+    setType(value);
+    resetCursor();
+  };
 
   const handleRoleChange = (value: string | null) => {
     setRole(value);
@@ -27,6 +34,7 @@ export default function Spaces() {
     limit: 30,
     query: search,
     role: role ?? undefined,
+    type: type ?? undefined,
   });
 
   return (
@@ -39,7 +47,9 @@ export default function Spaces() {
 
       <Container size={"800"} pt="xl">
         <Group justify="space-between" mb="xl">
-          <Title order={1} size="h3">{t("Spaces")}</Title>
+          <Title order={1} size="h3">
+            {t("Spaces")}
+          </Title>
           {isAdmin && <CreateSpaceModal />}
         </Group>
 
@@ -55,8 +65,11 @@ export default function Spaces() {
             onSearch={handleSearch}
             role={role}
             onRoleChange={handleRoleChange}
+            type={type}
+            onTypeChange={handleTypeChange}
             hasPrevPage={data?.meta?.hasPrevPage}
             hasNextPage={data?.meta?.hasNextPage}
+            total={!isLoading ? data?.meta?.total : undefined}
             onNext={() => goNext(data?.meta?.nextCursor)}
             onPrev={goPrev}
           />

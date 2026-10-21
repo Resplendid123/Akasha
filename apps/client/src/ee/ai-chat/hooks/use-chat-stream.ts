@@ -491,8 +491,6 @@ function buildAssistantMetadata(
   if (event.retrievalDiagnostics) {
     metadata.retrievalDiagnostics = event.retrievalDiagnostics;
   }
-  if (event.retrievalReasons)
-    metadata.retrievalReasons = event.retrievalReasons;
   if (event.completenessNotice) {
     metadata.completenessNotice = event.completenessNotice;
   }

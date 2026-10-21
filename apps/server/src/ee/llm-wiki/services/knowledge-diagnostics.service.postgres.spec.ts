@@ -277,6 +277,8 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       id varchar primary key,
       run_id varchar not null,
       run_page_id varchar not null,
+      workspace_id varchar not null,
+      space_id varchar not null,
       status varchar not null,
       job_id varchar,
       dispatched_at timestamptz,
@@ -435,11 +437,11 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       ('workspace-1', 'page-a-3', 'succeeded');
 
     insert into knowledge_space_compile_run_images (
-      id, run_id, run_page_id, status, failure_class, error_code
+      id, run_id, run_page_id, workspace_id, space_id, status, failure_class, error_code
     ) values
-      ('image-a-1', 'run-space-a-latest', 'run-page-a-2', 'failed',
+      ('image-a-1', 'run-space-a-latest', 'run-page-a-2', 'workspace-1', 'space-a', 'failed',
        'retryable_exhausted', 'image_job_attempts_exhausted'),
-      ('image-a-2', 'run-space-a-latest', 'run-page-a-2', 'failed',
+      ('image-a-2', 'run-space-a-latest', 'run-page-a-2', 'workspace-1', 'space-a', 'failed',
        'permanent', 'unsupported_image');
   `.execute(db);
 }

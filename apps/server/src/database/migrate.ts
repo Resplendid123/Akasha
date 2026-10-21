@@ -23,6 +23,8 @@ const db = new Kysely<any>({
 
 const migrator = new Migrator({
   db,
+  // Merged branches can add migrations older than the last executed migration.
+  allowUnorderedMigrations: true,
   provider: new FileMigrationProvider({
     fs,
     path,

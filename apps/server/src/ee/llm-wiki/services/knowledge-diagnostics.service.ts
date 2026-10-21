@@ -203,16 +203,19 @@ export class KnowledgeDiagnosticsService {
         .where('run.workspaceId', '=', input.workspaceId);
       let images = this.db
         .selectFrom('knowledgeSpaceCompileRunImages as image')
-        .innerJoin('knowledgeSpaceCompileRuns as run', 'run.id', 'image.runId')
-        .where('run.workspaceId', '=', input.workspaceId);
+        // RunImage rows denormalize workspace/space specifically so durable
+        // diagnostics do not have to join the (potentially much larger) Run
+        // table just to apply authorization scope.
+        .where('image.workspaceId', '=', input.workspaceId);
       let pages = this.db
         .selectFrom('knowledgeSpaceCompileRunPages as rp')
-        .innerJoin('knowledgeSpaceCompileRuns as run', 'run.id', 'rp.runId')
-        .where('run.workspaceId', '=', input.workspaceId);
+        // RunPage rows carry the same scope columns. Filtering them directly
+        // enables the scope index and avoids a second large-table join.
+        .where('rp.workspaceId', '=', input.workspaceId);
       if (input.spaceIds.length > 0) {
         runs = runs.where('run.spaceId', 'in', input.spaceIds);
-        images = images.where('run.spaceId', 'in', input.spaceIds);
-        pages = pages.where('run.spaceId', 'in', input.spaceIds);
+        images = images.where('image.spaceId', 'in', input.spaceIds);
+        pages = pages.where('rp.spaceId', 'in', input.spaceIds);
       }
 
       [runGroups, runMetrics, imageGroups, imageMetrics, failureMetrics] =
@@ -1092,14 +1095,6 @@ export class KnowledgeDiagnosticsService {
       .execute();
 
     return [...new Set(rows.map((row) => row.sourcePageId))];
-  }
-
-  /** @deprecated Use findCompiledPageIds; successful pages are retryable too. */
-  async findRetryableFailedPageIds(input: {
-    workspaceId: string;
-    sourcePageIds: string[];
-  }): Promise<string[]> {
-    return this.findCompiledPageIds(input);
   }
 
   async findWorkspaceSpaceIds(input: {

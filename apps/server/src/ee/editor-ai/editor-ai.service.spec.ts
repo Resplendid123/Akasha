@@ -1,6 +1,7 @@
 import { generateText, streamText } from 'ai';
 import { AiModelConfigService } from '../llm-wiki/services/ai-model-config.service';
 import { createLanguageModelFromConfig } from '../llm-wiki/services/ai-model-factory';
+import { EDITOR_PROVIDER_NAME } from '../llm-wiki/services/knowledge-answer-provider.service';
 import { buildEditorPrompt, EditorAiService } from './editor-ai.service';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 
@@ -56,7 +57,7 @@ describe('EditorAiService', () => {
     expect(configService.getResolvedConfig).toHaveBeenCalledWith('answer');
     expect(createLanguageModelFromConfig).toHaveBeenCalledWith(
       answerConfig,
-      'editor-ai-openai-compatible',
+      EDITOR_PROVIDER_NAME,
     );
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -67,11 +68,12 @@ describe('EditorAiService', () => {
         ),
         maxOutputTokens: 8192,
         abortSignal: expect.any(AbortSignal),
-        providerOptions: {
-          openaiCompatible: { reasoningEffort: 'low' },
-        },
+        temperature: 0,
       }),
     );
+    expect(
+      (generateText as jest.Mock).mock.calls[0][0],
+    ).not.toHaveProperty('providerOptions');
   });
 
   it('streams chunks using the same answer model configuration', async () => {
@@ -110,9 +112,44 @@ describe('EditorAiService', () => {
         ),
         maxOutputTokens: 8192,
         abortSignal: expect.any(AbortSignal),
-        providerOptions: undefined,
+        temperature: 0,
       }),
     );
+    expect((streamText as jest.Mock).mock.calls[0][0]).not.toHaveProperty(
+      'providerOptions',
+    );
+  });
+
+  it('does not inherit thinking configured for knowledge answers', async () => {
+    (generateText as jest.Mock).mockResolvedValue({
+      text: 'Improved text',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const configService = {
+      getResolvedConfig: jest.fn().mockResolvedValue({
+        ...answerConfig,
+        parameters: {
+          thinkingMode: 'qwen',
+          reasoningEffort: 'high',
+          temperature: 0.2,
+          seed: 5,
+        },
+      }),
+    };
+    const service = new EditorAiService(
+      configService as unknown as AiModelConfigService,
+      environmentService(),
+    );
+
+    await service.generate({
+      action: 'improve_writing',
+      content: 'Original text',
+    });
+
+    const request = (generateText as jest.Mock).mock.calls[0][0];
+    expect(request).not.toHaveProperty('providerOptions');
+    expect(request.temperature).toBe(0.2);
+    expect(request.seed).toBe(5);
   });
 
   it('fails clearly when the answer model is not configured', async () => {

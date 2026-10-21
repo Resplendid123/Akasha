@@ -14,7 +14,9 @@ export class CollabHistoryService {
 
   async addContributors(pageId: string, userIds: string[]): Promise<void> {
     if (userIds.length === 0) return;
-    await this.redis.sadd(REDIS_KEY_PREFIX + pageId, ...userIds);
+    const key = REDIS_KEY_PREFIX + pageId;
+    await this.redis.sadd(key, ...userIds);
+    await this.redis.expire(key, 24 * 60 * 60, 'NX');
   }
 
   async popContributors(pageId: string): Promise<string[]> {

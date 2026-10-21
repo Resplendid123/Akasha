@@ -3,10 +3,11 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateSpaceDto } from '../dto/create-space.dto';
-import { PaginationOptions } from '@akasha/db/pagination/pagination-options';
+import { SpaceListOptions } from '@akasha/db/repos/space/types';
 import { SpaceRepo } from '@akasha/db/repos/space/space.repo';
 import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';
 import { Space, User } from '@akasha/db/types/entity.types';
@@ -24,6 +25,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { CursorPaginationResult } from '@akasha/db/pagination/cursor-pagination';
 import { ShareRepo } from '@akasha/db/repos/share/share.repo';
 import { WorkspaceRepo } from '@akasha/db/repos/workspace/workspace.repo';
+import { AnalyticsEventRepo } from '@akasha/db/repos/analytics/analytics-event.repo';
 import { LicenseCheckService } from '../../../integrations/environment/license-check.service';
 import { AuditEvent, AuditResource } from '../../../common/events/audit-events';
 import { diffAuditTrackedFields } from '../../../common/helpers';
@@ -34,6 +36,8 @@ import {
 
 @Injectable()
 export class SpaceService {
+  private readonly logger = new Logger(SpaceService.name);
+
   constructor(
     private spaceRepo: SpaceRepo,
     private spaceMemberService: SpaceMemberService,
@@ -44,6 +48,7 @@ export class SpaceService {
     @InjectKysely() private readonly db: KyselyDB,
     @InjectQueue(QueueName.ATTACHMENT_QUEUE) private attachmentQueue: Queue,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
+    private readonly analyticsEventRepo: AnalyticsEventRepo,
   ) {}
 
   async createSpace(
@@ -254,12 +259,21 @@ export class SpaceService {
 
   async getWorkspaceSpaces(
     workspaceId: string,
-    pagination: PaginationOptions,
+    pagination: SpaceListOptions,
+    allowedSpaceIds?: string[],
   ): Promise<CursorPaginationResult<Space>> {
-    return this.spaceRepo.getSpacesInWorkspace(workspaceId, pagination);
+    return this.spaceRepo.getSpacesInWorkspace(
+      workspaceId,
+      pagination,
+      allowedSpaceIds,
+    );
   }
 
-  async deleteSpace(spaceId: string, workspaceId: string): Promise<void> {
+  async deleteSpace(
+    spaceId: string,
+    workspaceId: string,
+    actorId?: string,
+  ): Promise<void> {
     const space = await this.spaceRepo.findById(spaceId, workspaceId);
     if (!space) {
       throw new NotFoundException('Space not found');
@@ -270,6 +284,19 @@ export class SpaceService {
 
     await this.spaceRepo.deleteSpace(spaceId, workspaceId);
     await this.attachmentQueue.add(QueueJob.DELETE_SPACE_ATTACHMENTS, space);
+
+    // Spaces are hard-deleted; this event lets analytics rebuild past counts.
+    await this.analyticsEventRepo
+      .insertSpaceDeleted({
+        workspaceId,
+        userId: actorId,
+        spaceId,
+        spaceCreatedAt: new Date(space.createdAt),
+        name: space.name,
+      })
+      .catch((error) =>
+        this.logger.warn(`Failed to record space_deleted event: ${error}`),
+      );
 
     this.auditService.log({
       event: AuditEvent.SPACE_DELETED,

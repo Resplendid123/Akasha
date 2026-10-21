@@ -11,6 +11,9 @@ import { PagePermissionRepo } from '@akasha/db/repos/page/page-permission.repo';
 import { UserRole } from '../../common/helpers/types/permission';
 import { LabelType } from '@akasha/db/repos/label/label.repo';
 
+// 页面搜索最多返回的结果数（按相关度取前 N 条），再多对用户没有意义
+const MAX_PAGE_SEARCH_RESULTS = 500;
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const tsquery = require('pg-tsquery')();
 
@@ -44,30 +47,24 @@ export class SearchService {
       userId?: string;
       workspaceId: string;
     },
-  ): Promise<{ items: SearchResponseDto[] }> {
+  ): Promise<{ items: SearchResponseDto[]; total: number }> {
     const { query } = searchParams;
 
     if (query.length < 1) {
-      return { items: [] };
+      return { items: [], total: 0 };
     }
     const searchQuery = tsquery(query.trim() + '*');
+    const limit = searchParams.limit || 50;
+    const offset = searchParams.offset || 0;
 
+    // 第一阶段只取相关度最高的前 500 个命中 id + rank：权限过滤后得到准确总数，
+    // 再按 offset/limit 切出当前页，避免对全部结果计算 ts_headline。
     let queryResults = this.db
       .selectFrom('pages')
       .select([
         'id',
-        'slugId',
-        'title',
-        'icon',
-        'parentPageId',
-        'creatorId',
-        'createdAt',
-        'updatedAt',
         sql<number>`ts_rank(tsv, to_tsquery('english', f_unaccent(${searchQuery})))`.as(
           'rank',
-        ),
-        sql<string>`ts_headline('english', text_content, to_tsquery('english', f_unaccent(${searchQuery})),'MinWords=9, MaxWords=10, MaxFragments=3')`.as(
-          'highlight',
         ),
       ])
       .where((eb) =>
@@ -127,12 +124,8 @@ export class SearchService {
       )
       .where('deletedAt', 'is', null)
       .orderBy('rank', 'desc')
-      .limit(searchParams.limit || 25)
-      .offset(searchParams.offset || 0);
-
-    if (!searchParams.shareId) {
-      queryResults = queryResults.select((eb) => this.pageRepo.withSpace(eb));
-    }
+      .orderBy('id', 'asc')
+      .limit(MAX_PAGE_SEARCH_RESULTS);
 
     if (searchParams.spaceId) {
       // search by spaceId
@@ -151,14 +144,14 @@ export class SearchService {
       const shareId = searchParams.shareId;
       const share = await this.shareRepo.findById(shareId);
       if (!share || share.workspaceId !== opts.workspaceId) {
-        return { items: [] };
+        return { items: [], total: 0 };
       }
 
       const isRestricted = await this.pagePermissionRepo.hasRestrictedAncestor(
         share.pageId,
       );
       if (isRestricted) {
-        return { items: [] };
+        return { items: [], total: 0 };
       }
 
       const pageIdsToSearch = [];
@@ -181,39 +174,75 @@ export class SearchService {
           .where('id', 'in', pageIdsToSearch)
           .where('workspaceId', '=', opts.workspaceId);
       } else {
-        return { items: [] };
+        return { items: [], total: 0 };
       }
     } else {
-      return { items: [] };
+      return { items: [], total: 0 };
     }
 
-    //@ts-ignore
-    let results: any[] = await queryResults.execute();
+    let candidates = await queryResults.execute();
 
     // Filter results by page-level permissions (if user is authenticated)
-    if (opts.userId && results.length > 0) {
-      const pageIds = results.map((r: any) => r.id);
+    if (opts.userId && candidates.length > 0) {
       const accessibleIds =
         await this.pagePermissionRepo.filterAccessiblePageIds({
-          pageIds,
+          pageIds: candidates.map((r) => r.id),
           userId: opts.userId,
           spaceId: searchParams.spaceId,
         });
       const accessibleSet = new Set(accessibleIds);
-      results = results.filter((r: any) => accessibleSet.has(r.id));
+      candidates = candidates.filter((r) => accessibleSet.has(r.id));
     }
 
-    //@ts-ignore
-    const searchResults = results.map((result: SearchResponseDto) => {
-      if (result.highlight) {
-        result.highlight = result.highlight
-          .replace(/\r\n|\r|\n/g, ' ')
-          .replace(/\s+/g, ' ');
-      }
-      return result;
-    });
+    const total = candidates.length;
+    const pageIds = candidates
+      .slice(offset, offset + limit)
+      .map((r) => r.id);
+    if (pageIds.length === 0) {
+      return { items: [], total };
+    }
 
-    return { items: searchResults };
+    // 第二阶段：只为当前页取详情和高亮片段
+    let detailQuery = this.db
+      .selectFrom('pages')
+      .select([
+        'id',
+        'slugId',
+        'title',
+        'icon',
+        'parentPageId',
+        'creatorId',
+        'createdAt',
+        'updatedAt',
+        sql<number>`ts_rank(tsv, to_tsquery('english', f_unaccent(${searchQuery})))`.as(
+          'rank',
+        ),
+        sql<string>`ts_headline('english', text_content, to_tsquery('english', f_unaccent(${searchQuery})),'MinWords=9, MaxWords=10, MaxFragments=3')`.as(
+          'highlight',
+        ),
+      ])
+      .where('id', 'in', pageIds);
+
+    if (!searchParams.shareId) {
+      detailQuery = detailQuery.select((eb) => this.pageRepo.withSpace(eb));
+    }
+
+    const details: any[] = await detailQuery.execute();
+    const detailById = new Map(details.map((d) => [d.id, d]));
+
+    const searchResults = pageIds
+      .map((id) => detailById.get(id))
+      .filter(Boolean)
+      .map((result: SearchResponseDto) => {
+        if (result.highlight) {
+          result.highlight = result.highlight
+            .replace(/\r\n|\r|\n/g, ' ')
+            .replace(/\s+/g, ' ');
+        }
+        return result;
+      });
+
+    return { items: searchResults, total };
   }
 
   async searchAttachments(

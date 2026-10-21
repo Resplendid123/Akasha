@@ -33,6 +33,7 @@ import { IsElfLlmWikiController } from './iself-llm-wiki.controller';
 import { NoopAuditModule } from '../../integrations/audit/audit.module';
 import { LlmWikiFileCompilerAdapter } from './adapters/llm-wiki-file-compiler.adapter';
 import { SemanticKnowledgeCompilerRunner } from './adapters/semantic-knowledge-compiler.runner';
+import { OriginalDocumentCompilerRunner } from './adapters/original-document-compiler.runner';
 import { KnowledgeVectorIndexService } from './services/knowledge-vector-index.service';
 import { ConfiguredKnowledgeCompilerLlmProvider } from './compiler/knowledge-compiler-llm.provider';
 import { KnowledgeArtifactMaterializerService } from './services/knowledge-artifact-materializer.service';
@@ -51,6 +52,8 @@ import { KnowledgeSpaceProcessor } from './processors/knowledge-space.processor'
 import { KnowledgeRunReaperService } from './services/knowledge-run-reaper.service';
 import { KnowledgeImageReaperService } from './services/knowledge-image-reaper.service';
 import { KnowledgePageMergeReaperService } from './services/knowledge-page-merge-reaper.service';
+import { KnowledgeRunRetentionService } from './services/knowledge-run-retention.service';
+import { KnowledgeRunRetentionScheduler } from './services/knowledge-run-retention.scheduler';
 import { KnowledgeQualityService } from './services/knowledge-quality.service';
 import { AiModelConfigModule } from './services/ai-model-config.module';
 import { ApiKeyModule } from '../api-key/api-key.module';
@@ -60,6 +63,7 @@ import { SpaceModule } from '../../core/space/space.module';
 import { KnowledgeMcpToolExtension } from './services/knowledge-mcp-tool.extension';
 import { IsElfAgentAuthGuard } from './guards/iself-agent-auth.guard';
 import { SsoModule } from '../sso/sso.module';
+import { KnowledgePageIndexSettingsRepo } from '../../database/repos/llm-wiki/knowledge-page-index-settings.repo';
 
 @Module({
   imports: [
@@ -106,10 +110,13 @@ import { SsoModule } from '../sso/sso.module';
     KnowledgeRunReaperService,
     KnowledgeImageReaperService,
     KnowledgePageMergeReaperService,
+    KnowledgeRunRetentionService,
+    KnowledgeRunRetentionScheduler,
     KnowledgeTextJobHandler,
     KnowledgeLinkResolverService,
     KnowledgeSpaceFinalizerService,
     KnowledgeSourceRetirementService,
+    KnowledgePageIndexSettingsRepo,
     {
       provide: KNOWLEDGE_ANSWER_PROVIDER,
       useExisting: ConfiguredKnowledgeAnswerProvider,
@@ -123,6 +130,7 @@ import { SsoModule } from '../sso/sso.module';
       useExisting: ConfiguredKnowledgeImageUnderstandingProvider,
     },
     SemanticKnowledgeCompilerRunner,
+    OriginalDocumentCompilerRunner,
     {
       provide: KNOWLEDGE_COMPILER_RUNNER,
       useExisting: SemanticKnowledgeCompilerRunner,

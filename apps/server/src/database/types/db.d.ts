@@ -67,6 +67,18 @@ export interface AiModelConfigs {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface AnalyticsEvents {
+  createdAt: Generated<Timestamp>;
+  event: string;
+  id: Generated<string>;
+  metadata: Json | null;
+  pageId: string | null;
+  route: string | null;
+  spaceId: string | null;
+  userId: string | null;
+  workspaceId: string;
+}
+
 export interface ApiKeys {
   agentUserId: string | null;
   createdAt: Generated<Timestamp>;
@@ -294,8 +306,9 @@ export interface KnowledgeArtifactContributions {
 }
 
 export interface KnowledgeChunks {
+  embeddingDurationMs: Generated<number | null>;
+  embeddingTotalTokens: Generated<number | null>;
   chunkRole: Generated<string>;
-  claimId: string | null;
   compilerRunId: string | null;
   compileTaskId: string | null;
   contentHash: string;
@@ -312,6 +325,7 @@ export interface KnowledgeChunks {
   parentSectionId: string | null;
   retrievalChannel: Generated<string>;
   searchTsv: Generated<string | null>;
+  searchTsvZh: Generated<string | null>;
   spaceId: string;
   stableKey: string;
   staleAt: Timestamp | null;
@@ -334,32 +348,6 @@ export interface KnowledgeChunkAttachments {
 export interface KnowledgeChunkSources {
   attachmentId: string | null;
   chunkId: string;
-  contentHash: string;
-  provenanceKind: string;
-  quoteHash: string | null;
-  sourcePageId: string;
-  sourceRange: Json | null;
-  sourceVersion: string;
-  workspaceId: string;
-}
-
-export interface KnowledgeClaims {
-  compilerRunId: string | null;
-  compileTaskId: string | null;
-  confidence: number | null;
-  createdAt: Generated<Timestamp>;
-  id: Generated<string>;
-  knowledgePageId: string;
-  position: number;
-  spaceId: string;
-  staleAt: Timestamp | null;
-  text: string;
-  workspaceId: string;
-}
-
-export interface KnowledgeClaimSources {
-  attachmentId: string | null;
-  claimId: string;
   contentHash: string;
   provenanceKind: string;
   quoteHash: string | null;
@@ -413,7 +401,10 @@ export interface KnowledgeGraphEdges {
   relation: string;
   spaceId: string;
   staleAt: Timestamp | null;
-  toKnowledgePageId: string;
+  toKnowledgePageId: string | null;
+  targetArtifactKind: Generated<string | null>;
+  targetCanonicalKey: Generated<string | null>;
+  isDangling: Generated<boolean>;
   workspaceId: string;
 }
 
@@ -499,6 +490,15 @@ export interface KnowledgePageCompileSchedules {
   workspaceId: string;
 }
 
+export interface KnowledgePageIndexSettings {
+  createdAt: Generated<Timestamp>;
+  indexMode: string;
+  sourcePageId: string;
+  updatedAt: Generated<Timestamp>;
+  updatedBy: string | null;
+  workspaceId: string;
+}
+
 export interface KnowledgePages {
   body: string;
   canonicalKey: string | null;
@@ -581,6 +581,19 @@ export interface KnowledgeQueryAudit {
   queryHash: string;
   retrievalMode: string;
   userId: string | null;
+  workspaceId: string;
+}
+
+export interface KnowledgeEmbeddingRebuildBatches {
+  chunkCount: number;
+  createdAt: Generated<Timestamp>;
+  durationMs: number;
+  embeddingModel: string | null;
+  embeddingProfile: string | null;
+  failedCount: Generated<number>;
+  id: Generated<string>;
+  spaceId: string;
+  totalTokens: number | null;
   workspaceId: string;
 }
 
@@ -700,6 +713,7 @@ export interface KnowledgeSpaceCompileRunPages {
   id: Generated<string>;
   imageJobId: string | null;
   imageStatus: Generated<string>;
+  indexMode: Generated<string>;
   jobId: string | null;
   mergeAttemptCount: Generated<number>;
   mergedEffectiveKnowledgeHash: string | null;
@@ -1153,6 +1167,7 @@ export interface DB {
   aiChatMessages: AiChatMessages;
   aiChats: AiChats;
   aiModelConfigs: AiModelConfigs;
+  analyticsEvents: AnalyticsEvents;
   apiKeys: ApiKeys;
   apiKeySpaces: ApiKeySpaces;
   attachments: Attachments;
@@ -1170,8 +1185,6 @@ export interface DB {
   knowledgeChunkAttachments: KnowledgeChunkAttachments;
   knowledgeChunks: KnowledgeChunks;
   knowledgeChunkSources: KnowledgeChunkSources;
-  knowledgeClaims: KnowledgeClaims;
-  knowledgeClaimSources: KnowledgeClaimSources;
   knowledgeCompilationAttempts: KnowledgeCompilationAttempts;
   knowledgeGraphEdges: KnowledgeGraphEdges;
   knowledgeGraphEdgeSources: KnowledgeGraphEdgeSources;
@@ -1179,11 +1192,13 @@ export interface DB {
   knowledgeLinks: KnowledgeLinks;
   knowledgeLinkSources: KnowledgeLinkSources;
   knowledgePageCompileSchedules: KnowledgePageCompileSchedules;
+  knowledgePageIndexSettings: KnowledgePageIndexSettings;
   knowledgePages: KnowledgePages;
   knowledgePageSources: KnowledgePageSources;
   knowledgeParentSections: KnowledgeParentSections;
   knowledgeParentSectionSources: KnowledgeParentSectionSources;
   knowledgeQuarantinedArtifacts: KnowledgeQuarantinedArtifacts;
+  knowledgeEmbeddingRebuildBatches: KnowledgeEmbeddingRebuildBatches;
   knowledgeQueryAudit: KnowledgeQueryAudit;
   knowledgeSourceAccessPolicy: KnowledgeSourceAccessPolicy;
   knowledgeSourceAccessPrincipals: KnowledgeSourceAccessPrincipals;

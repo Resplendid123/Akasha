@@ -4,6 +4,13 @@ import {
   SpaceCaslSubject,
 } from "@/features/space/permissions/permissions.type.ts";
 import { ExportFormat } from "@/features/page/types/page.types.ts";
+import { QueryParams } from "@/lib/types.ts";
+
+export type SpaceType = "public" | "personal";
+
+export interface SpaceQueryParams extends QueryParams {
+  type?: SpaceType;
+}
 
 export interface ISpaceSharingSettings {
   disabled?: boolean;

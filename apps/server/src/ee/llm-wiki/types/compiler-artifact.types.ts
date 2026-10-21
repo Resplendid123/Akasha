@@ -15,10 +15,9 @@ export interface CompileSpaceInput extends KnowledgeScope {
   catalog?: KnowledgeArtifactCatalogEntry[];
   /** Explicit cache bypass used by administrator force rebuilds. */
   bypassCache?: boolean;
-  /** Prevents a degraded fallback from replacing an existing publication. */
-  hasLastSuccess?: boolean;
   publicationGuard?: (trx: KyselyTransaction) => Promise<boolean>;
   operationBudget?: KnowledgeOperationBudget;
+  indexMode?: 'compiled' | 'original';
 }
 
 export interface KnowledgeArtifactCatalogEntry {
@@ -26,7 +25,6 @@ export interface KnowledgeArtifactCatalogEntry {
   artifactKind: CompiledKnowledgeArtifactKind;
   canonicalKey: string;
   title: string;
-  summary?: string;
 }
 
 export interface CompileDiagnostic {
@@ -42,6 +40,7 @@ export interface CompileDiagnostics {
 
 export type CompiledKnowledgeArtifactKind =
   | 'source_summary'
+  | 'original_source'
   | 'concept'
   | 'entity'
   | 'comparison';
@@ -55,7 +54,7 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
   sourcePageIds: string[];
   compilerVersion: string;
   promptVersion: string;
-  generationMode?: 'semantic' | 'legacy' | 'raw_fallback';
+  generationMode?: 'semantic' | 'legacy' | 'raw_fallback' | 'original';
   compilerRunId?: string;
   compileTaskId?: string;
   inputSourceRefs?: KnowledgeSourceRef[];
@@ -68,14 +67,8 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
     endOffset?: number | null;
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;
-  claims?: Array<{
-    text: string;
-    confidence?: number | null;
-    inputSourceRefs?: KnowledgeSourceRef[];
-  }>;
   chunks?: Array<{
     text: string;
-    claimIndex?: number | null;
     embedding?: JsonValue;
     contentHash?: string;
     inputSourceRefs?: KnowledgeSourceRef[];
@@ -121,7 +114,9 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;
   graphEdges?: Array<{
-    toKnowledgePageId: string;
+    toKnowledgePageId?: string;
+    targetArtifactKind?: CompiledKnowledgeArtifactKind;
+    targetCanonicalKey?: string;
     relation: string;
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;

@@ -12,6 +12,11 @@ import {
   AiModelConfigService,
   ResolvedAiModelConfig,
 } from '../services/ai-model-config.service';
+import {
+  ModelCallOptions,
+  resolveModelCallOptions,
+  stableCallOptionsKey,
+} from '../services/ai-model-call-options';
 import { createLanguageModelFromConfig } from '../services/ai-model-factory';
 import {
   SemanticAnalysis,
@@ -79,7 +84,6 @@ export interface KnowledgeCompilerLlmProvider {
   ): Promise<SemanticAnalysis>;
   generate(
     messages: SemanticCompilerMessages,
-    fallback?: KnowledgeCompilerGenerationFallback,
     options?: KnowledgeCompilerRequestOptions,
   ): Promise<SemanticGenerationResult>;
   completeMerge?(
@@ -93,30 +97,12 @@ export type KnowledgeCompilerRequestOptions = {
 };
 
 export type SemanticGenerationResult = SemanticGeneration & {
-  compilerRecovery?:
-    | 'local_repair'
-    | 'model_repair'
-    | 'source_summary_fallback';
+  compilerRecovery?: 'local_repair' | 'model_repair';
 };
 
-export type KnowledgeCompilerGenerationFallback = {
-  canonicalKey: string;
-  title: string;
-  markdown: string;
-};
+export const COMPILER_PROVIDER_NAME = 'akashaCompiler';
 
-type ProviderJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | ProviderJsonValue[]
-  | { [key: string]: ProviderJsonValue };
-
-type KnowledgeCompilerProviderOptions = Record<
-  string,
-  Record<string, ProviderJsonValue>
->;
+const COMPILER_DEFAULT_TEMPERATURE = 0.1;
 
 @Injectable()
 export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompilerLlmProvider {
@@ -133,7 +119,11 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
     const config = await this.configService.getResolvedConfig('compiler');
     const driver = config.driver?.trim().toLowerCase();
     const model = config.model?.trim();
-    return `${driver || 'unconfigured'}:${model || 'unconfigured'}:${isOpenAiReasoningModel(config) ? 'reasoning=low' : 'thinking=false'}`;
+    return [
+      driver || 'unconfigured',
+      model || 'unconfigured',
+      stableCallOptionsKey(this.callOptions(config)),
+    ].join(':');
   }
 
   async getCompilerModel(): Promise<string> {
@@ -150,14 +140,12 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       semanticAnalysisSchema,
       'analysis',
       'knowledge_compiler_analysis_v1',
-      undefined,
       options,
     );
   }
 
   async generate(
     messages: SemanticCompilerMessages,
-    fallback?: KnowledgeCompilerGenerationFallback,
     options?: KnowledgeCompilerRequestOptions,
   ): Promise<SemanticGenerationResult> {
     return this.completeStructured(
@@ -165,7 +153,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       semanticGenerationSchema,
       'generation',
       'knowledge_compiler_generation_v1',
-      fallback,
       options,
     );
   }
@@ -179,7 +166,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       mergeCompletionSchema,
       'merge',
       'knowledge_compiler_merge_v1',
-      undefined,
       options,
     );
     return JSON.stringify(result);
@@ -190,7 +176,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
     schema: z.ZodType<T>,
     stage: 'analysis' | 'generation' | 'merge',
     name: string,
-    fallback?: KnowledgeCompilerGenerationFallback,
     options?: KnowledgeCompilerRequestOptions,
   ): Promise<T> {
     const config = await this.configService.getResolvedConfig('compiler');
@@ -244,10 +229,6 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
         : retryParsed.data;
     }
 
-    if (stage === 'generation' && fallback) {
-      return sourceSummaryFallback(fallback) as unknown as T;
-    }
-
     this.logger.warn({
       event: 'knowledge_compiler_invalid_structured_output',
       stage,
@@ -283,15 +264,13 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       this.environmentService.getKnowledgeCompilerTimeoutMs(),
     );
     try {
-      const temperature = this.temperature(input.config);
       const result = await generateText({
         model: input.model,
         system: input.messages.system,
         prompt: input.messages.prompt,
-        ...(temperature === undefined ? {} : { temperature }),
+        ...this.callOptions(input.config),
         maxOutputTokens: this.maxOutputTokens(input.stage),
         abortSignal: boundedSignal.signal,
-        providerOptions: this.providerOptions(input.config),
         output: Output.json({
           name: input.name,
           description: `Akasha knowledge compiler ${input.stage} output`,
@@ -313,7 +292,7 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
   }
 
   private createModel(config: ResolvedAiModelConfig): LanguageModel {
-    const model = createLanguageModelFromConfig(config, 'knowledgeCompiler');
+    const model = createLanguageModelFromConfig(config, COMPILER_PROVIDER_NAME);
     if (!model) {
       throw new KnowledgeCompilerLlmError(
         'configuration_error',
@@ -330,21 +309,16 @@ export class ConfiguredKnowledgeCompilerLlmProvider implements KnowledgeCompiler
       : this.environmentService.getKnowledgeCompilerMaxOutputTokens();
   }
 
-  private temperature(config: ResolvedAiModelConfig): number | undefined {
-    return isOpenAiReasoningModel(config) ? undefined : 0.1;
-  }
-
-  private providerOptions(
-    config: ResolvedAiModelConfig,
-  ): KnowledgeCompilerProviderOptions {
-    switch (config.driver?.trim().toLowerCase()) {
-      case 'openai-compatible':
-        return isOpenAiReasoningModel(config)
-          ? { openaiCompatible: { reasoningEffort: 'low' } }
-          : { knowledgeCompiler: { enable_thinking: false } };
-      default:
-        return {};
-    }
+  private callOptions(config: ResolvedAiModelConfig): ModelCallOptions {
+    const reasoningModel = isOpenAiReasoningModel(config);
+    return resolveModelCallOptions(config, {
+      providerOptionsName: COMPILER_PROVIDER_NAME,
+      defaultTemperature: reasoningModel
+        ? undefined
+        : COMPILER_DEFAULT_TEMPERATURE,
+      defaultThinkingMode: reasoningModel ? 'openai' : undefined,
+      defaultThinkingEnabled: reasoningModel ? undefined : false,
+    });
   }
 }
 
@@ -515,40 +489,6 @@ function withRecovery<T>(value: T, recovery: false | 'local' | 'model'): T {
     ...value,
     compilerRecovery: recovery === 'local' ? 'local_repair' : 'model_repair',
   } as T;
-}
-
-function sourceSummaryFallback(
-  fallback: KnowledgeCompilerGenerationFallback,
-): SemanticGenerationResult {
-  const candidate = {
-    version: '1',
-    artifacts: [
-      {
-        kind: 'source_summary',
-        canonicalKey: fallback.canonicalKey,
-        title: fallback.title.trim().slice(0, 300),
-        markdown: fallback.markdown
-          .trim()
-          .slice(0, SEMANTIC_COMPILER_LIMITS.fallbackMarkdownChars),
-        claims: [],
-        links: [],
-        tags: [],
-      },
-    ],
-  };
-  const parsed = semanticGenerationSchema.safeParse(candidate);
-  if (!parsed.success) {
-    throw invalidOutputError(
-      'generation',
-      new SemanticCompilerOutputError(
-        `bounded generation fallback is invalid: ${formatSchemaIssues(parsed.error)}`,
-      ),
-    );
-  }
-  return {
-    ...parsed.data,
-    compilerRecovery: 'source_summary_fallback',
-  };
 }
 
 function classifyProviderError(

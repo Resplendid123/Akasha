@@ -6,6 +6,7 @@ import {
 } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {
+  COMPILER_PROVIDER_NAME,
   ConfiguredKnowledgeCompilerLlmProvider,
   KnowledgeCompilerLlmError,
 } from './knowledge-compiler-llm.provider';
@@ -85,7 +86,7 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
     },
   );
 
-  it('disables provider thinking for non-GPT OpenAI-compatible compiler models', async () => {
+  it('disables Qwen thinking by default for an unconfigured compiler row', async () => {
     (createOpenAICompatible as jest.Mock).mockReturnValue(
       jest.fn().mockReturnValue('compiler-model'),
     );
@@ -99,18 +100,18 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
     });
 
     expect(createOpenAICompatible).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'knowledgeCompiler' }),
+      expect.objectContaining({ name: COMPILER_PROVIDER_NAME }),
     );
-    expect(generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerOptions: {
-          knowledgeCompiler: { enable_thinking: false },
-        },
-      }),
-    );
+    const request = (generateText as jest.Mock).mock.calls[0][0];
+    expect(request.providerOptions).toEqual({
+      [COMPILER_PROVIDER_NAME]: {
+        chat_template_kwargs: { enable_thinking: false },
+      },
+    });
+    expect(request.temperature).toBe(0.1);
   });
 
-  it('uses fixed low reasoning effort and omits temperature for GPT compiler models', async () => {
+  it('disables Qwen thinking through chat_template_kwargs when configured', async () => {
     (createOpenAICompatible as jest.Mock).mockReturnValue(
       jest.fn().mockReturnValue('compiler-model'),
     );
@@ -120,11 +121,31 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
 
     await createProvider({
       aiDriver: 'openai-compatible',
-      compilerModel: 'openai-gpt-5.6-luna',
-    }).analyze({
-      system: 'system',
-      prompt: 'prompt',
+      parameters: { thinkingMode: 'qwen', thinkingEnabled: false },
+    }).analyze({ system: 'system', prompt: 'prompt' });
+
+    expect(
+      (generateText as jest.Mock).mock.calls[0][0].providerOptions,
+    ).toEqual({
+      [COMPILER_PROVIDER_NAME]: {
+        chat_template_kwargs: { enable_thinking: false },
+      },
     });
+  });
+
+  it('omits temperature when the OpenAI reasoning dialect is configured', async () => {
+    (createOpenAICompatible as jest.Mock).mockReturnValue(
+      jest.fn().mockReturnValue('compiler-model'),
+    );
+    (generateText as jest.Mock).mockResolvedValue({
+      output: JSON.parse(analysisJson),
+    });
+
+    await createProvider({
+      aiDriver: 'openai-compatible',
+      compilerModel: 'o3-mini',
+      parameters: { thinkingMode: 'openai', reasoningEffort: 'low' },
+    }).analyze({ system: 'system', prompt: 'prompt' });
 
     const request = (generateText as jest.Mock).mock.calls[0][0];
     expect(request).not.toHaveProperty('temperature');
@@ -613,9 +634,7 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
           canonicalKey: 'source-page-1',
           title: 'Source summary',
           markdown: 'Grounded summary body.',
-          claims: [],
           links: [],
-          tags: [],
         },
       ],
       compilerRecovery: 'local_repair',
@@ -651,59 +670,6 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
       }),
     );
   });
-
-  it('publishes a deterministic source summary fallback after generation repair fails', async () => {
-    (createOpenAICompatible as jest.Mock).mockReturnValue(
-      jest.fn().mockReturnValue('compiler-model'),
-    );
-    (generateText as jest.Mock).mockResolvedValue({ output: { version: 1 } });
-
-    await expect(
-      createProvider({ aiDriver: 'openai-compatible' }).generate(
-        { system: 'system', prompt: 'prompt' },
-        {
-          canonicalKey: 'source-page-1',
-          title: 'Original title',
-          markdown: 'Original source body.',
-        },
-      ),
-    ).resolves.toEqual({
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'source-page-1',
-          title: 'Original title',
-          markdown: 'Original source body.',
-          claims: [],
-          links: [],
-          tags: [],
-        },
-      ],
-      compilerRecovery: 'source_summary_fallback',
-    });
-    expect(generateText).toHaveBeenCalledTimes(2);
-  });
-
-  it('hard-bounds fallback Markdown even when a caller supplies too much text', async () => {
-    (createOpenAICompatible as jest.Mock).mockReturnValue(
-      jest.fn().mockReturnValue('compiler-model'),
-    );
-    (generateText as jest.Mock).mockResolvedValue({ output: { version: 1 } });
-
-    const result = await createProvider({
-      aiDriver: 'openai-compatible',
-    }).generate(
-      { system: 'system', prompt: 'prompt' },
-      {
-        canonicalKey: 'source-page-1',
-        title: 'Original title',
-        markdown: 'x'.repeat(20_000),
-      },
-    );
-
-    expect(result.artifacts[0].markdown).toHaveLength(8_000);
-  });
 });
 
 function createProvider(input: {
@@ -712,6 +678,7 @@ function createProvider(input: {
   compilerTimeoutMs?: number;
   compilerMaxOutputTokens?: number;
   imageMergeMaxOutputTokens?: number;
+  parameters?: Record<string, unknown>;
 }): ConfiguredKnowledgeCompilerLlmProvider {
   const environmentService = {
     getKnowledgeCompilerMaxOutputTokens: jest.fn(
@@ -730,7 +697,7 @@ function createProvider(input: {
       model: input.compilerModel ?? 'knowledge-compiler-model',
       apiKey: 'openai-key',
       baseUrl: 'https://openai.example/v1',
-      parameters: {},
+      parameters: input.parameters ?? {},
       fromDatabase: false,
     })),
     invalidate: jest.fn(),

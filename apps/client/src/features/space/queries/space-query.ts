@@ -11,6 +11,7 @@ import {
   IChangeSpaceMemberRole,
   IRemoveSpaceMember,
   ISpace,
+  SpaceQueryParams,
 } from "@/features/space/types/space.types";
 import {
   addSpaceMember,
@@ -32,7 +33,7 @@ import { useEffect } from "react";
 import { validate as isValidUuid } from "uuid";
 
 export function useGetSpacesQuery(
-  params?: QueryParams,
+  params?: SpaceQueryParams,
 ): UseQueryResult<IPagination<ISpace>, Error> {
   return useQuery({
     queryKey: ["spaces", params],
@@ -191,10 +192,7 @@ export function useDeleteSpaceMutation() {
   });
 }
 
-export function useSpaceMembersInfiniteQuery(
-  spaceId: string,
-  query?: string,
-) {
+export function useSpaceMembersInfiniteQuery(spaceId: string, query?: string) {
   return useInfiniteQuery({
     queryKey: ["spaceMembers", spaceId, query],
     queryFn: ({ pageParam }) =>

@@ -39,6 +39,7 @@ import {
   CompilerCatalogSelection,
   KnowledgeArtifactCatalogService,
 } from '../services/knowledge-artifact-catalog.service';
+import { stableKnowledgeUuid } from '../services/knowledge-stable-id';
 
 @Injectable()
 export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
@@ -125,29 +126,17 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           generationCatalog.candidateHash,
       },
     });
-    const generationFallback = input.hasLastSuccess
-      ? undefined
-      : {
-          canonicalKey: source.sourcePageId,
-          title: source.title.slice(0, 300),
-          markdown: buildBoundedFallbackMarkdown(analysis),
-        };
     const generation = operationBudget.signal
-      ? await this.provider.generate(generationMessages, generationFallback, {
+      ? await this.provider.generate(generationMessages, {
           abortSignal: operationBudget.signal,
         })
-      : await this.provider.generate(generationMessages, generationFallback);
+      : await this.provider.generate(generationMessages);
     operationBudget.assertArtifactCount(generation.artifacts.length);
     if (generation.compilerRecovery) {
       warnings.push({
-        code:
-          generation.compilerRecovery === 'source_summary_fallback'
-            ? 'compiler_source_summary_fallback'
-            : 'compiler_output_repaired',
+        code: 'compiler_output_repaired',
         message:
-          generation.compilerRecovery === 'source_summary_fallback'
-            ? 'The compiler published a deterministic source summary after structured generation could not be repaired.'
-            : 'The compiler normalized or repaired the model output before validation.',
+          'The compiler normalized or repaired the model output before validation.',
         sourcePageId: source.sourcePageId,
       });
     }
@@ -159,16 +148,13 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       throw new Error('generation must contain exactly one source_summary');
     }
 
-    const normalizedDrafts = carryAnalysisClaimsIntoSummary(
-      generation.artifacts.map((artifact) => ({
-        ...artifact,
-        canonicalKey:
-          artifact.kind === 'source_summary'
-            ? source.sourcePageId
-            : normalizeCanonicalKey(artifact.canonicalKey),
-      })),
-      analysis,
-    );
+    const normalizedDrafts = generation.artifacts.map((artifact) => ({
+      ...artifact,
+      canonicalKey:
+        artifact.kind === 'source_summary'
+          ? source.sourcePageId
+          : normalizeCanonicalKey(artifact.canonicalKey),
+    }));
     assertUniqueArtifacts(normalizedDrafts);
     const idByKey = new Map<string, string>();
     for (const entry of generationCatalog.entries) {
@@ -198,7 +184,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         compileTaskId,
         idByKey,
         warnings,
-        rawFallback: generation.compilerRecovery === 'source_summary_fallback',
       }),
     );
     const artifacts = enrichArtifactRelationships({
@@ -217,10 +202,7 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       compilerRunId,
       artifacts,
       diagnostics: { warnings, errors: [] },
-      resultQuality:
-        generation.compilerRecovery === 'source_summary_fallback'
-          ? 'degraded'
-          : 'normal',
+      resultQuality: 'normal',
     };
   }
 
@@ -393,58 +375,6 @@ function analysisCacheHash(input: {
   )}`;
 }
 
-function buildBoundedFallbackMarkdown(analysis: SemanticAnalysis): string {
-  // Reserve half of the fallback budget for structured claims/evidence so an
-  // unexpectedly verbose (but valid) synopsis cannot crowd them out.
-  const sections = [
-    analysis.synopsis
-      .trim()
-      .slice(0, Math.floor(SEMANTIC_COMPILER_LIMITS.fallbackMarkdownChars / 2)),
-  ];
-  if (analysis.claims.length > 0) {
-    sections.push(
-      [
-        '## Key claims',
-        ...analysis.claims.map(
-          (claim) => `- ${claim.text}\n  - Evidence: “${claim.evidenceQuote}”`,
-        ),
-      ].join('\n'),
-    );
-  }
-  return sections
-    .join('\n\n')
-    .trim()
-    .slice(0, SEMANTIC_COMPILER_LIMITS.fallbackMarkdownChars);
-}
-
-function carryAnalysisClaimsIntoSummary(
-  artifacts: SemanticGeneratedArtifact[],
-  analysis: SemanticAnalysis,
-): SemanticGeneratedArtifact[] {
-  if (analysis.claims.length === 0) return artifacts;
-
-  return artifacts.map((artifact) => {
-    if (artifact.kind !== 'source_summary') return artifact;
-    const seen = new Set(
-      artifact.claims.map((claim) => normalizeClaimText(claim.text)),
-    );
-    const recovered = analysis.claims.filter((claim) => {
-      const key = normalizeClaimText(claim.text);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    return {
-      ...artifact,
-      claims: [...artifact.claims, ...recovered].slice(0, 200),
-    };
-  });
-}
-
-function normalizeClaimText(value: string): string {
-  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
 function toCompiledArtifact(input: {
   input: CompileSpaceInput;
   source: KnowledgeSourceSnapshot;
@@ -453,7 +383,6 @@ function toCompiledArtifact(input: {
   compileTaskId: string;
   idByKey: Map<string, string>;
   warnings: CompileDiagnostic[];
-  rawFallback: boolean;
 }): CompiledKnowledgeArtifact {
   const artifactId = stableArtifactId(
     input.input,
@@ -461,13 +390,6 @@ function toCompiledArtifact(input: {
     input.artifact.canonicalKey,
   );
   const sourceRef = toSourceRef(input.source);
-  const claims = input.artifact.claims.map((claim) => ({
-    text: claim.text,
-    confidence: claim.confidence ?? null,
-    inputSourceRefs: [
-      sourceRefForEvidence(input.source, claim.evidenceQuote, input.warnings),
-    ],
-  }));
   const structuralParents = chunkKnowledgeSource({
     pageTitle: input.artifact.title,
     text: input.artifact.markdown,
@@ -484,7 +406,6 @@ function toCompiledArtifact(input: {
   const structuralChunks = structuralParents.flatMap((parent) =>
     parent.children.map((child) => ({
       text: child.text,
-      claimIndex: null,
       inputSourceRefs: [sourceRef],
       contentHash: child.quoteHash,
       stableKey: child.stableKey,
@@ -563,12 +484,11 @@ function toCompiledArtifact(input: {
     sourcePageIds: [input.source.sourcePageId],
     compilerVersion: input.input.compilerVersion,
     promptVersion: input.input.promptVersion,
-    generationMode: input.rawFallback ? 'raw_fallback' : 'semantic',
+    generationMode: 'semantic',
     compilerRunId: input.compilerRunId,
     compileTaskId: input.compileTaskId,
     inputSourceRefs: [sourceRef],
     parentSections: [...parentSections, ...attachmentEvidence.parentSections],
-    claims,
     chunks,
     links,
     graphEdges: [],
@@ -583,12 +503,13 @@ function tableRowEvidenceChunks(
 ) {
   let sourceCursor = 0;
   return extractKnowledgeTableRows(source.content).map((row) => {
-    const startOffset = source.text.indexOf(row.text, sourceCursor);
+    const rawOffset = source.text.indexOf(row.text, sourceCursor);
+    const startOffset = rawOffset >= 0 ? rawOffset : null;
     const endOffset =
-      startOffset >= 0 ? startOffset + row.text.length : undefined;
-    if (startOffset >= 0) sourceCursor = endOffset!;
+      startOffset !== null ? startOffset + row.text.length : null;
+    if (startOffset !== null) sourceCursor = endOffset!;
     const rowSourceRef =
-      startOffset >= 0
+      startOffset !== null
         ? {
             ...sourceRef,
             sourceRange: { startOffset, endOffset: endOffset! },
@@ -598,7 +519,6 @@ function tableRowEvidenceChunks(
     const text = `${artifactTitle} Table row ${row.rowIndex + 1}: ${row.text}`;
     return {
       text,
-      claimIndex: null,
       inputSourceRefs: [rowSourceRef],
       contentHash: `sha256:${sha256(row.text)}`,
       stableKey: `table-row:${row.tableIndex}:${row.rowIndex}`,
@@ -649,20 +569,34 @@ function enrichArtifactRelationships(input: {
       targetsByCanonicalKey,
       relation.toCanonicalKey,
     );
-    if (!from?.local || !to || from.artifactId === to.artifactId) continue;
+    if (!from?.local) continue;
+    if (
+      normalizeCanonicalKey(from.canonicalKey) ===
+      normalizeCanonicalKey(relation.toCanonicalKey)
+    ) {
+      continue;
+    }
+    if (to && from.artifactId === to.artifactId) continue;
 
     const edges = semanticEdgesByArtifactId.get(from.artifactId) ?? [];
     if (
       edges.some(
         (edge) =>
-          edge.toKnowledgePageId === to.artifactId &&
+          edge.targetCanonicalKey ===
+            normalizeCanonicalKey(relation.toCanonicalKey) &&
           edge.relation === relation.relation,
       )
     ) {
       continue;
     }
     edges.push({
-      toKnowledgePageId: to.artifactId,
+      ...(to
+        ? {
+            toKnowledgePageId: to.artifactId,
+            targetArtifactKind: to.artifactKind,
+          }
+        : {}),
+      targetCanonicalKey: normalizeCanonicalKey(relation.toCanonicalKey),
       relation: relation.relation,
       inputSourceRefs: [
         sourceRefForEvidence(
@@ -877,21 +811,9 @@ function stableArtifactId(
   kind: string,
   canonicalKey: string,
 ): string {
-  return stableUuid(
+  return stableKnowledgeUuid(
     `${input.workspaceId}:${input.spaceId}:${kind}:${canonicalKey}`,
   );
-}
-
-function stableUuid(value: string): string {
-  const hash = sha256(value);
-  return [
-    hash.slice(0, 8),
-    hash.slice(8, 12),
-    `4${hash.slice(13, 16)}`,
-    ((parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16) +
-      hash.slice(18, 20),
-    hash.slice(20, 32),
-  ].join('-');
 }
 
 function sha256(value: string): string {

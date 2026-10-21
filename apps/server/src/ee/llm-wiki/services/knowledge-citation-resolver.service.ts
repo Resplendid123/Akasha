@@ -11,7 +11,11 @@ import {
   KnowledgeSourceWindow,
 } from './knowledge-context-pack.service';
 import { KnowledgeSourceRange } from '../types/knowledge.types';
-import { KnowledgeRetrievalResult } from './knowledge-retrieval.service';
+import {
+  KnowledgeRetrievalAuthorizationMode,
+  KnowledgeRetrievalOrigin,
+  KnowledgeRetrievalResult,
+} from './knowledge-retrieval.service';
 import { KnowledgeSourceAuthorizationService } from './knowledge-source-authorization.service';
 import { KnowledgeAuthorizationCache } from './knowledge-source-authorization.cache';
 import { KnowledgeSourceRepo } from '@akasha/db/repos/llm-wiki/knowledge-source.repo';
@@ -33,6 +37,8 @@ type ChunkCitationEntry = {
   chunk: KnowledgeChunk;
   pageTitle: string;
   citations: KnowledgeCitation[];
+  origin: KnowledgeRetrievalOrigin;
+  authorizationMode: KnowledgeRetrievalAuthorizationMode;
   retrievalReasons: string[];
   sourceWindows: KnowledgeSourceWindow[];
   warnings: string[];
@@ -201,6 +207,8 @@ export class KnowledgeCitationResolverService {
           ? { ...entry.chunk, text: entry.parentSection.text }
           : entry.chunk,
         pageTitle: entry.page.title,
+        origin: entry.origin,
+        authorizationMode: entry.authorizationMode,
         retrievalReasons: entry.rankReasons,
         warnings: [],
         citations: entry.sourcePageIds

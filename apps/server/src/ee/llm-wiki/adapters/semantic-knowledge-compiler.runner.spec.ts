@@ -34,36 +34,21 @@ const generation = {
       canonicalKey: 'model-supplied-summary-key',
       title: 'Architecture notes',
       markdown: 'The source explains event sourcing.',
-      claims: [
-        {
-          text: 'Event sourcing records changes.',
-          confidence: 0.95,
-          evidenceQuote: 'records changes as an append-only log',
-        },
-      ],
       links: [
         {
           targetKind: 'concept' as const,
           targetCanonicalKey: 'event-sourcing',
           relation: 'explains',
-          evidenceQuote: 'Event sourcing',
+          evidenceQuote: 'records changes as an append-only log',
         },
       ],
-      tags: ['architecture'],
     },
     {
       kind: 'concept' as const,
       canonicalKey: 'event-sourcing',
       title: 'Event sourcing',
       markdown: 'Event sourcing stores state changes in an append-only log.',
-      claims: [
-        {
-          text: 'State changes are append-only.',
-          evidenceQuote: 'append-only log',
-        },
-      ],
       links: [],
-      tags: ['architecture'],
     },
   ],
 };
@@ -329,41 +314,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     ).toEqual([ATTACHMENT_ID, secondId]);
   });
 
-  it('keeps attachment evidence blocks on the raw fallback path', async () => {
-    const provider = createProvider();
-    provider.generate.mockResolvedValueOnce({
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'page-1',
-          title: 'Architecture notes',
-          markdown: 'Event sourcing records changes as an append-only log.',
-          claims: [],
-          links: [],
-          tags: [],
-        },
-      ],
-      compilerRecovery: 'source_summary_fallback',
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(
-      withAttachmentSource(compileInput()),
-    );
-    const summary = result.artifacts[0];
-
-    expect(summary.generationMode).toBe('raw_fallback');
-    expect(
-      summary.chunks?.some(
-        (chunk) => (chunk.attachmentOccurrences?.length ?? 0) > 0,
-      ),
-    ).toBe(true);
-  });
-
   it('reuses an exact cached analysis and skips the Stage 1 call', async () => {
     const provider = createProvider();
     const compilationRepo = createCompilationRepo(analysis);
@@ -379,11 +329,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
       expect.objectContaining({
         prompt: expect.stringContaining('<stage_1_analysis>'),
       }),
-      {
-        canonicalKey: 'page-1',
-        title: 'Architecture notes',
-        markdown: 'Event sourcing records changes as an append-only log.',
-      },
     );
     expect(compilationRepo.saveAnalysis).not.toHaveBeenCalled();
   });
@@ -525,88 +470,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     expect(cacheKeys.join(' ')).not.toContain('Error rate');
   });
 
-  it('marks deterministic source-summary recovery as raw fallback', async () => {
-    const provider = createProvider();
-    provider.generate.mockResolvedValueOnce({
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'page-1',
-          title: 'Architecture notes',
-          markdown: 'Event sourcing records changes as an append-only log.',
-          claims: [],
-          links: [],
-          tags: [],
-        },
-      ],
-      compilerRecovery: 'source_summary_fallback',
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(compileInput());
-
-    expect(result.artifacts).toEqual([
-      expect.objectContaining({
-        artifactKind: 'source_summary',
-        generationMode: 'raw_fallback',
-      }),
-    ]);
-    expect(result.diagnostics.warnings).toContainEqual(
-      expect.objectContaining({
-        code: 'compiler_source_summary_fallback',
-        sourcePageId: 'page-1',
-      }),
-    );
-  });
-
-  it('builds the degraded fallback only from bounded validated analysis', async () => {
-    const provider = createProvider();
-    provider.analyze.mockResolvedValueOnce({
-      ...analysis,
-      synopsis: 'Validated synopsis. '.repeat(1_000),
-      claims: [
-        {
-          text: 'Validated claim.',
-          evidenceQuote: 'Validated evidence.',
-        },
-      ],
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-    const input = compileInput();
-    input.sources[0].text = `PRIVATE_FULL_SOURCE_BODY\n${'z'.repeat(20_000)}`;
-
-    await runner.compileSpace(input);
-
-    const fallback = provider.generate.mock.calls[0][1];
-    expect(fallback?.markdown).toContain('Validated synopsis.');
-    expect(fallback?.markdown).toContain('Validated claim.');
-    expect(fallback?.markdown).toContain('Validated evidence.');
-    expect(fallback?.markdown).not.toContain('PRIVATE_FULL_SOURCE_BODY');
-    expect(fallback?.markdown.length).toBeLessThanOrEqual(8_000);
-  });
-
-  it('does not offer a degraded fallback when a last-success exists', async () => {
-    const provider = createProvider();
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    await runner.compileSpace({ ...compileInput(), hasLastSuccess: true });
-
-    expect(provider.generate).toHaveBeenCalledWith(
-      expect.any(Object),
-      undefined,
-    );
-  });
-
   it('maps generated evidence quotes back to exact source ranges', async () => {
     const runner = new TestSemanticKnowledgeCompilerRunner(
       createProvider(),
@@ -614,7 +477,7 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     );
 
     const result = await runner.compileSpace(compileInput());
-    const source = result.artifacts[0].claims?.[0].inputSourceRefs?.[0];
+    const source = result.artifacts[0].links?.[0].inputSourceRefs?.[0];
 
     expect(source?.sourceRange).toEqual({ startOffset: 15, endOffset: 52 });
     expect(source?.quoteHash).toMatch(/^sha256:/);
@@ -624,49 +487,6 @@ describe('SemanticKnowledgeCompilerRunner', () => {
         source!.sourceRange!.endOffset,
       ),
     ).toBe('records changes as an append-only log');
-  });
-
-  it('carries Stage 1 claims into the source summary when generation omits them', async () => {
-    const provider = createProvider();
-    provider.analyze.mockResolvedValueOnce({
-      ...analysis,
-      claims: [
-        {
-          text: 'Event sourcing records changes as an append-only log.',
-          confidence: 0.92,
-          evidenceQuote: 'records changes as an append-only log',
-        },
-      ],
-    });
-    provider.generate.mockResolvedValueOnce({
-      ...generation,
-      artifacts: generation.artifacts.map((artifact) => ({
-        ...artifact,
-        claims: [],
-      })),
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(compileInput());
-    const summary = result.artifacts.find(
-      (artifact) => artifact.artifactKind === 'source_summary',
-    );
-
-    expect(summary?.claims).toEqual([
-      expect.objectContaining({
-        text: 'Event sourcing records changes as an append-only log.',
-        confidence: 0.92,
-        inputSourceRefs: [
-          expect.objectContaining({
-            sourceRange: { startOffset: 15, endOffset: 52 },
-            quoteHash: expect.stringMatching(/^sha256:/),
-          }),
-        ],
-      }),
-    ]);
   });
 
   it('keeps generated direct links separate from semantic graph edges', async () => {
@@ -798,6 +618,37 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     expect(concept?.graphEdges).toEqual([
       expect.objectContaining({
         toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
+        relation: 'depends on',
+      }),
+    ]);
+  });
+
+  it('retains unresolved Stage 1 relations as dangling semantic graph edges', async () => {
+    const provider = createProvider();
+    provider.analyze.mockResolvedValueOnce({
+      ...analysis,
+      relations: [
+        {
+          fromCanonicalKey: 'event-sourcing',
+          toCanonicalKey: 'future-concept',
+          relation: 'depends on',
+          evidenceQuote: 'append-only log',
+        },
+      ],
+    });
+    const runner = new TestSemanticKnowledgeCompilerRunner(
+      provider,
+      createCompilationRepo(),
+    );
+
+    const result = await runner.compileSpace(compileInput());
+    const concept = result.artifacts.find(
+      (artifact) => artifact.canonicalKey === 'event-sourcing',
+    );
+
+    expect(concept?.graphEdges).toEqual([
+      expect.objectContaining({
+        targetCanonicalKey: 'future-concept',
         relation: 'depends on',
       }),
     ]);

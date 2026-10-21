@@ -689,35 +689,10 @@ describe('KnowledgeImportService', () => {
               quoteHash: null,
               contentHash: 'hash-1',
               provenanceKind: 'synthesis_lineage',
-              attachmentId: null,
             },
           ],
           parentSections: [],
           parentSectionSources: [],
-          claims: [
-            expect.objectContaining({
-              workspaceId: 'workspace-1',
-              spaceId: 'space-1',
-              knowledgePageId: 'artifact-1',
-              text: 'Kafka is used for events.',
-              confidence: 0.8,
-              position: 0,
-              compilerRunId: 'run-1',
-              compileTaskId: 'task-1',
-            }),
-          ],
-          claimSources: [
-            expect.objectContaining({
-              workspaceId: 'workspace-1',
-              sourcePageId: 'source-1',
-              sourceVersion: 'v1',
-              sourceRange: null,
-              quoteHash: null,
-              contentHash: 'hash-1',
-              provenanceKind: 'synthesis_lineage',
-              attachmentId: null,
-            }),
-          ],
           chunks: [
             expect.objectContaining({
               workspaceId: 'workspace-1',
@@ -739,7 +714,6 @@ describe('KnowledgeImportService', () => {
               quoteHash: null,
               contentHash: 'hash-1',
               provenanceKind: 'synthesis_lineage',
-              attachmentId: null,
             }),
           ],
           chunkAttachments: [],
@@ -769,7 +743,6 @@ describe('KnowledgeImportService', () => {
               quoteHash: null,
               contentHash: 'hash-1',
               provenanceKind: 'synthesis_lineage',
-              attachmentId: null,
             }),
           ],
           graphEdges: [
@@ -792,7 +765,6 @@ describe('KnowledgeImportService', () => {
               quoteHash: null,
               contentHash: 'hash-1',
               provenanceKind: 'synthesis_lineage',
-              attachmentId: null,
             }),
           ],
         },
@@ -899,7 +871,6 @@ describe('KnowledgeImportService', () => {
     const persisted = capsuleRepo.upsertCompiledArtifacts.mock.calls[0][0][0];
     for (const sourceRows of [
       persisted.pageSources,
-      persisted.claimSources,
       persisted.chunkSources,
       persisted.linkSources,
       persisted.graphEdgeSources,

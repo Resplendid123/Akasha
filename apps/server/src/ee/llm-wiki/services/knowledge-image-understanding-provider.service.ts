@@ -13,7 +13,12 @@ import {
   AiModelConfigService,
   ResolvedAiModelConfig,
 } from './ai-model-config.service';
+import { resolveModelCallOptions } from './ai-model-call-options';
 import { createLanguageModelFromConfig } from './ai-model-factory';
+
+export const IMAGE_PROVIDER_NAME = 'akashaImage';
+
+const IMAGE_DEFAULT_TEMPERATURE = 0;
 
 const supportedDrivers = new Set(['openai-compatible']);
 const MAX_PROVIDER_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -112,7 +117,6 @@ export class ConfiguredKnowledgeImageUnderstandingProvider implements KnowledgeI
       this.environmentService.getKnowledgeImageTimeoutMs(),
     );
     try {
-      const temperature = isOpenAiReasoningModel(config) ? undefined : 0;
       const result = await generateText({
         model,
         system: buildSystemPrompt(),
@@ -132,12 +136,12 @@ export class ConfiguredKnowledgeImageUnderstandingProvider implements KnowledgeI
             ],
           },
         ],
-        ...(temperature === undefined ? {} : { temperature }),
+        ...resolveModelCallOptions(config, {
+          providerOptionsName: IMAGE_PROVIDER_NAME,
+          defaultTemperature: IMAGE_DEFAULT_TEMPERATURE,
+        }),
         maxOutputTokens: 8_000,
         abortSignal: boundedSignal.signal,
-        providerOptions: isOpenAiReasoningModel(config)
-          ? { openaiCompatible: { reasoningEffort: 'low' } }
-          : {},
         output: Output.json({
           name: 'knowledge_image_understanding_v1',
           description:
@@ -175,7 +179,7 @@ export class ConfiguredKnowledgeImageUnderstandingProvider implements KnowledgeI
         false,
       );
     }
-    const model = createLanguageModelFromConfig(config, 'openai-compatible');
+    const model = createLanguageModelFromConfig(config, IMAGE_PROVIDER_NAME);
     if (!model) {
       throw new KnowledgeImageUnderstandingError(
         'configuration_error',
@@ -187,14 +191,6 @@ export class ConfiguredKnowledgeImageUnderstandingProvider implements KnowledgeI
   }
 }
 
-function isOpenAiReasoningModel(config: ResolvedAiModelConfig): boolean {
-  if (config.driver?.trim().toLowerCase() !== 'openai-compatible') {
-    return false;
-  }
-  const model = config.model?.trim().toLowerCase();
-  if (!model) return false;
-  return model.includes('gpt') || /(^|[-_])o[134](?:[-_]|$)/.test(model);
-}
 
 function validateInput(input: KnowledgeImageUnderstandingInput): void {
   if (

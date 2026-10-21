@@ -111,6 +111,7 @@ type CursorPaginationResultRow<
 };
 
 type CursorPaginationMeta = {
+  total?: number;
   limit: number;
   hasNextPage: boolean;
   hasPrevPage: boolean;
@@ -311,11 +312,13 @@ export function defaultEncodeCursor<
 
 export function emptyCursorPaginationResult<T>(
   limit: number,
+  total?: number,
 ): CursorPaginationResult<T> {
   return {
     items: [],
     meta: {
       limit,
+      ...(total === undefined ? {} : { total }),
       hasNextPage: false,
       hasPrevPage: false,
       nextCursor: null,

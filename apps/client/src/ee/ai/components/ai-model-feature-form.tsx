@@ -248,13 +248,12 @@ function buildParameters(
   feature: AiModelConfigFeature,
   values: FormValues,
 ): UpdateAiModelConfigInput["parameters"] {
-  if (feature === "embedding") {
-    return {
-      ...(typeof values.dimension === "number"
-        ? { dimension: values.dimension }
-        : {}),
-      supportsMrl: values.supportsMrl,
-    };
-  }
-  return undefined;
+  if (feature !== "embedding") return undefined;
+
+  return {
+    ...(typeof values.dimension === "number"
+      ? { dimension: values.dimension }
+      : {}),
+    supportsMrl: values.supportsMrl,
+  };
 }

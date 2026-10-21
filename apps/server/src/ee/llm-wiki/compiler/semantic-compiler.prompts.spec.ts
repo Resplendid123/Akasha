@@ -1,3 +1,4 @@
+import { SEMANTIC_COMPILER_LIMITS } from './semantic-compiler.limits';
 import {
   buildSemanticAnalysisMessages,
   buildSemanticGenerationMessages,
@@ -74,7 +75,9 @@ describe('semantic compiler prompts', () => {
     expect(messages.system).toContain('evidenceQuote');
     expect(messages.system).toContain('same language');
     expect(messages.system).toContain('Do not generate overview');
-    expect(messages.system).toContain('at most 8 artifacts total');
+    expect(messages.system).toContain(
+      `at most ${SEMANTIC_COMPILER_LIMITS.generatedArtifacts} artifacts total`,
+    );
     expect(messages.system).toContain('ceiling, not a target');
     expect(messages.system).toContain('independent retrieval value');
     expect(messages.prompt).toContain('"sourcePageId":"page-1"');
@@ -131,14 +134,12 @@ describe('semantic compiler prompts', () => {
       artifactKind: 'concept' as const,
       canonicalKey: `unrelated-${index}`,
       title: `Unrelated catalog entry ${index}`,
-      summary: 'x'.repeat(2_000),
     }));
     catalog[0] = {
       artifactId: 'artifact-target',
       artifactKind: 'concept',
       canonicalKey: 'target-architecture',
       title: 'Target architecture',
-      summary: 'The relevant architecture entry.'.repeat(20),
     };
 
     const messages = buildSemanticAnalysisMessages({
@@ -173,14 +174,12 @@ describe('semantic compiler prompts', () => {
           artifactKind: 'concept',
           canonicalKey: 'existing-platform',
           title: 'Existing platform',
-          summary: 'Existing platform summary.',
         },
         {
           artifactId: 'artifact-unrelated',
           artifactKind: 'concept',
           canonicalKey: 'unrelated-platform',
           title: 'Unrelated platform',
-          summary: 'Unrelated platform summary.',
         },
       ],
       analysis: {

@@ -30,6 +30,7 @@ export interface ApiResponse<T> {
 }
 
 export type IPaginationMeta = {
+  total?: number;
   limit: number;
   hasNextPage: boolean;
   hasPrevPage: boolean;

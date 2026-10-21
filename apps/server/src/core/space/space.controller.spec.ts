@@ -47,6 +47,7 @@ describe('SpaceController effective space access', () => {
       hasPrevPage: false,
       nextCursor: 'next-page',
       prevCursor: null,
+      total: 2,
     };
     const spaceService = {
       getWorkspaceSpaces: jest.fn().mockResolvedValue({ items: spaces, meta }),
@@ -129,6 +130,7 @@ describe('SpaceController effective space access', () => {
       expect(spaceService.getWorkspaceSpaces).toHaveBeenCalledWith(
         workspace.id,
         options,
+        undefined,
       );
       expect(spaceMemberService.getUserSpaces).not.toHaveBeenCalled();
       expect(spaceMemberRepo.getUserRolesForSpaces).not.toHaveBeenCalled();
@@ -149,6 +151,7 @@ describe('SpaceController effective space access', () => {
       expect(spaceService.getWorkspaceSpaces).toHaveBeenCalledWith(
         workspace.id,
         options,
+        undefined,
       );
     },
   );
@@ -162,7 +165,7 @@ describe('SpaceController effective space access', () => {
         user(UserRole.ADMIN),
         workspace,
       );
-      expect(result).toEqual(emptyCursorPaginationResult(20));
+      expect(result).toEqual(emptyCursorPaginationResult(20, 0));
       expect(spaceService.getWorkspaceSpaces).not.toHaveBeenCalled();
       expect(spaceMemberService.getUserSpaces).not.toHaveBeenCalled();
     },
@@ -186,6 +189,7 @@ describe('SpaceController effective space access', () => {
     expect(spaceMemberService.getUserSpaces).toHaveBeenCalledWith(
       'user-1',
       options,
+      undefined,
     );
   });
 
@@ -207,7 +211,18 @@ describe('SpaceController effective space access', () => {
   );
 
   it('preserves bound-space limits for agent requests', async () => {
-    const { controller } = createSubject();
+    const { controller, spaceService } = createSubject();
+    spaceService.getWorkspaceSpaces.mockResolvedValue({
+      items: [{ id: 'space-2' }],
+      meta: {
+        limit: 20,
+        hasNextPage: false,
+        hasPrevPage: false,
+        nextCursor: null,
+        prevCursor: null,
+        total: 1,
+      },
+    });
     const result = await controller.getWorkspaceSpaces(
       pagination(),
       user(UserRole.ADMIN),
@@ -215,5 +230,11 @@ describe('SpaceController effective space access', () => {
       {} as any,
     );
     expect(result.items.map((space) => space.id)).toEqual(['space-2']);
+    expect(result.meta.total).toBe(1);
+    expect(spaceService.getWorkspaceSpaces).toHaveBeenCalledWith(
+      workspace.id,
+      pagination(),
+      ['space-2'],
+    );
   });
 });

@@ -160,17 +160,24 @@ response:
       citations:
         type: array
         items:
-          $ref: '#/definitions/citation'
+          $ref: "#/definitions/citation"
       citationEvidence:
         type: array
         items:
-          $ref: '#/definitions/citationEvidence'
+          $ref: "#/definitions/citationEvidence"
       retrievedSources:
         type: array
+        description: >-
+          本次实际检索并打包的来源。即使回答模型最终选择 general，该字段仍保留；
+          citations 仍为空，表示通用知识回答没有引用这些来源。显式请求 general 且未执行
+          检索时为空。
         items:
-          $ref: '#/definitions/citation'
+          $ref: "#/definitions/citation"
       snippets:
         type: array
+        description: >-
+          本次实际检索并打包的文本片段。即使回答模型最终选择 general，该字段仍保留，
+          便于评测和诊断模型为何未采用已检索证据。显式请求 general 且未执行检索时为空。
         items:
           type: object
           properties:
@@ -187,7 +194,7 @@ response:
             sourceWindows:
               type: array
               items:
-                $ref: '#/definitions/sourceWindow'
+                $ref: "#/definitions/sourceWindow"
       warnings:
         type: array
         items:
@@ -217,7 +224,7 @@ response:
         type: array
         maxItems: 5
         items:
-          $ref: '#/definitions/attachment'
+          $ref: "#/definitions/attachment"
 
 definitions:
   citation:

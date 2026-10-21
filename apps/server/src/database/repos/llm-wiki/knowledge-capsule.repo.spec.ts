@@ -2,11 +2,13 @@ import { KnowledgeCapsuleRepo } from './knowledge-capsule.repo';
 import {
   CamelCasePlugin,
   CompiledQuery,
+  DatabaseConnection,
   DummyDriver,
   Kysely,
   PostgresAdapter,
   PostgresIntrospector,
   PostgresQueryCompiler,
+  QueryResult,
 } from 'kysely';
 import { DbInterface } from '@akasha/db/types/db.interface';
 
@@ -53,6 +55,14 @@ class FakeKyselyQuery {
   whereRef(...args: unknown[]) {
     this.calls.push({ method: 'whereRef', args });
     return this;
+  }
+
+  distinct() {
+    return this;
+  }
+
+  $if(condition: boolean, callback: (query: this) => this) {
+    return condition ? callback(this) : this;
   }
 
   orderBy(...args: unknown[]) {
@@ -165,6 +175,69 @@ function basePageSource(knowledgePageId: string, sourcePageId: string) {
 }
 
 describe('KnowledgeCapsuleRepo', () => {
+  it('discovers active source artifacts without requiring semantic contributions', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findSourceArtifactScopes({
+      workspaceId: 'workspace-1',
+      sourcePageIds: ['page-1'],
+    });
+
+    const query = queries[0];
+    expect(query.sql).toContain('"knowledge_pages"."stale_at" is null');
+    expect(query.sql).toContain('"knowledge_pages"."workspace_id" =');
+    expect(query.sql).toContain('"knowledge_page_sources"."workspace_id" =');
+    expect(query.sql).not.toContain('knowledge_artifact_contributions');
+    expect(query.parameters).toEqual(
+      expect.arrayContaining([
+        'workspace-1',
+        'page-1',
+        'source_summary',
+        'original_source',
+      ]),
+    );
+  });
+
+  it('retires source-owned artifacts and all their children only in the old Space', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [{ id: 'old-original' }],
+    });
+    const repo = createRepo(query);
+
+    await repo.markSourceArtifactsStaleBySourcePageIds({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-old',
+      sourcePageIds: ['page-1'],
+    });
+
+    expect(query.calls).toContainEqual({
+      method: 'where',
+      args: ['knowledgePages.spaceId', '=', 'space-old'],
+    });
+    expect(
+      query.calls
+        .filter((call) => call.method === 'updateTable')
+        .map((call) => call.args[0]),
+    ).toEqual(
+      expect.arrayContaining([
+        'knowledgePages',
+        'knowledgeParentSections',
+        'knowledgeChunks',
+        'knowledgeLinks',
+        'knowledgeGraphEdges',
+      ]),
+    );
+    expect(query.calls.filter((call) => call.method === 'set')).toHaveLength(5);
+    expect(
+      query.calls
+        .filter((call) => call.method === 'set')
+        .every(
+          (call) =>
+            (call.args[0] as { staleAt: unknown }).staleAt instanceof Date,
+        ),
+    ).toBe(true);
+  });
+
   it('ranks a bounded compiler Catalog in SQL without returning bodies', async () => {
     const { repo, queries } = createSqlRepo();
 
@@ -181,7 +254,9 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(query).toContain('join lateral');
     expect(query).toContain('page.title % signal.value');
     expect(query).toContain('similarity(page.title, signal.value)');
-    expect(query).toContain('search_tsv @@ plainto_tsquery');
+    expect(query).toContain(
+      'search_tsv_zh @@ knowledge_zh_tsquery(signal.value, true)',
+    );
     expect(query).toContain('union all');
     expect(query).toContain('order by "explicitmatch" desc');
     expect(query).toContain('"canonicalexactmatch" desc');
@@ -248,7 +323,9 @@ describe('KnowledgeCapsuleRepo', () => {
       limit: 10,
     });
 
-    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
+    const sql = lexicalCandidateQuery(queries)
+      .sql.toLowerCase()
+      .replace(/\s+/g, ' ');
     expect(sql).toContain('knowledge_chunk_sources as source_presence');
     expect(sql).not.toContain('knowledge_source_access_policy');
     expect(sql.indexOf('source_presence')).toBeLessThan(sql.indexOf('limit'));
@@ -302,22 +379,96 @@ describe('KnowledgeCapsuleRepo', () => {
     ).toBe(false);
   });
 
-  it('uses PostgreSQL FTS after complete-source authorization', async () => {
+  it('uses jieba-segmented FTS after complete-source authorization', async () => {
     const { repo, queries } = createSqlRepo();
 
     await repo.findLexicalChunkCandidates({
       workspaceId: 'workspace-1',
       spaceIds: ['space-1'],
       principals: [{ principalType: 'user', principalId: 'user-visible' }],
-      query: 'Akasha wiki',
+      query: '  合同什么时候批准的  ',
       limit: 10,
     });
 
-    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
-    expect(sql).toContain("websearch_to_tsquery('simple'");
-    expect(sql).toContain('ts_rank_cd');
+    // Term statistics: segmented once, document frequency bounded by the
+    // common-term threshold within the same scope.
+    const stats = queries[0];
+    const statsSql = stats.sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(statsSql).toContain('unnest(knowledge_zh_query_terms($');
+    expect(statsSql).toContain('chunk.search_tsv_zh @@ term');
+    expect(statsSql).toContain('limit settings.threshold + 1');
+    expect(stats.parameters).toEqual(
+      expect.arrayContaining(['合同什么时候批准的', 20, 0.05]),
+    );
+
+    const candidate = lexicalCandidateQuery(queries);
+    const sql = candidate.sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_chunks.search_tsv_zh @@ $');
+    expect(sql).not.toContain("'simple'");
+    expect(sql).not.toContain('knowledge_zh_tsquery(');
+    expect(sql).toContain('ts_rank_cd(knowledge_chunks.search_tsv_zh, $');
+    expect(candidate.parameters).toContain("'akasha'");
     expect(sql).toContain('not exists ( select');
     expect(sql.indexOf('not exists')).toBeLessThan(sql.indexOf('limit'));
+  });
+
+  it('never lets common terms alone qualify a lexical candidate', async () => {
+    const { repo, queries } = createSqlRepo([
+      { term: "'配置'", document_frequency: 71, threshold: 70 },
+    ]);
+
+    const lexical = await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: '请问配置在哪里',
+      limit: 10,
+    });
+
+    expect(lexical).toEqual([]);
+    expect(queries).toHaveLength(1);
+  });
+
+  it('requires rare terms only and lets common terms affect ranking', async () => {
+    const { repo, queries } = createSqlRepo([
+      { term: "'数据库'", document_frequency: 71, threshold: 70 },
+      { term: "'失败'", document_frequency: 3, threshold: 70 },
+      { term: "'排查'", document_frequency: 4, threshold: 70 },
+      { term: "'连接'", document_frequency: 55, threshold: 70 },
+    ]);
+
+    await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: '数据库连接失败怎么排查',
+      limit: 10,
+    });
+
+    const candidate = lexicalCandidateQuery(queries);
+    // Filter and coverage use rare terms; three rare terms -> floor(3*0.75)=2.
+    expect(candidate.parameters).toContain("'失败' | '排查' | '连接'");
+    expect(candidate.parameters).toContainEqual(["'失败'", "'排查'", "'连接'"]);
+    expect(candidate.parameters).toContain(2);
+    // Ranking still sees the common term.
+    expect(candidate.parameters).toContain(
+      "'数据库' | '失败' | '排查' | '连接'",
+    );
+  });
+
+  it('returns no lexical candidates when the query has no searchable terms', async () => {
+    const { repo, queries } = createSqlRepo([]);
+
+    const lexical = await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: '请问',
+      limit: 10,
+    });
+
+    expect(lexical).toEqual([]);
+    expect(queries).toHaveLength(1);
   });
 
   it('applies OR page-label filtering to every chunk source before candidate limits', async () => {
@@ -332,7 +483,7 @@ describe('KnowledgeCapsuleRepo', () => {
       limit: 10,
     });
 
-    const compiled = queries[0];
+    const compiled = lexicalCandidateQuery(queries);
     const sql = compiled.sql.toLowerCase().replace(/\s+/g, ' ');
     expect(sql).toContain('knowledge_chunk_sources as label_source');
     expect(sql).toContain('page_labels as matching_page_label');
@@ -362,52 +513,149 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(sql.indexOf('not exists')).toBeLessThan(sql.indexOf('limit'));
   });
 
-  it('selects one policy-authorized graph expansion chunk per page', async () => {
+  it('excludes unreadable pages before the display node limit', async () => {
     const { repo, queries } = createSqlRepo();
 
-    await repo.findGraphChunkCandidates({
+    await repo.findGraphCandidatesForSpace({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      limit: 3000,
+      readableSourcePageIds: ['source-readable'],
+    });
+
+    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_page_sources" as "quota_source"');
+    expect(sql).toContain('not exists');
+    expect(sql.indexOf('quota_source')).toBeLessThan(sql.indexOf('limit'));
+  });
+
+  it('excludes original index containers from graph candidates', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findGraphCandidatesForSpace({
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      limit: 100,
+    });
+
+    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
+    expect(sql).toContain('"page_type" != $3');
+    expect(queries[0].parameters).toContain('original_source');
+  });
+
+  it('scopes dense recall to the graph window and authorizes before the limit', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findDenseChunkCandidates({
       workspaceId: 'workspace-1',
       spaceIds: ['space-1'],
       principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      embedding: {
+        vector: [0.1, 0.2, 0.3],
+        profile: 'a'.repeat(64),
+        model: 'model-1',
+        dimensions: 3,
+      },
       knowledgePageIds: ['knowledge-page-1', 'knowledge-page-2'],
       limit: 8,
     });
 
-    const sql = queries[0].sql.toLowerCase().replace(/\s+/g, ' ');
-    expect(sql).toContain('select distinct on');
+    const sql = queries
+      .map((query) => query.sql.toLowerCase().replace(/\s+/g, ' '))
+      .find((statement) => statement.includes('from "knowledge_chunks"'));
+    expect(sql).toBeDefined();
     expect(sql).toContain('"knowledge_chunks"."knowledge_page_id" in');
+    expect(sql).toContain('order by knowledge_chunks.embedding');
     expect(sql).toContain('knowledge_source_access_policy');
-    expect(sql.indexOf('knowledge_source_access_policy')).toBeLessThan(
-      sql.indexOf('limit'),
+    expect(sql!.indexOf('knowledge_source_access_policy')).toBeLessThan(
+      sql!.indexOf('limit'),
     );
   });
 
-  it('bounds graph traversal to active pages in readable spaces', async () => {
+  it('restricts lexical recall to the graph window', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: 'akasha',
+      knowledgePageIds: ['knowledge-page-1'],
+      limit: 8,
+    });
+
+    const sql = lexicalCandidateQuery(queries)
+      .sql.toLowerCase()
+      .replace(/\s+/g, ' ');
+    expect(sql).toContain('"knowledge_chunks"."knowledge_page_id" in');
+    expect(sql).toContain('ts_rank_cd');
+  });
+
+  it('returns no rows when the graph window is empty', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    const lexical = await repo.findLexicalChunkCandidates({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      principals: [{ principalType: 'user', principalId: 'user-visible' }],
+      query: 'akasha',
+      knowledgePageIds: [],
+      limit: 8,
+    });
+
+    expect(lexical).toEqual([]);
+    expect(queries).toHaveLength(0);
+  });
+
+  it('selects graph traversal edges in one statement with ACL and same-space pushed down', async () => {
     const { repo, queries } = createSqlRepo();
 
     await repo.findGraphTraversalEdges({
       workspaceId: 'workspace-1',
       spaceIds: ['space-1'],
-      knowledgePageIds: ['knowledge-page-1'],
+      seeds: [{ knowledgePageId: 'knowledge-page-1', weight: 0.9 }],
+      readableSourcePageIds: ['source-page-1'],
       limit: 40,
     });
 
-    const statements = queries.map((query) =>
-      query.sql.toLowerCase().replace(/\s+/g, ' '),
+    expect(queries).toHaveLength(1);
+    const sql = queries[0].sql
+      .toLowerCase()
+      .replace(/--[^\n]*/g, ' ')
+      .replace(/\s+/g, ' ');
+    expect(sql).toContain('knowledge_links');
+    expect(sql).toContain('knowledge_graph_edges');
+    expect(sql).toContain('knowledge_page_sources');
+    expect(sql.match(/limit/g) ?? []).toHaveLength(1);
+    expect(sql.indexOf('readable_source')).toBeLessThan(
+      sql.lastIndexOf('limit'),
     );
-    expect(statements).toHaveLength(3);
-    expect(statements).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('from "knowledge_links"'),
-        expect.stringContaining('from "knowledge_graph_edges"'),
-        expect.stringContaining('from "knowledge_page_sources"'),
-      ]),
+    expect(sql).toContain('from_page.space_id = l.space_id');
+    expect(sql).toContain('to_page.space_id = e.space_id');
+    expect(sql).toContain('bool_and');
+    expect(sql.indexOf('group by')).toBeLessThan(
+      sql.lastIndexOf('all_sources_readable'),
     );
-    for (const sql of statements) {
-      expect(sql).toContain('inner join "knowledge_pages"');
-      expect(sql).toContain('"stale_at" is null');
-      expect(sql).toContain('limit');
-    }
+    const sharedSourcePairCte = sql.slice(
+      sql.indexOf('shared_source_pair as'),
+      sql.indexOf('shared_source_edge as'),
+    );
+    expect(sharedSourcePairCte).not.toContain('limit');
+  });
+
+  it('fails closed when no provenance source is readable', async () => {
+    const { repo, queries } = createSqlRepo();
+
+    const edges = await repo.findGraphTraversalEdges({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-1'],
+      seeds: [{ knowledgePageId: 'knowledge-page-1', weight: 0.9 }],
+      readableSourcePageIds: [],
+      limit: 40,
+    });
+
+    expect(edges).toEqual([]);
+    expect(queries).toHaveLength(0);
   });
 
   it('batch upserts pages before relationship rows so new pages can link each other', async () => {
@@ -471,6 +719,76 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(linkInsertIndex).toBeGreaterThan(Math.max(...pageInsertIndexes));
   });
 
+  it('rejects a graph edge whose endpoint lives in another space', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [
+        { id: 'knowledge-page-1', spaceId: 'space-1' },
+        { id: 'knowledge-page-cross', spaceId: 'space-2' },
+      ],
+    });
+    const repo = createRepo(query);
+
+    await expect(
+      repo.upsertCompiledArtifacts([
+        {
+          page: basePage('knowledge-page-1'),
+          graphEdges: [
+            {
+              id: 'edge-cross',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              fromKnowledgePageId: 'knowledge-page-1',
+              toKnowledgePageId: 'knowledge-page-cross',
+              relation: 'relates_to',
+            },
+          ],
+        },
+      ] as never),
+    ).rejects.toThrow('cross_space_graph_edge_disallowed');
+
+    expect(
+      query.calls.some(
+        (call) =>
+          call.method === 'insertInto' &&
+          call.args[0] === 'knowledgeGraphEdges',
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts a graph edge whose endpoints share the edge space', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [
+        { id: 'knowledge-page-1', spaceId: 'space-1' },
+        { id: 'knowledge-page-2', spaceId: 'space-1' },
+      ],
+    });
+    const repo = createRepo(query);
+
+    await repo.upsertCompiledArtifacts([
+      {
+        page: basePage('knowledge-page-1'),
+        graphEdges: [
+          {
+            id: 'edge-same',
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            fromKnowledgePageId: 'knowledge-page-1',
+            toKnowledgePageId: 'knowledge-page-2',
+            relation: 'relates_to',
+          },
+        ],
+      },
+    ] as never);
+
+    expect(
+      query.calls.some(
+        (call) =>
+          call.method === 'insertInto' &&
+          call.args[0] === 'knowledgeGraphEdges',
+      ),
+    ).toBe(true);
+  });
+
   it('splits large child collections into bounded inserts', async () => {
     const query = new FakeKyselyQuery({
       knowledgePages: [{ id: 'knowledge-page-1' }],
@@ -516,138 +834,113 @@ describe('KnowledgeCapsuleRepo', () => {
     const repo = createRepo(query);
 
     await expect(
-      repo.upsertCompiledArtifact({
-        page: {
-          id: 'knowledge-page-1',
-          workspaceId: 'workspace-1',
-          spaceId: 'space-1',
-          compileScope: 'page',
-          title: 'Compiled',
-          slug: 'compiled',
-          body: 'body',
-          compiledAt: new Date('2026-06-16T00:00:00.000Z'),
-          compilerVersion: 'compiler@1',
+      repo.upsertCompiledArtifacts([
+        {
+          page: {
+            id: 'knowledge-page-1',
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            compileScope: 'page',
+            title: 'Compiled',
+            slug: 'compiled',
+            body: 'body',
+            compiledAt: new Date('2026-06-16T00:00:00.000Z'),
+            compilerVersion: 'compiler@1',
+          },
+          pageSources: [
+            {
+              workspaceId: 'workspace-1',
+              knowledgePageId: 'knowledge-page-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
+          chunks: [
+            {
+              id: 'chunk-1',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              knowledgePageId: 'knowledge-page-1',
+              text: 'Kafka is used for events.',
+              contentHash: 'chunk-hash-1',
+              embedding: null,
+              compilerRunId: 'run-1',
+              compileTaskId: 'task-1',
+            },
+          ],
+          chunkSources: [
+            {
+              workspaceId: 'workspace-1',
+              chunkId: 'chunk-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
+          links: [
+            {
+              id: 'link-1',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              fromKnowledgePageId: 'knowledge-page-1',
+              toKnowledgePageId: null,
+              targetPageId: null,
+              targetSpaceId: 'space-2',
+              linkText: 'External page',
+              linkType: 'cross_space_reference',
+              isDangling: true,
+              compilerRunId: 'run-1',
+              compileTaskId: 'task-1',
+            },
+          ],
+          linkSources: [
+            {
+              workspaceId: 'workspace-1',
+              linkId: 'link-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
+          graphEdges: [
+            {
+              id: 'edge-1',
+              workspaceId: 'workspace-1',
+              spaceId: 'space-1',
+              fromKnowledgePageId: 'knowledge-page-1',
+              toKnowledgePageId: 'knowledge-page-2',
+              relation: 'depends_on',
+              compilerRunId: 'run-1',
+              compileTaskId: 'task-1',
+            },
+          ],
+          graphEdgeSources: [
+            {
+              workspaceId: 'workspace-1',
+              graphEdgeId: 'edge-1',
+              sourcePageId: 'source-1',
+              sourceVersion: 'v1',
+              contentHash: 'hash-1',
+              provenanceKind: 'synthesis_lineage',
+            },
+          ],
         },
-        pageSources: [
-          {
-            workspaceId: 'workspace-1',
-            knowledgePageId: 'knowledge-page-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        claims: [
-          {
-            id: 'claim-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            knowledgePageId: 'knowledge-page-1',
-            text: 'Kafka is used for events.',
-            confidence: null,
-            position: 0,
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        claimSources: [
-          {
-            workspaceId: 'workspace-1',
-            claimId: 'claim-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        chunks: [
-          {
-            id: 'chunk-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            knowledgePageId: 'knowledge-page-1',
-            claimId: 'claim-1',
-            text: 'Kafka is used for events.',
-            contentHash: 'chunk-hash-1',
-            embedding: null,
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        chunkSources: [
-          {
-            workspaceId: 'workspace-1',
-            chunkId: 'chunk-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        links: [
-          {
-            id: 'link-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            fromKnowledgePageId: 'knowledge-page-1',
-            toKnowledgePageId: null,
-            targetPageId: null,
-            targetSpaceId: 'space-2',
-            linkText: 'External page',
-            linkType: 'cross_space_reference',
-            isDangling: true,
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        linkSources: [
-          {
-            workspaceId: 'workspace-1',
-            linkId: 'link-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-        graphEdges: [
-          {
-            id: 'edge-1',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            fromKnowledgePageId: 'knowledge-page-1',
-            toKnowledgePageId: 'knowledge-page-2',
-            relation: 'depends_on',
-            compilerRunId: 'run-1',
-            compileTaskId: 'task-1',
-          },
-        ],
-        graphEdgeSources: [
-          {
-            workspaceId: 'workspace-1',
-            graphEdgeId: 'edge-1',
-            sourcePageId: 'source-1',
-            sourceVersion: 'v1',
-            contentHash: 'hash-1',
-            provenanceKind: 'synthesis_lineage',
-          },
-        ],
-      }),
-    ).resolves.toEqual(row);
+      ]),
+    ).resolves.toEqual([row]);
 
     expect(query.calls).toEqual(
       expect.arrayContaining([
         { method: 'deleteFrom', args: ['knowledgeGraphEdges'] },
         { method: 'deleteFrom', args: ['knowledgeLinks'] },
         { method: 'deleteFrom', args: ['knowledgeChunks'] },
-        { method: 'deleteFrom', args: ['knowledgeClaims'] },
         { method: 'deleteFrom', args: ['knowledgePageSources'] },
         { method: 'insertInto', args: ['knowledgePages'] },
         { method: 'onConflict', args: [expect.any(Function)] },
         { method: 'insertInto', args: ['knowledgePageSources'] },
-        { method: 'insertInto', args: ['knowledgeClaims'] },
-        { method: 'insertInto', args: ['knowledgeClaimSources'] },
         { method: 'insertInto', args: ['knowledgeChunks'] },
         { method: 'insertInto', args: ['knowledgeChunkSources'] },
         { method: 'insertInto', args: ['knowledgeLinks'] },
@@ -664,13 +957,15 @@ describe('KnowledgeCapsuleRepo', () => {
     });
     const repo = createRepo(query);
 
-    await repo.upsertCompiledArtifact({
-      page: {
-        ...basePage('knowledge-page-1'),
-        compileScope: 'page',
-        generationMode: 'semantic',
+    await repo.upsertCompiledArtifacts([
+      {
+        page: {
+          ...basePage('knowledge-page-1'),
+          compileScope: 'page',
+          generationMode: 'semantic',
+        },
       },
-    });
+    ]);
 
     expect(query.calls).toContainEqual({
       method: 'doUpdateSet',
@@ -691,105 +986,6 @@ describe('KnowledgeCapsuleRepo', () => {
       repo.findDependencySourcePageIds({
         workspaceId: 'workspace-1',
         knowledgePageIds: [],
-      }),
-    ).resolves.toEqual([]);
-
-    expect(query.calls).toEqual([]);
-  });
-
-  it('finds non-stale page candidates within workspace and readable spaces', async () => {
-    const rows = [
-      {
-        id: 'kp-1',
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        title: 'Kafka',
-        body: 'Kafka deployment guide',
-      },
-    ];
-    const query = new FakeKyselyQuery({ knowledgePages: rows });
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findPageCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: ['space-1', 'space-2'],
-        query: 'kafka',
-        limit: 20,
-      }),
-    ).resolves.toEqual(rows);
-
-    expect(query.calls).toEqual([
-      { method: 'selectFrom', args: ['knowledgePages'] },
-      { method: 'selectAll', args: [] },
-      { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-      { method: 'where', args: ['spaceId', 'in', ['space-1', 'space-2']] },
-      { method: 'where', args: ['staleAt', 'is', null] },
-      { method: 'where', args: [expect.any(Function)] },
-      { method: 'limit', args: [20] },
-      { method: 'execute', args: [] },
-    ]);
-  });
-
-  it('does not query candidates when readable spaces are empty', async () => {
-    const query = new FakeKyselyQuery();
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findPageCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: [],
-        query: 'kafka',
-        limit: 20,
-      }),
-    ).resolves.toEqual([]);
-
-    expect(query.calls).toEqual([]);
-  });
-
-  it('finds non-stale embedded chunk candidates within readable spaces', async () => {
-    const rows = [
-      {
-        id: 'chunk-1',
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        knowledgePageId: 'kp-1',
-        text: 'Compiled chunk',
-        embedding: [1, 0],
-      },
-    ];
-    const query = new FakeKyselyQuery({ knowledgeChunks: rows });
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findEmbeddedChunkCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: ['space-1', 'space-2'],
-        limit: 200,
-      }),
-    ).resolves.toEqual(rows);
-
-    expect(query.calls).toEqual([
-      { method: 'selectFrom', args: ['knowledgeChunks'] },
-      { method: 'selectAll', args: [] },
-      { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-      { method: 'where', args: ['spaceId', 'in', ['space-1', 'space-2']] },
-      { method: 'where', args: ['staleAt', 'is', null] },
-      { method: 'where', args: ['embedding', 'is not', null] },
-      { method: 'limit', args: [200] },
-      { method: 'execute', args: [] },
-    ]);
-  });
-
-  it('does not query embedded chunks when readable spaces are empty', async () => {
-    const query = new FakeKyselyQuery();
-    const repo = createRepo(query);
-
-    await expect(
-      repo.findEmbeddedChunkCandidates({
-        workspaceId: 'workspace-1',
-        spaceIds: [],
-        limit: 200,
       }),
     ).resolves.toEqual([]);
 
@@ -830,10 +1026,6 @@ describe('KnowledgeCapsuleRepo', () => {
         { sourcePageId: 'source-1' },
         { sourcePageId: 'source-2' },
       ],
-      knowledgeClaimSources: [
-        { sourcePageId: 'source-2' },
-        { sourcePageId: 'source-3' },
-      ],
       knowledgeChunkSources: [{ sourcePageId: 'source-4' }],
       knowledgeLinkSources: [{ sourcePageId: 'source-5' }],
       knowledgeGraphEdgeSources: [{ sourcePageId: 'source-6' }],
@@ -848,7 +1040,6 @@ describe('KnowledgeCapsuleRepo', () => {
     ).resolves.toEqual([
       'source-1',
       'source-2',
-      'source-3',
       'source-4',
       'source-5',
       'source-6',
@@ -868,19 +1059,6 @@ describe('KnowledgeCapsuleRepo', () => {
             'in',
             ['kp-1', 'kp-2'],
           ],
-        },
-        { method: 'selectFrom', args: ['knowledgeClaimSources'] },
-        {
-          method: 'innerJoin',
-          args: [
-            'knowledgeClaims',
-            'knowledgeClaimSources.claimId',
-            'knowledgeClaims.id',
-          ],
-        },
-        {
-          method: 'where',
-          args: ['knowledgeClaims.workspaceId', '=', 'workspace-1'],
         },
         { method: 'selectFrom', args: ['knowledgeChunkSources'] },
         {
@@ -1054,7 +1232,6 @@ describe('KnowledgeCapsuleRepo', () => {
   it('marks each capsule table stale by dependency source page ids', async () => {
     const query = new FakeKyselyQuery({
       knowledgePageSources: [{ knowledgePageId: 'kp-1' }],
-      knowledgeClaimSources: [{ claimId: 'claim-1' }],
       knowledgeChunkSources: [{ chunkId: 'chunk-1' }],
       knowledgeLinkSources: [{ linkId: 'link-1' }],
       knowledgeGraphEdgeSources: [{ graphEdgeId: 'edge-1' }],
@@ -1071,8 +1248,6 @@ describe('KnowledgeCapsuleRepo', () => {
         { method: 'updateTable', args: ['knowledgePages'] },
         { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
         { method: 'where', args: ['id', 'in', ['kp-1']] },
-        { method: 'updateTable', args: ['knowledgeClaims'] },
-        { method: 'where', args: ['id', 'in', ['claim-1']] },
         { method: 'updateTable', args: ['knowledgeChunks'] },
         { method: 'where', args: ['id', 'in', ['chunk-1']] },
         { method: 'updateTable', args: ['knowledgeLinks'] },
@@ -1084,14 +1259,42 @@ describe('KnowledgeCapsuleRepo', () => {
   });
 });
 
-function createSqlRepo(): {
+type LexicalTermRow = {
+  term: string;
+  document_frequency: number;
+  threshold: number;
+};
+
+// Default term statistics: one rare term, so lexical recall reaches the main
+// candidate query. Tests that exercise term classification pass their own.
+const DEFAULT_LEXICAL_TERMS: LexicalTermRow[] = [
+  { term: "'akasha'", document_frequency: 3, threshold: 20 },
+];
+
+function createSqlRepo(
+  lexicalTerms: LexicalTermRow[] = DEFAULT_LEXICAL_TERMS,
+): {
   repo: KnowledgeCapsuleRepo;
   queries: CompiledQuery[];
 } {
   const queries: CompiledQuery[] = [];
+  const connection: DatabaseConnection = {
+    executeQuery: async <R>(query: CompiledQuery) =>
+      ({
+        rows: query.sql.includes('knowledge_zh_query_terms(')
+          ? lexicalTerms
+          : [],
+      }) as unknown as QueryResult<R>,
+    streamQuery: () => {
+      throw new Error('not supported');
+    },
+  };
   const dialect = {
     createAdapter: () => new PostgresAdapter(),
-    createDriver: () => new DummyDriver(),
+    createDriver: () =>
+      Object.assign(new DummyDriver(), {
+        acquireConnection: async () => connection,
+      }),
     createIntrospector: (db: Kysely<unknown>) => new PostgresIntrospector(db),
     createQueryCompiler: () => new PostgresQueryCompiler(),
   };
@@ -1104,4 +1307,13 @@ function createSqlRepo(): {
   });
 
   return { repo: new KnowledgeCapsuleRepo(db), queries };
+}
+
+/** The lexical candidate query, i.e. not the term-statistics query. */
+function lexicalCandidateQuery(queries: CompiledQuery[]): CompiledQuery {
+  const query = queries.find(
+    (item) => !item.sql.includes('knowledge_zh_query_terms('),
+  );
+  if (!query) throw new Error('lexical candidate query was not issued');
+  return query;
 }

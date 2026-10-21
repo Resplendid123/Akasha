@@ -36,8 +36,6 @@ import {
   KnowledgeArtifactContributions,
   KnowledgeCompilationAttempts,
   KnowledgeChunkSources,
-  KnowledgeClaims,
-  KnowledgeClaimSources,
   KnowledgeGraphEdges,
   KnowledgeGraphEdgeSources,
   KnowledgeImageExtractions,
@@ -45,8 +43,10 @@ import {
   KnowledgeLinkSources,
   KnowledgePages,
   KnowledgePageSources,
+  KnowledgePageIndexSettings,
   KnowledgeParentSections,
   KnowledgeParentSectionSources,
+  KnowledgeEmbeddingRebuildBatches,
   KnowledgeQueryAudit,
   KnowledgeQuarantinedArtifacts,
   KnowledgeSourceAccessPolicy as _KnowledgeSourceAccessPolicy,
@@ -146,6 +146,10 @@ export type KnowledgePage = Omit<Selectable<KnowledgePages>, 'generationMode'> &
 export type InsertableKnowledgePage = Insertable<KnowledgePages>;
 export type UpdatableKnowledgePage = Updateable<Omit<KnowledgePages, 'id'>>;
 
+export type KnowledgePageIndexSetting = Selectable<KnowledgePageIndexSettings>;
+export type InsertableKnowledgePageIndexSetting =
+  Insertable<KnowledgePageIndexSettings>;
+
 export type KnowledgePageSource = Selectable<KnowledgePageSources>;
 export type InsertableKnowledgePageSource = Insertable<KnowledgePageSources>;
 
@@ -157,16 +161,11 @@ export type KnowledgeParentSectionSource =
 export type InsertableKnowledgeParentSectionSource =
   Insertable<KnowledgeParentSectionSources>;
 
-export type KnowledgeClaim = Selectable<KnowledgeClaims>;
-export type InsertableKnowledgeClaim = Insertable<KnowledgeClaims>;
-export type UpdatableKnowledgeClaim = Updateable<Omit<KnowledgeClaims, 'id'>>;
-
-export type KnowledgeClaimSource = Selectable<KnowledgeClaimSources>;
-export type InsertableKnowledgeClaimSource = Insertable<KnowledgeClaimSources>;
-
 type SelectedKnowledgeChunk = Selectable<KnowledgeChunks>;
 type KnowledgeChunkMigrationColumn =
   | 'chunkRole'
+  | 'embeddingDurationMs'
+  | 'embeddingTotalTokens'
   | 'embeddingDimensions'
   | 'embeddingLegacy'
   | 'embeddingModel'
@@ -176,6 +175,7 @@ type KnowledgeChunkMigrationColumn =
   | 'parentSectionId'
   | 'retrievalChannel'
   | 'searchTsv'
+  | 'searchTsvZh'
   | 'stableKey'
   | 'startOffset';
 export type KnowledgeChunk = Omit<
@@ -231,6 +231,10 @@ export type InsertableKnowledgeSourceAccessPrincipal =
 export type KnowledgeQueryAuditEntry = Selectable<KnowledgeQueryAudit>;
 export type InsertableKnowledgeQueryAuditEntry =
   Insertable<KnowledgeQueryAudit>;
+export type KnowledgeEmbeddingRebuildBatch =
+  Selectable<KnowledgeEmbeddingRebuildBatches>;
+export type InsertableKnowledgeEmbeddingRebuildBatch =
+  Insertable<KnowledgeEmbeddingRebuildBatches>;
 
 export type KnowledgeQuarantinedArtifact =
   Selectable<KnowledgeQuarantinedArtifacts>;

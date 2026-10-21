@@ -108,14 +108,6 @@ export class KnowledgeArtifactValidatorService {
     }
 
     validateChildSourceRefs(
-      'claim',
-      (artifact.claims ?? []).map((claim) => claim.inputSourceRefs),
-      input,
-      compileSourcesByKey,
-      reasons,
-    );
-
-    validateChildSourceRefs(
       'chunk',
       (artifact.chunks ?? []).map((chunk) => chunk.inputSourceRefs),
       input,
@@ -146,10 +138,12 @@ export class KnowledgeArtifactValidatorService {
 
     if (
       (artifact.graphEdges ?? []).some(
-        (edge) => !isUuid(edge.toKnowledgePageId),
+        (edge) =>
+          (!edge.toKnowledgePageId && !edge.targetCanonicalKey?.trim()) ||
+          (edge.toKnowledgePageId != null && !isUuid(edge.toKnowledgePageId)),
       )
     ) {
-      reasons.push('graph edge target id must be a UUID');
+      reasons.push('graph edge target identity is invalid');
     }
 
     validateChildSourceRefs(
@@ -166,6 +160,7 @@ export class KnowledgeArtifactValidatorService {
 
 const SUPPORTED_ARTIFACT_KINDS = new Set<CompiledKnowledgeArtifactKind>([
   'source_summary',
+  'original_source',
   'concept',
   'entity',
   'comparison',
@@ -216,7 +211,9 @@ function validateChildSourceRefs(
 }
 
 type ChunkAttachmentOccurrence = NonNullable<
-  NonNullable<CompiledKnowledgeArtifact['chunks']>[number]['attachmentOccurrences']
+  NonNullable<
+    CompiledKnowledgeArtifact['chunks']
+  >[number]['attachmentOccurrences']
 >[number];
 
 type ReconstructedAttachmentBlock = {
@@ -283,7 +280,7 @@ function validateChunkAttachmentOccurrences(
     // The chunk must BE a real deterministic block, not merely declare a range
     // that happens to cover a marker: same stable key, range and cleaned text.
     const candidates = chunk.stableKey
-      ? legitByStableKey.get(chunk.stableKey) ?? []
+      ? (legitByStableKey.get(chunk.stableKey) ?? [])
       : [];
     const block = candidates.find(
       (candidate) =>

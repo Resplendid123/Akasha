@@ -85,10 +85,20 @@ describe('AiChatService', () => {
               ],
             },
           ],
-          retrievalReasons: ['lexical'],
           completenessNotice: 'notice',
           retrievalDiagnostics: diagnostics(),
           retrievalQuery: 'rewritten hello',
+          queryObservation: {
+            decisionReason: 'knowledge',
+            finalChunkIds: ['chunk-1'],
+            finalSourcePageIds: ['page-1'],
+            rankReasonsByChunk: { 'chunk-1': ['lexical'] },
+            contextItems: [],
+            packContextLength: 10,
+            packMaxContextLength: 12000,
+            answerContextLength: 20,
+            answerContextHash: `sha256:${'a'.repeat(64)}`,
+          },
         };
       }),
     };
@@ -135,7 +145,6 @@ describe('AiChatService', () => {
         { sourcePageId: 'page-2', title: 'Other', url: '/p/page-2' },
       ],
       retrievalDiagnostics: diagnostics(),
-      retrievalReasons: ['lexical'],
       completenessNotice: 'notice',
       answerMode: 'knowledge',
       retrievalQuery: 'rewritten hello',
@@ -208,7 +217,6 @@ describe('AiChatService', () => {
           { sourcePageId: 'page-2', title: 'Other', url: '/p/page-2' },
         ],
         retrievalDiagnostics: diagnostics(),
-        retrievalReasons: ['lexical'],
         completenessNotice: 'notice',
         answerMode: 'knowledge',
         retrievalQuery: 'rewritten hello',
@@ -224,6 +232,9 @@ describe('AiChatService', () => {
       },
     });
     expect(repo.addAssistantMessageIfCurrent).not.toHaveBeenCalled();
+    expect(
+      repo.addMessage.mock.calls[1][0].metadata,
+    ).not.toHaveProperty('queryObservation');
     expect(queryAuditRepo.recordQuery).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       userId: 'user-1',
@@ -244,6 +255,12 @@ describe('AiChatService', () => {
         rankReasonsByChunk: {
           'chunk-1': ['lexical'],
         },
+        decisionReason: 'knowledge',
+        contextItems: [],
+        packContextLength: 10,
+        packMaxContextLength: 12000,
+        answerContextLength: 20,
+        answerContextHash: `sha256:${'a'.repeat(64)}`,
         evidenceRefs: [
           {
             sourcePageId: 'page-1',
@@ -292,7 +309,6 @@ describe('AiChatService', () => {
         citationEvidence: [],
         retrievedSources: [],
         snippets: [],
-        retrievalReasons: [],
         retrievalDiagnostics: undefined,
       }),
     };
@@ -370,7 +386,6 @@ describe('AiChatService', () => {
         citationEvidence: [],
         retrievedSources: [],
         snippets: [],
-        retrievalReasons: [],
         retrievalDiagnostics: undefined,
       }),
     };
@@ -471,7 +486,6 @@ describe('AiChatService', () => {
         citationEvidence: [],
         retrievedSources: [],
         snippets: [],
-        retrievalReasons: [],
         retrievalDiagnostics: diagnostics(),
       }),
     };
@@ -556,7 +570,6 @@ describe('AiChatService', () => {
         citationEvidence: [],
         retrievedSources: [],
         snippets: [],
-        retrievalReasons: [],
         retrievalDiagnostics: diagnostics(),
       }),
     };
@@ -612,7 +625,6 @@ describe('AiChatService', () => {
         citationEvidence: [],
         retrievedSources: [],
         snippets: [],
-        retrievalReasons: [],
         retrievalDiagnostics: undefined,
       }),
     };

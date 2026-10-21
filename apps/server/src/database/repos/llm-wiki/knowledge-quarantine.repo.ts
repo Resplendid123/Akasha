@@ -54,26 +54,6 @@ export class KnowledgeQuarantineRepo {
       .execute();
   }
 
-  async findRecentByWorkspace(input: {
-    workspaceId: string;
-    limit?: number;
-  }): Promise<KnowledgeQuarantinedArtifactDiagnostic[]> {
-    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
-    const rows = await this.db
-      .selectFrom('knowledgeQuarantinedArtifacts')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .execute()
-      .catch((error) => {
-        if (isUndefinedTableError(error)) return [];
-        throw error;
-      });
-
-    return rows.map(toDiagnostic);
-  }
-
   async listDiagnosticsPage(input: {
     workspaceId: string;
     spaceIds: string[];

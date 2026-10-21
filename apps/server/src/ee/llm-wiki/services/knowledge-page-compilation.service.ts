@@ -170,7 +170,7 @@ export class KnowledgePageCompilationService {
       const exportedSource = sources[0];
       let source = exportedSource;
       let readyImages: ReadyKnowledgeImage[] = [];
-      if ((source.images?.length ?? 0) > 0) {
+      if (data.indexMode !== 'original' && (source.images?.length ?? 0) > 0) {
         const ready = await this.imageEnrichment.readReadySource(source);
         source = ready.source;
         readyImages = ready.readyImages;
@@ -180,6 +180,7 @@ export class KnowledgePageCompilationService {
         sourceContentHash: exportedSource.contentHash,
         compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
         promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
+        indexMode: data.indexMode,
         readyImages,
       });
       source = { ...source, effectiveKnowledgeHash };
@@ -224,7 +225,7 @@ export class KnowledgePageCompilationService {
       // finish. The single merge-phase build uses the page text plus whatever
       // image extractions succeeded (and falls back to text-only if they all
       // fail). Pages without images keep compiling inline below.
-      if (exportedSource.images?.length) {
+      if (data.indexMode !== 'original' && exportedSource.images?.length) {
         await this.compilationRepo.skipAttempt({
           workspaceId: data.workspaceId,
           sourcePageId,
@@ -276,6 +277,7 @@ export class KnowledgePageCompilationService {
             promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
             compileTaskId,
             compileMode: 'pages',
+            indexMode: data.indexMode,
             sources,
           },
           artifacts: [],
@@ -307,17 +309,6 @@ export class KnowledgePageCompilationService {
       }
 
       const bypassCache = (await input.execution.bypassCache?.()) ?? false;
-      const compilationRepo = this
-        .compilationRepo as KnowledgeCompilationRepo & {
-        hasLastSuccessfulPublication?: KnowledgeCompilationRepo['hasLastSuccessfulPublication'];
-        markResultQuality?: KnowledgeCompilationRepo['markResultQuality'];
-      };
-      const hasLastSuccess =
-        (await compilationRepo.hasLastSuccessfulPublication?.({
-          workspaceId: data.workspaceId,
-          spaceId: data.spaceId,
-          sourcePageId,
-        })) ?? false;
       // Prepared-import reuse is deliberately disabled. Its historical key did
       // not include the DB Top-K candidate set, so it could replay generation
       // produced from stale Catalog identities. Analysis has a complete cache
@@ -335,8 +326,8 @@ export class KnowledgePageCompilationService {
         promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
         compileTaskId,
         compileMode: 'pages' as const,
+        indexMode: data.indexMode,
         bypassCache,
-        hasLastSuccess,
         ...(catalogEntries ? { catalog: catalogEntries } : {}),
         sources,
         publicationGuard: input.execution.publicationGuard,
@@ -392,12 +383,6 @@ export class KnowledgePageCompilationService {
         effectiveKnowledgeHash,
       });
       const resultQuality = compileResult.resultQuality ?? 'normal';
-      await compilationRepo.markResultQuality?.({
-        workspaceId: data.workspaceId,
-        sourcePageId,
-        compileTaskId,
-        quality: resultQuality,
-      });
       await this.completeTextPage(input, {
         status: 'succeeded',
         qualityStatus: resultQuality,
@@ -578,6 +563,7 @@ export class KnowledgePageCompilationService {
         promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
         compileTaskId,
         compileMode: 'pages' as const,
+        indexMode: 'compiled' as const,
         ...(catalog ? { catalog } : {}),
         sources: [source],
         operationBudget,

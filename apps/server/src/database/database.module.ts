@@ -18,6 +18,7 @@ import { AttachmentRepo } from './repos/attachment/attachment.repo';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
 import * as process from 'node:process';
 import { MigrationService } from '@akasha/db/services/migration.service';
+import { DatabaseRequirementsService } from '@akasha/db/services/database-requirements.service';
 import { UserTokenRepo } from './repos/user-token/user-token.repo';
 import { UserSessionRepo } from '@akasha/db/repos/session/user-session.repo';
 import { BacklinkRepo } from '@akasha/db/repos/backlink/backlink.repo';
@@ -35,6 +36,7 @@ import { KnowledgeSourceRepo } from '@akasha/db/repos/llm-wiki/knowledge-source.
 import { KnowledgeCapsuleRepo } from '@akasha/db/repos/llm-wiki/knowledge-capsule.repo';
 import { KnowledgeAccessPolicyRepo } from '@akasha/db/repos/llm-wiki/knowledge-access-policy.repo';
 import { KnowledgeQueryAuditRepo } from '@akasha/db/repos/llm-wiki/knowledge-query-audit.repo';
+import { KnowledgeEmbeddingRebuildBatchRepo } from '@akasha/db/repos/llm-wiki/knowledge-embedding-rebuild-batch.repo';
 import { KnowledgeQuarantineRepo } from '@akasha/db/repos/llm-wiki/knowledge-quarantine.repo';
 import { KnowledgeCompilationRepo } from '@akasha/db/repos/llm-wiki/knowledge-compilation.repo';
 import { KnowledgeArtifactContributionRepo } from '@akasha/db/repos/llm-wiki/knowledge-artifact-contribution.repo';
@@ -44,6 +46,7 @@ import { KnowledgeImageExtractionRepo } from '@akasha/db/repos/llm-wiki/knowledg
 import { AiChatRepo } from '@akasha/db/repos/ai-chat/ai-chat.repo';
 import { AiModelConfigRepo } from '@akasha/db/repos/llm-wiki/ai-model-config.repo';
 import { PageVisitRepo } from '@akasha/db/repos/page/page-visit.repo';
+import { AnalyticsEventRepo } from '@akasha/db/repos/analytics/analytics-event.repo';
 import { buildDatabasePostgresOptions } from './database-postgres-options';
 
 export {
@@ -78,6 +81,7 @@ export {
   ],
   providers: [
     MigrationService,
+    DatabaseRequirementsService,
     WorkspaceRepo,
     UserRepo,
     GroupRepo,
@@ -90,6 +94,7 @@ export {
     PageTransclusionReferencesRepo,
     PageHistoryRepo,
     PageVisitRepo,
+    AnalyticsEventRepo,
     CommentRepo,
     FavoriteRepo,
     AttachmentRepo,
@@ -105,6 +110,7 @@ export {
     KnowledgeCapsuleRepo,
     KnowledgeAccessPolicyRepo,
     KnowledgeQueryAuditRepo,
+    KnowledgeEmbeddingRebuildBatchRepo,
     KnowledgeQuarantineRepo,
     KnowledgeCompilationRepo,
     KnowledgeArtifactContributionRepo,
@@ -128,6 +134,7 @@ export {
     PageTransclusionReferencesRepo,
     PageHistoryRepo,
     PageVisitRepo,
+    AnalyticsEventRepo,
     CommentRepo,
     FavoriteRepo,
     AttachmentRepo,
@@ -143,6 +150,7 @@ export {
     KnowledgeCapsuleRepo,
     KnowledgeAccessPolicyRepo,
     KnowledgeQueryAuditRepo,
+    KnowledgeEmbeddingRebuildBatchRepo,
     KnowledgeQuarantineRepo,
     KnowledgeCompilationRepo,
     KnowledgeArtifactContributionRepo,
@@ -160,14 +168,21 @@ export class DatabaseModule implements OnModuleInit {
     @InjectKysely() private readonly db: KyselyDB,
     private readonly migrationService: MigrationService,
     private readonly environmentService: EnvironmentService,
+    private readonly requirementsService: DatabaseRequirementsService,
   ) {}
 
   async onModuleInit() {
     await this.establishConnection();
 
+    // Refuse to start on a database that lacks required components; a thrown
+    // error here aborts bootstrap (main.ts exits with a fatal log).
+    await this.requirementsService.assertEnvironment();
+
     if (this.environmentService.getNodeEnv() === 'production') {
       await this.migrationService.migrateToLatest();
     }
+
+    await this.requirementsService.assertSchema();
   }
 
   async establishConnection() {

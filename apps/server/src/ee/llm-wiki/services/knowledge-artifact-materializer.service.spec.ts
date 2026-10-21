@@ -2,6 +2,7 @@ import { KnowledgeArtifactContribution } from '@akasha/db/types/entity.types';
 import { KnowledgeCompilerLlmProvider } from '../compiler/knowledge-compiler-llm.provider';
 import { CompiledKnowledgeArtifact } from '../types/compiler-artifact.types';
 import { KnowledgeArtifactMaterializerService } from './knowledge-artifact-materializer.service';
+import { MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE } from './knowledge-operation-budget';
 
 describe('KnowledgeArtifactMaterializerService', () => {
   it('materializes a single source contribution without another LLM call', async () => {
@@ -131,8 +132,33 @@ describe('KnowledgeArtifactMaterializerService', () => {
       result.artifacts[0].inputSourceRefs?.map((ref) => ref.sourcePageId),
     ).toEqual(['page-2', 'page-3']);
     expect(
-      result.artifacts[0].claims?.map((claim) => claim.text),
-    ).not.toContain('Retired-only fact claim');
+      result.artifacts[0].chunks?.map((chunk) => chunk.text),
+    ).not.toContain('Retired-only fact chunk');
+  });
+
+  it('remerges survivors deterministically for original publication', async () => {
+    const provider = createProvider();
+    const service = new KnowledgeArtifactMaterializerService(provider);
+    const survivor = artifact('page-2', 'Shared', 'Survivor body');
+
+    const result = await service.materializeSourceUpdate({
+      sourcePageId: 'page-1',
+      previousSourceContributions: [
+        contribution('page-1', artifact('page-1', 'Shared', 'Retired body')),
+      ],
+      affectedContributions: [
+        contribution('page-1', artifact('page-1', 'Shared', 'Retired body')),
+        contribution('page-2', survivor),
+      ],
+      incomingArtifacts: [],
+      mergeMode: 'deterministic',
+    });
+
+    expect(provider.completeMerge).not.toHaveBeenCalled();
+    expect(result.artifacts[0]).toMatchObject({
+      contentMarkdown: 'Survivor body',
+      sourcePageIds: ['page-2'],
+    });
   });
 
   it('keeps the current source run metadata on a shared materialization', async () => {
@@ -157,19 +183,48 @@ describe('KnowledgeArtifactMaterializerService', () => {
     });
   });
 
-  it('stops before a ninth canonical LLM materialization', async () => {
+  it('does not collapse unresolved graph edges with the same relation', async () => {
+    const provider = createProvider();
+    const service = new KnowledgeArtifactMaterializerService(provider);
+    const incoming = artifact('page-1', 'Shared', 'Incoming body');
+    incoming.graphEdges = [
+      {
+        relation: 'depends on',
+        targetCanonicalKey: 'concept-a',
+        inputSourceRefs: incoming.inputSourceRefs,
+      },
+      {
+        relation: 'depends on',
+        targetCanonicalKey: 'concept-b',
+        inputSourceRefs: incoming.inputSourceRefs,
+      },
+    ];
+
+    const result = await service.materializeSourceUpdate({
+      sourcePageId: 'page-1',
+      previousSourceContributions: [],
+      affectedContributions: [],
+      incomingArtifacts: [incoming],
+    });
+
+    expect(result.artifacts[0].graphEdges).toHaveLength(2);
+  });
+
+  it('stops before exceeding the per-page LLM materialization limit', async () => {
     const provider = createProvider();
     provider.completeMerge.mockResolvedValue(
       JSON.stringify({ title: 'Shared', markdown: 'Merged body' }),
     );
     const service = new KnowledgeArtifactMaterializerService(provider);
-    const incomingArtifacts = Array.from({ length: 9 }, (_, index) =>
-      artifact(
-        'page-1',
-        `Shared ${index}`,
-        'Incoming body',
-        `artifact-${index}`,
-      ),
+    const incomingArtifacts = Array.from(
+      { length: MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE + 1 },
+      (_, index) =>
+        artifact(
+          'page-1',
+          `Shared ${index}`,
+          'Incoming body',
+          `artifact-${index}`,
+        ),
     );
     const affectedContributions = incomingArtifacts.map((incoming, index) =>
       contribution(
@@ -191,7 +246,9 @@ describe('KnowledgeArtifactMaterializerService', () => {
         incomingArtifacts,
       }),
     ).rejects.toMatchObject({ code: 'page_complexity_limit' });
-    expect(provider.completeMerge).toHaveBeenCalledTimes(8);
+    expect(provider.completeMerge).toHaveBeenCalledTimes(
+      MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE,
+    );
   });
 });
 
@@ -230,7 +287,6 @@ function artifact(
     compilerRunId: `run-${sourcePageId}`,
     compileTaskId: `task-${sourcePageId}`,
     inputSourceRefs: [sourceRef],
-    claims: [{ text: `${title} claim`, inputSourceRefs: [sourceRef] }],
     chunks: [{ text: `${title} chunk`, inputSourceRefs: [sourceRef] }],
     links: [],
     graphEdges: [],

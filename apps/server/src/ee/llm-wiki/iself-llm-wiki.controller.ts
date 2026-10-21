@@ -35,6 +35,7 @@ import { AuthCredentials } from '../../common/decorators/auth-credentials.decora
 import { AuthCredentialPolicy } from '../../common/auth/auth-credential-policy';
 import { AgentAccess } from '../../common/decorators/agent-access.decorator';
 import type { AgentAccessContext } from '../../common/auth/agent-access-context';
+import { buildKnowledgeQueryAuditMetadata } from './services/knowledge-query-audit-metadata';
 import { AgentAccessService } from '../../core/page/page-access/agent-access.service';
 
 /** HTTP boundary for iself agents, with the same knowledge-chat behavior as the regular API. */
@@ -64,6 +65,11 @@ export class IsElfLlmWikiController {
     @AuthWorkspace() workspace: Workspace,
     @AgentAccess() agentAccess: AgentAccessContext,
   ) {
+    this.logger.log(
+      `iself knowledge query: workspace=${workspace.id} user=${user.id} ` +
+        `query=${JSON.stringify(dto.query)} body=${JSON.stringify(dto)}`,
+    );
+
     if (!this.chatService.isEnabledForWorkspace(workspace)) {
       throw new ForbiddenException('AI knowledge chat is disabled');
     }
@@ -107,6 +113,9 @@ export class IsElfLlmWikiController {
       retrievalDiagnostics,
       retrievalScope,
       attachmentHitContext,
+      queryObservation,
+      retrieval,
+      context,
       ...response
     } = result;
     const requestedSpaceIds = retrievalScope?.requestedSpaceIds ?? dto.spaceIds;
@@ -135,29 +144,24 @@ export class IsElfLlmWikiController {
       workspaceId: workspace.id,
       userId: user.id,
       queryHash,
-      retrievalMode: retrievalDiagnostics.mode,
-      authorizedCapsuleCount: retrievalDiagnostics.authorizedChunkCount,
+      retrievalMode: retrievalDiagnostics?.mode ?? 'general',
+      authorizedCapsuleCount: retrievalDiagnostics?.authorizedChunkCount ?? 0,
       metadata: {
         origin: 'iself_knowledge_query',
+        answerMode: response.answerMode,
         spaceIds: dto.spaceIds,
         ...(dto.labels?.length ? { labelCount: dto.labels.length } : {}),
         requestedSpaceIds,
         effectiveSpaceIds,
         publicScopeValidated,
         publicApiKeyId: agentAccess.apiKeyId,
-        queryEmbeddingAvailable: retrievalDiagnostics.queryEmbeddingAvailable,
-        candidateSourceCount: retrievalDiagnostics.candidateSourceCount,
-        policyCandidateSourceCount:
-          retrievalDiagnostics.policyCandidateSourceCount,
-        fallbackCandidateSourceCount:
-          retrievalDiagnostics.fallbackCandidateSourceCount,
-        finalAuthorizedSourceCount:
-          retrievalDiagnostics.finalAuthorizedSourceCount,
-        accessPolicyFallbackUsed: retrievalDiagnostics.accessPolicyFallbackUsed,
-        candidateChunkCount: retrievalDiagnostics.candidateChunkCount,
-        rankedCandidateCount: retrievalDiagnostics.rankedCandidateCount,
-        authorizedChunkCount: retrievalDiagnostics.authorizedChunkCount,
-        filteredChunkCount: retrievalDiagnostics.filteredChunkCount,
+        ...buildKnowledgeQueryAuditMetadata({
+          answerMode: response.answerMode,
+          queryObservation,
+          retrievalDiagnostics,
+          retrieval,
+          context,
+        }),
       },
     });
 

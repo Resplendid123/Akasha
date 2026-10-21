@@ -3,6 +3,8 @@ import { KnowledgeChunk, KnowledgePage } from '@akasha/db/types/entity.types';
 import { KnowledgeSourceRange } from '../types/knowledge.types';
 import {
   KNOWLEDGE_COMPLETENESS_NOTICE,
+  KnowledgeRetrievalAuthorizationMode,
+  KnowledgeRetrievalOrigin,
   KnowledgeRetrievalResult,
 } from './knowledge-retrieval.service';
 
@@ -46,6 +48,12 @@ export type KnowledgeSourceWindow = KnowledgeCitation & {
 export type KnowledgeContextPrimary = {
   id: string;
   kind: 'capsule' | 'chunk';
+  /** chunk 所属的 knowledge page；capsule 本身就是 page，取自身 id。 */
+  knowledgePageId: string;
+  /** 检索路径：直接召回还是图扩展。与 retrievalReasons 的匹配方式正交。 */
+  origin: KnowledgeRetrievalOrigin;
+  /** 授权路径：策略放行还是最终兜底。同样与匹配方式正交。 */
+  authorizationMode: KnowledgeRetrievalAuthorizationMode;
   title: string;
   text: string;
   citationSourcePageIds: string[];
@@ -61,6 +69,15 @@ export type KnowledgeContextBudget = {
   omittedItemCount: number;
   responseReserve: number;
   perItemMaxLength: number;
+};
+
+export type KnowledgeContextPackingItem = {
+  itemId: string;
+  kind: 'chunk' | 'capsule';
+  sourcePageIds?: string[];
+  disposition: 'included' | 'clipped' | 'omitted';
+  originalChars: number;
+  includedChars: number;
 };
 
 export type KnowledgeContextPackInput = {
@@ -79,6 +96,8 @@ export type KnowledgeContextPackInput = {
   chunks?: Array<{
     chunk: KnowledgeChunk;
     pageTitle: string;
+    origin?: KnowledgeRetrievalOrigin;
+    authorizationMode?: KnowledgeRetrievalAuthorizationMode;
     citations?: KnowledgeCitation[];
     retrievalReasons?: string[];
     warnings?: string[];
@@ -92,7 +111,7 @@ export type KnowledgeContextPack = {
   citations: KnowledgeCitation[];
   warnings: string[];
   budget: KnowledgeContextBudget;
-  retrievalReasons: string[];
+  packing: { items: KnowledgeContextPackingItem[] };
   completenessNotice: typeof KNOWLEDGE_COMPLETENESS_NOTICE;
 };
 
@@ -134,9 +153,7 @@ export class KnowledgeContextPackService {
         responseReserve: budgetConfig.responseReserve,
         perItemMaxLength: budgetConfig.perItemMaxLength,
       },
-      retrievalReasons: unique(
-        bounded.includedEntries.flatMap((entry) => entry.retrievalReasons),
-      ),
+      packing: { items: bounded.packingItems },
       completenessNotice: KNOWLEDGE_COMPLETENESS_NOTICE,
     };
   }
@@ -151,6 +168,9 @@ type BudgetConfig = {
 type ContextEntry = {
   id: string;
   kind: KnowledgeContextPrimary['kind'];
+  knowledgePageId: string;
+  origin: KnowledgeRetrievalOrigin;
+  authorizationMode: KnowledgeRetrievalAuthorizationMode;
   title: string;
   text: string;
   citations: KnowledgeCitation[];
@@ -167,16 +187,38 @@ function buildBoundedContext(
   context: string;
   includedEntries: ContextEntry[];
   primary: KnowledgeContextPrimary[];
+  packingItems: KnowledgeContextPackingItem[];
 } {
   const sections: string[] = [];
   const includedEntries: ContextEntry[] = [];
   const primary: KnowledgeContextPrimary[] = [];
+  const packingItems: KnowledgeContextPackingItem[] = [];
   let remaining = budgetConfig.maxContextLength;
 
-  for (const entry of entries) {
+  for (const [entryIndex, entry] of entries.entries()) {
     const title = `# ${entry.title}`;
     const separatorLength = sections.length === 0 ? 0 : 2;
-    if (remaining <= title.length + separatorLength) break;
+    if (remaining <= title.length + separatorLength) {
+      packingItems.push(
+        ...entries.slice(entryIndex).map((omittedEntry) => ({
+          itemId: omittedEntry.id,
+          kind: omittedEntry.kind,
+          ...(omittedEntry.citations.length
+            ? {
+                sourcePageIds: unique(
+                  omittedEntry.citations.map(
+                    (citation) => citation.sourcePageId,
+                  ),
+                ),
+              }
+            : {}),
+          disposition: 'omitted' as const,
+          originalChars: omittedEntry.text.length,
+          includedChars: 0,
+        })),
+      );
+      break;
+    }
 
     const bodyBudget = Math.min(
       budgetConfig.perItemMaxLength,
@@ -189,6 +231,9 @@ function buildBoundedContext(
     primary.push({
       id: entry.id,
       kind: entry.kind,
+      knowledgePageId: entry.knowledgePageId,
+      origin: entry.origin,
+      authorizationMode: entry.authorizationMode,
       title: entry.title,
       text: clippedBody,
       citationSourcePageIds: unique(
@@ -197,6 +242,21 @@ function buildBoundedContext(
       retrievalReasons: unique(entry.retrievalReasons),
       sourceWindows: entry.sourceWindows,
     });
+    packingItems.push({
+      itemId: entry.id,
+      kind: entry.kind,
+      ...(entry.citations.length
+        ? {
+            sourcePageIds: unique(
+              entry.citations.map((citation) => citation.sourcePageId),
+            ),
+          }
+        : {}),
+      disposition:
+        clippedBody.length < entry.text.length ? 'clipped' : 'included',
+      originalChars: entry.text.length,
+      includedChars: clippedBody.length,
+    });
     remaining -= section.length + separatorLength;
   }
 
@@ -204,6 +264,7 @@ function buildBoundedContext(
     context: sections.join('\n\n').slice(0, budgetConfig.maxContextLength),
     includedEntries,
     primary,
+    packingItems,
   };
 }
 
@@ -213,6 +274,9 @@ function chunkEntry(
   return {
     id: entry.chunk.id,
     kind: 'chunk',
+    knowledgePageId: entry.chunk.knowledgePageId,
+    origin: entry.origin ?? 'direct',
+    authorizationMode: entry.authorizationMode ?? 'policy',
     title: entry.pageTitle,
     text: entry.chunk.text,
     citations: entry.citations ?? [],
@@ -229,6 +293,9 @@ function capsuleEntry(
   return {
     id: entry.capsule.id,
     kind: 'capsule',
+    knowledgePageId: entry.capsule.id,
+    origin: 'direct',
+    authorizationMode: 'policy',
     title: entry.capsule.title,
     text: entry.capsule.body,
     citations: entry.citations ?? [],

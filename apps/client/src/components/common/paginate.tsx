@@ -1,4 +1,5 @@
 import { Button, Group } from "@mantine/core";
+import { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface PagePaginationProps {
@@ -6,6 +7,7 @@ export interface PagePaginationProps {
   hasNextPage: boolean;
   onPrev: () => void;
   onNext: () => void;
+  label?: ReactNode;
 }
 
 export default function Paginate({
@@ -13,32 +15,43 @@ export default function Paginate({
   hasNextPage,
   onPrev,
   onNext,
+  label,
 }: PagePaginationProps) {
   const { t } = useTranslation();
 
-  if (!hasPrevPage && !hasNextPage) {
+  if (!hasPrevPage && !hasNextPage && !label) {
     return null;
   }
 
   return (
-    <Group mt="md" justify="flex-end">
-      <Button
-        variant="default"
-        size="compact-sm"
-        onClick={onPrev}
-        disabled={!hasPrevPage}
-      >
-        {t("Prev")}
-      </Button>
+    <Group
+      mt="md"
+      justify={label ? "space-between" : "flex-end"}
+      align="center"
+    >
+      {label}
 
-      <Button
-        variant="default"
-        size="compact-sm"
-        onClick={onNext}
-        disabled={!hasNextPage}
-      >
-        {t("Next")}
-      </Button>
+      {(hasPrevPage || hasNextPage) && (
+        <Group gap="sm">
+          <Button
+            variant="default"
+            size="compact-sm"
+            onClick={onPrev}
+            disabled={!hasPrevPage}
+          >
+            {t("Prev")}
+          </Button>
+
+          <Button
+            variant="default"
+            size="compact-sm"
+            onClick={onNext}
+            disabled={!hasNextPage}
+          >
+            {t("Next")}
+          </Button>
+        </Group>
+      )}
     </Group>
   );
 }

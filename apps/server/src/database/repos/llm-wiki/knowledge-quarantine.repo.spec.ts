@@ -132,48 +132,6 @@ describe('KnowledgeQuarantineRepo', () => {
     expect(query.calls).toEqual([]);
   });
 
-  it('loads recent quarantine diagnostics for admin panels', async () => {
-    const createdAt = new Date('2026-06-18T08:00:00.000Z');
-    const query = new FakeKyselyQuery([
-      {
-        id: 'quarantine-1',
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        artifactId: 'artifact-1',
-        artifactKind: 'source_summary',
-        compilerRunId: 'run-1',
-        compileTaskId: 'task-1',
-        reasonCodes: ['artifact_source_range_invalid'],
-        createdAt,
-      },
-    ]);
-    const repo = new KnowledgeQuarantineRepo(query as never);
-
-    await expect(
-      repo.findRecentByWorkspace({ workspaceId: 'workspace-1', limit: 20 }),
-    ).resolves.toEqual([
-      {
-        id: 'quarantine-1',
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        artifactId: 'artifact-1',
-        artifactKind: 'source_summary',
-        compilerRunId: 'run-1',
-        compileTaskId: 'task-1',
-        reasonCodes: ['artifact_source_range_invalid'],
-        createdAt,
-      },
-    ]);
-    expect(query.calls).toEqual([
-      { method: 'selectFrom', args: ['knowledgeQuarantinedArtifacts'] },
-      { method: 'selectAll', args: [] },
-      { method: 'where', args: ['workspaceId', '=', 'workspace-1'] },
-      { method: 'orderBy', args: ['createdAt', 'desc'] },
-      { method: 'limit', args: [20] },
-      { method: 'execute', args: [] },
-    ]);
-  });
-
   it('paginates quarantine diagnostics inside the authorized Space scope', async () => {
     const createdAt = new Date('2026-06-18T08:00:00.000Z');
     const query = new FakeKyselyQuery([
@@ -233,14 +191,5 @@ describe('KnowledgeQuarantineRepo', () => {
       method: 'where',
       args: ['spaceId', 'in', ['space-1', 'space-2']],
     });
-  });
-
-  it('returns an empty diagnostic list when the quarantine table has not been migrated', async () => {
-    const query = new FakeKyselyQuery([], { code: '42P01' });
-    const repo = new KnowledgeQuarantineRepo(query as never);
-
-    await expect(
-      repo.findRecentByWorkspace({ workspaceId: 'workspace-1', limit: 20 }),
-    ).resolves.toEqual([]);
   });
 });

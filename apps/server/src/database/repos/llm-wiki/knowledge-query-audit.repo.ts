@@ -1,20 +1,39 @@
-import { Injectable } from '@nestjs/common';
-import { InjectKysely } from 'nestjs-kysely';
 import { JsonValue } from '@akasha/db/types/db';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
+import { Injectable } from '@nestjs/common';
+import { InjectKysely } from 'nestjs-kysely';
+
+
+export type KnowledgeQueryAuditTimings = {
+  rewriteMs?: number;
+  retrievalMs?: number;
+  ttftMs?: number;
+  generationMs?: number;
+  totalMs: number;
+};
 
 export type KnowledgeQueryAuditMetadata = {
   origin?:
-    | 'knowledge_query'
-    | 'ai_qa'
-    | 'mcp_query_knowledge'
-    | 'iself_knowledge_query';
+  | 'knowledge_query'
+  | 'ai_qa'
+  | 'mcp_query_knowledge'
+  | 'iself_knowledge_query';
   type?: 'user' | 'robot';
   personalApiKeyId?: string;
   publicApiKeyId?: string;
   answerMode?: 'knowledge' | 'no_match' | 'general';
+  decisionReason?:
+  | 'explicit_general'
+  | 'raw_results_only'
+  | 'no_knowledge_evidence'
+  | 'model_general'
+  | 'model_no_match'
+  | 'knowledge'
+  | 'generation_empty';
+  generalAnswerReason?: string;
   citationCount?: number;
   retrievedSourceCount?: number;
+  timings?: KnowledgeQueryAuditTimings;
   spaceIds: string[];
   requestedSpaceIds?: string[];
   effectiveSpaceIds?: string[];
@@ -29,15 +48,69 @@ export type KnowledgeQueryAuditMetadata = {
   rankedCandidateCount: number;
   authorizedChunkCount: number;
   filteredChunkCount: number;
+  graph?: {
+    candidateCount: number;
+    gatedOutCount: number;
+    selectedCount: number;
+    expandedSeedCount: number;
+    edgeCounts: {
+      semantic: number;
+      link: number;
+      'shared-source': number;
+    };
+    pageCountsByHop: Record<string, number>;
+  };
   finalChunkIds?: string[];
   finalSourcePageIds?: string[];
   trustedCitationIds?: string[];
   rankReasonsByChunk?: Record<string, string[]>;
+  contextItems?: Array<{
+    itemId: string;
+    kind: 'chunk' | 'capsule';
+    sourcePageIds?: string[];
+    disposition: 'included' | 'clipped' | 'omitted';
+    originalChars: number;
+    includedChars: number;
+  }>;
+  packContextLength?: number;
+  packMaxContextLength?: number;
+  answerContextLength?: number | null;
+  answerContextHash?: string | null;
   evidenceRefs?: Array<{
     sourcePageId: string;
     sourceRange: { startOffset: number; endOffset: number };
     quoteHash: string;
   }>;
+  retrieval?: {
+    attempted: boolean;
+    candidates: Array<{
+      pageId: string;
+      chunkId: string;
+      score: number;
+      scoreType: 'semantic_distance' | 'lexical' | 'exact_title';
+      reasons: string[];
+      stage: 'direct' | 'graph';
+      authorizationMode: 'policy' | 'fallback';
+    }>;
+    dropped: Array<{
+      pageId: string;
+      chunkId: string;
+      reason: 'below_threshold' | 'filtered' | 'unauthorized' | 'rank_limit';
+    }>;
+    topK: number;
+    threshold: number;
+  };
+  context?: {
+    items: Array<{
+      itemId: string;
+      pageId: string;
+      text: string;
+      tokenCount: number;
+    }>;
+    usedTokens: number;
+    maxTokens: number;
+    dropped: Array<{ itemId: string; pageId: string; reason: string }>;
+  };
 };
 
 export type KnowledgeRetrievalAuditSummary = {
@@ -51,7 +124,7 @@ export type KnowledgeRetrievalAuditSummary = {
 
 @Injectable()
 export class KnowledgeQueryAuditRepo {
-  constructor(@InjectKysely() private readonly db: KyselyDB) {}
+  constructor(@InjectKysely() private readonly db: KyselyDB) { }
 
   async recordQuery(input: {
     workspaceId: string;

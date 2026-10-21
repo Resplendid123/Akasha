@@ -44,6 +44,11 @@ export interface SpaceRunRequest {
   // When set, the Run compiles only these source pages instead of the whole
   // Space (page-scoped retry). Undefined/empty means a full-Space Run.
   targetSourcePageIds?: string[];
+  pageIndexSetting?: {
+    sourcePageId: string;
+    indexMode: 'compiled' | 'original';
+    updatedBy: string | null;
+  };
 }
 
 export const KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER = 'manual_page_publish';
@@ -689,6 +694,36 @@ export class KnowledgeSpaceCompilationRepo {
 
     const pageScoped = requestTargetSourcePageIds !== null;
 
+    if (request.pageIndexSetting) {
+      const setting = request.pageIndexSetting;
+      const page = await trx
+        .selectFrom('pages')
+        .select('id')
+        .where('id', '=', setting.sourcePageId)
+        .where('workspaceId', '=', request.workspaceId)
+        .where('spaceId', '=', request.spaceId)
+        .where('deletedAt', 'is', null)
+        .executeTakeFirst();
+      if (!page) throw new Error('Knowledge source page is unavailable.');
+      await trx
+        .insertInto('knowledgePageIndexSettings')
+        .values({
+          workspaceId: request.workspaceId,
+          sourcePageId: setting.sourcePageId,
+          indexMode: setting.indexMode,
+          updatedBy: setting.updatedBy,
+          updatedAt: now,
+        })
+        .onConflict((oc) =>
+          oc.columns(['workspaceId', 'sourcePageId']).doUpdateSet({
+            indexMode: setting.indexMode,
+            updatedBy: setting.updatedBy,
+            updatedAt: now,
+          }),
+        )
+        .execute();
+    }
+
     let activeRun = await trx
       .selectFrom('knowledgeSpaceCompileRuns')
       .selectAll()
@@ -927,7 +962,6 @@ export class KnowledgeSpaceCompilationRepo {
         .execute();
       for (const [table, ownerColumn] of [
         ['knowledgeParentSections', 'knowledgePageId'],
-        ['knowledgeClaims', 'knowledgePageId'],
         ['knowledgeChunks', 'knowledgePageId'],
         ['knowledgeLinks', 'fromKnowledgePageId'],
         ['knowledgeGraphEdges', 'fromKnowledgePageId'],
@@ -1074,33 +1108,48 @@ export class KnowledgeSpaceCompilationRepo {
         errorMessage: supersededMessage,
         now,
       });
-      for (const oldRun of oldRuns) {
-        const counts = countsByRun.get(oldRun.id)!;
-        await trx
-          .updateTable('knowledgeSpaceCompileRuns')
-          .set({
-            status: 'superseded',
-            phase: 'complete',
-            succeededPageCount: counts.succeeded,
-            failedPageCount: counts.failed,
-            skippedPageCount: counts.skipped,
-            errorCode: 'run_superseded',
-            errorMessage: supersededMessage,
-            rerunRequested: false,
-            aggregateJobId: null,
-            spaceJobId: null,
-            spaceJobQueuedAt: null,
-            spaceJobDispatchedAt: null,
-            executionToken: null,
-            executionLeaseExpiresAt: null,
-            workerId: null,
-            heartbeatAt: null,
-            finishedAt: now,
-            updatedAt: now,
-          })
-          .where('id', '=', oldRun.id)
-          .where('status', 'in', NONTERMINAL_RUN_STATUSES)
-          .execute();
+      // All old runs belong to the same locked Space. Update them in one
+      // statement so a force rebuild does not hold the transaction open for
+      // one round trip per stale Run when recovery has left multiple active
+      // generations behind.
+      if (oldRuns.length > 0) {
+        await sql`
+        UPDATE knowledge_space_compile_runs AS run
+        SET
+          status = 'superseded',
+          phase = 'complete',
+          succeeded_page_count = counts.succeeded,
+          failed_page_count = counts.failed,
+          skipped_page_count = counts.skipped,
+          error_code = 'run_superseded',
+          error_message = ${supersededMessage},
+          rerun_requested = false,
+          aggregate_job_id = NULL,
+          space_job_id = NULL,
+          space_job_queued_at = NULL,
+          space_job_dispatched_at = NULL,
+          execution_token = NULL,
+          execution_lease_expires_at = NULL,
+          worker_id = NULL,
+          heartbeat_at = NULL,
+          finished_at = ${now},
+          updated_at = ${now}
+        FROM (VALUES ${sql.join(
+          oldRuns.map((oldRun) => {
+            const counts = countsByRun.get(oldRun.id)!;
+            return sql`(
+              ${oldRun.id},
+              ${counts.succeeded},
+              ${counts.failed},
+              ${counts.skipped}
+            )`;
+          }),
+        )}) AS counts(id, succeeded, failed, skipped)
+        WHERE run.id = counts.id
+          AND run.status IN (${sql.join(
+            NONTERMINAL_RUN_STATUSES.map((status) => sql`${status}`),
+          )})
+        `.execute(trx);
       }
 
       const generation = space.knowledgeGeneration + 1;
@@ -1263,11 +1312,7 @@ export class KnowledgeSpaceCompilationRepo {
       const supersededJobIds = [
         ...oldRuns.map((oldRun) => oldRun.spaceJobId),
         ...oldRuns.map((oldRun) => oldRun.aggregateJobId),
-        ...oldPages.flatMap((page) => [
-          page.jobId,
-          page.imageJobId,
-          page.mergeJobId,
-        ]),
+        ...oldPages.flatMap((page) => [page.jobId, page.mergeJobId]),
         ...oldImages.map((image) => image.jobId),
       ].filter((jobId): jobId is string => Boolean(jobId));
       return {
@@ -1651,39 +1696,6 @@ export class KnowledgeSpaceCompilationRepo {
     });
   }
 
-  async isRunActiveForImageWork(input: {
-    runId: string;
-    workspaceId: string;
-    spaceId: string;
-    sourcePageId: string;
-    sourceVersion: string;
-    sourceContentHash: string;
-    knowledgeGeneration: number;
-  }): Promise<boolean> {
-    const row = await this.db
-      .selectFrom('knowledgeSpaceCompileRunPages as rp')
-      .innerJoin('knowledgeSpaceCompileRuns as r', 'r.id', 'rp.runId')
-      .innerJoin('spaces as s', (join) =>
-        join
-          .onRef('s.id', '=', 'r.spaceId')
-          .onRef('s.workspaceId', '=', 'r.workspaceId'),
-      )
-      .select('rp.id')
-      .where('rp.runId', '=', input.runId)
-      .where('rp.workspaceId', '=', input.workspaceId)
-      .where('rp.spaceId', '=', input.spaceId)
-      .where('rp.sourcePageId', '=', input.sourcePageId)
-      .where('rp.expectedSourceVersion', '=', input.sourceVersion)
-      .where('rp.expectedSourceContentHash', '=', input.sourceContentHash)
-      .where('rp.imageStatus', 'in', ['queued', 'processing'])
-      .where('r.status', '=', 'compiling')
-      .where('r.phase', '=', 'images')
-      .where('r.knowledgeGeneration', '=', input.knowledgeGeneration)
-      .where('s.knowledgeGeneration', '=', input.knowledgeGeneration)
-      .executeTakeFirst();
-    return Boolean(row);
-  }
-
   private async reserveRunImagesForRun(
     runId: string,
     maxOutstandingPerRun: number,
@@ -1874,7 +1886,7 @@ export class KnowledgeSpaceCompilationRepo {
 
     const pages = await trx
       .selectFrom('knowledgeSpaceCompileRunPages')
-      .select(['id', 'runId', 'status', 'jobId', 'imageJobId', 'mergeJobId'])
+      .select(['id', 'runId', 'status', 'jobId', 'mergeJobId'])
       .where('runId', 'in', input.runIds)
       .orderBy('runId', 'asc')
       .orderBy('id', 'asc')
@@ -2104,11 +2116,7 @@ export class KnowledgeSpaceCompilationRepo {
       const jobIds = [
         run.spaceJobId,
         run.aggregateJobId,
-        ...pages.flatMap((page) => [
-          page.jobId,
-          page.imageJobId,
-          page.mergeJobId,
-        ]),
+        ...pages.flatMap((page) => [page.jobId, page.mergeJobId]),
         ...images.map((image) => image.jobId),
       ].filter((jobId): jobId is string => Boolean(jobId));
       return {
@@ -2173,23 +2181,6 @@ export class KnowledgeSpaceCompilationRepo {
       .orderBy('createdAt', 'desc')
       .limit(1)
       .executeTakeFirst();
-  }
-
-  async findRecentRuns(input: {
-    workspaceId: string;
-    spaceIds?: string[];
-    limit: number;
-  }) {
-    let query = this.db
-      .selectFrom('knowledgeSpaceCompileRuns')
-      .selectAll()
-      .where('workspaceId', '=', input.workspaceId)
-      .orderBy('createdAt', 'desc')
-      .limit(Math.min(Math.max(input.limit * 10, input.limit), 1_000));
-    if (input.spaceIds?.length) {
-      query = query.where('spaceId', 'in', input.spaceIds);
-    }
-    return query.execute();
   }
 }
 

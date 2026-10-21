@@ -1,7 +1,9 @@
+import { SEMANTIC_COMPILER_LIMITS } from './semantic-compiler.limits';
 import {
   parseSemanticAnalysisJson,
   parseSemanticGenerationJson,
   repairSemanticCompilerOutput,
+  semanticGenerationSchema,
 } from './semantic-compiler.schema';
 
 describe('semantic compiler schemas', () => {
@@ -145,24 +147,21 @@ describe('semantic compiler schemas', () => {
     ).toHaveLength(2);
   });
 
-  it('rejects a ninth generated artifact', () => {
-    const summary = {
-      kind: 'source_summary',
-      canonicalKey: 'source-page-1',
-      title: 'Source summary',
-      markdown: 'Source summary body.',
-      claims: [],
-      links: [],
-      tags: [],
-    };
-    const artifacts = [
-      summary,
-      ...Array.from({ length: 8 }, (_, index) => ({
-        ...summary,
-        kind: 'concept',
-        canonicalKey: `concept-${index}`,
-      })),
-    ];
+  it('accepts exactly the generated artifact limit', () => {
+    const artifacts = generatedArtifactsAt(
+      SEMANTIC_COMPILER_LIMITS.generatedArtifacts,
+    );
+
+    expect(
+      parseSemanticGenerationJson(JSON.stringify({ version: '1', artifacts }))
+        .artifacts,
+    ).toHaveLength(SEMANTIC_COMPILER_LIMITS.generatedArtifacts);
+  });
+
+  it('rejects artifacts beyond the generated artifact limit', () => {
+    const artifacts = generatedArtifactsAt(
+      SEMANTIC_COMPILER_LIMITS.generatedArtifacts + 1,
+    );
 
     expect(() =>
       parseSemanticGenerationJson(JSON.stringify({ version: '1', artifacts })),
@@ -221,8 +220,59 @@ describe('semantic compiler schemas', () => {
     );
 
     expect(parsed.artifacts[0]).toEqual(
-      expect.objectContaining({ claims: [], links: [], tags: [] }),
+      expect.objectContaining({ links: [] }),
     );
+    expect(parsed.artifacts[0]).not.toHaveProperty('claims');
+    expect(parsed.artifacts[0]).not.toHaveProperty('tags');
+  });
+
+  it('drops retired claims and tags without counting the answer as a repair', () => {
+    const answer = {
+      version: '1',
+      artifacts: [
+        {
+          kind: 'source_summary',
+          canonicalKey: 'source-page-1',
+          title: 'Source summary',
+          markdown: 'Source summary body.',
+          claims: Array.from({ length: 250 }, (_, index) => ({
+            text: `Claim ${index}`,
+            evidenceQuote: 'quote',
+          })),
+          links: [],
+          tags: Array.from({ length: 60 }, (_, index) => `tag-${index}`),
+        },
+      ],
+    };
+
+    const direct = semanticGenerationSchema.safeParse(answer);
+
+    expect(direct.success).toBe(true);
+    expect(direct.data?.artifacts[0]).toEqual({
+      kind: 'source_summary',
+      canonicalKey: 'source-page-1',
+      title: 'Source summary',
+      markdown: 'Source summary body.',
+      links: [],
+    });
+  });
+
+  it('still rejects unknown generated artifact fields', () => {
+    expect(
+      semanticGenerationSchema.safeParse({
+        version: '1',
+        artifacts: [
+          {
+            kind: 'source_summary',
+            canonicalKey: 'source-page-1',
+            title: 'Source summary',
+            markdown: 'Source summary body.',
+            links: [],
+            unexpected: true,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects unsupported generated artifact kinds', () => {
@@ -270,14 +320,33 @@ describe('semantic compiler schemas', () => {
           canonicalKey: 'api-overview',
           title: 'API overview',
           markdown: 'Source-grounded API overview.',
-          claims: [],
           links: [],
-          tags: [],
         },
       ],
     });
   });
 });
+
+function generatedArtifactsAt(total: number) {
+  const summary = {
+    kind: 'source_summary',
+    canonicalKey: 'source-page-1',
+    title: 'Source summary',
+    markdown: 'Source summary body.',
+    claims: [],
+    links: [],
+    tags: [],
+  };
+
+  return [
+    summary,
+    ...Array.from({ length: total - 1 }, (_, index) => ({
+      ...summary,
+      kind: 'concept',
+      canonicalKey: `concept-${index}`,
+    })),
+  ];
+}
 
 function baseAnalysis() {
   return {
