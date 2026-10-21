@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { request } from 'undici';
+import { RedisService } from '@nestjs-labs/nestjs-ioredis';
+import type { Redis } from 'ioredis';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 import { HoidcService, HoidcProviderConfig } from '../sso/hoidc.service';
 import { WorkspaceRepo } from '@akasha/db/repos/workspace/workspace.repo';
@@ -22,19 +24,39 @@ export type SsoUserSyncResult = {
 @Injectable()
 export class SsoUserSyncService {
   private readonly logger = new Logger(SsoUserSyncService.name);
+  private readonly redis: Redis;
 
   constructor(
     private readonly environmentService: EnvironmentService,
     private readonly hoidcService: HoidcService,
     private readonly workspaceRepo: WorkspaceRepo,
-  ) {}
+    private readonly redisService: RedisService,
+  ) {
+    this.redis = this.redisService.getOrThrow();
+  }
 
-  @Cron('0 0 2 * * *', { name: 'sso-user-sync' })
+  @Cron('0 0 * * * *', { name: 'sso-user-sync' })
   async handleScheduledSync(): Promise<void> {
-    const result = await this.syncAllUsers();
-    this.logger.log(
-      `SSO user sync completed: fetched=${result.fetched}, synced=${result.synced}, skipped=${result.skipped}, failed=${result.failed}`,
-    );
+    const lockKey = 'lock:sso-user-sync';
+    const lockValue = randomUUID();
+    const locked = await this.redis.set(lockKey, lockValue, 'EX', 600, 'NX');
+
+    if (!locked) {
+      this.logger.log('SSO user sync skipped: another instance is running');
+      return;
+    }
+
+    try {
+      const result = await this.syncAllUsers();
+      this.logger.log(
+        `SSO user sync completed: fetched=${result.fetched}, synced=${result.synced}, skipped=${result.skipped}, failed=${result.failed}`,
+      );
+    } finally {
+      await this.redis.eval(
+        `if redis.call("get",KEYS[1])==ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end`,
+        1, lockKey, lockValue,
+      );
+    }
   }
 
   async syncAllUsers(): Promise<SsoUserSyncResult> {

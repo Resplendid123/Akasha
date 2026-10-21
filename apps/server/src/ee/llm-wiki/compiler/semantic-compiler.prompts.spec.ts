@@ -1,3 +1,4 @@
+import { SEMANTIC_COMPILER_LIMITS } from './semantic-compiler.limits';
 import {
   buildSemanticAnalysisMessages,
   buildSemanticGenerationMessages,
@@ -74,7 +75,9 @@ describe('semantic compiler prompts', () => {
     expect(messages.system).toContain('evidenceQuote');
     expect(messages.system).toContain('same language');
     expect(messages.system).toContain('Do not generate overview');
-    expect(messages.system).toContain('at most 8 artifacts total');
+    expect(messages.system).toContain(
+      `at most ${SEMANTIC_COMPILER_LIMITS.generatedArtifacts} artifacts total`,
+    );
     expect(messages.system).toContain('ceiling, not a target');
     expect(messages.system).toContain('independent retrieval value');
     expect(messages.prompt).toContain('"sourcePageId":"page-1"');

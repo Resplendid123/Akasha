@@ -1,3 +1,4 @@
+import { SEMANTIC_COMPILER_LIMITS } from './semantic-compiler.limits';
 import {
   parseSemanticAnalysisJson,
   parseSemanticGenerationJson,
@@ -146,24 +147,21 @@ describe('semantic compiler schemas', () => {
     ).toHaveLength(2);
   });
 
-  it('rejects a ninth generated artifact', () => {
-    const summary = {
-      kind: 'source_summary',
-      canonicalKey: 'source-page-1',
-      title: 'Source summary',
-      markdown: 'Source summary body.',
-      claims: [],
-      links: [],
-      tags: [],
-    };
-    const artifacts = [
-      summary,
-      ...Array.from({ length: 8 }, (_, index) => ({
-        ...summary,
-        kind: 'concept',
-        canonicalKey: `concept-${index}`,
-      })),
-    ];
+  it('accepts exactly the generated artifact limit', () => {
+    const artifacts = generatedArtifactsAt(
+      SEMANTIC_COMPILER_LIMITS.generatedArtifacts,
+    );
+
+    expect(
+      parseSemanticGenerationJson(JSON.stringify({ version: '1', artifacts }))
+        .artifacts,
+    ).toHaveLength(SEMANTIC_COMPILER_LIMITS.generatedArtifacts);
+  });
+
+  it('rejects artifacts beyond the generated artifact limit', () => {
+    const artifacts = generatedArtifactsAt(
+      SEMANTIC_COMPILER_LIMITS.generatedArtifacts + 1,
+    );
 
     expect(() =>
       parseSemanticGenerationJson(JSON.stringify({ version: '1', artifacts })),
@@ -328,6 +326,27 @@ describe('semantic compiler schemas', () => {
     });
   });
 });
+
+function generatedArtifactsAt(total: number) {
+  const summary = {
+    kind: 'source_summary',
+    canonicalKey: 'source-page-1',
+    title: 'Source summary',
+    markdown: 'Source summary body.',
+    claims: [],
+    links: [],
+    tags: [],
+  };
+
+  return [
+    summary,
+    ...Array.from({ length: total - 1 }, (_, index) => ({
+      ...summary,
+      kind: 'concept',
+      canonicalKey: `concept-${index}`,
+    })),
+  ];
+}
 
 function baseAnalysis() {
   return {

@@ -2,6 +2,7 @@ import { KnowledgeArtifactContribution } from '@akasha/db/types/entity.types';
 import { KnowledgeCompilerLlmProvider } from '../compiler/knowledge-compiler-llm.provider';
 import { CompiledKnowledgeArtifact } from '../types/compiler-artifact.types';
 import { KnowledgeArtifactMaterializerService } from './knowledge-artifact-materializer.service';
+import { MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE } from './knowledge-operation-budget';
 
 describe('KnowledgeArtifactMaterializerService', () => {
   it('materializes a single source contribution without another LLM call', async () => {
@@ -209,19 +210,21 @@ describe('KnowledgeArtifactMaterializerService', () => {
     expect(result.artifacts[0].graphEdges).toHaveLength(2);
   });
 
-  it('stops before a ninth canonical LLM materialization', async () => {
+  it('stops before exceeding the per-page LLM materialization limit', async () => {
     const provider = createProvider();
     provider.completeMerge.mockResolvedValue(
       JSON.stringify({ title: 'Shared', markdown: 'Merged body' }),
     );
     const service = new KnowledgeArtifactMaterializerService(provider);
-    const incomingArtifacts = Array.from({ length: 9 }, (_, index) =>
-      artifact(
-        'page-1',
-        `Shared ${index}`,
-        'Incoming body',
-        `artifact-${index}`,
-      ),
+    const incomingArtifacts = Array.from(
+      { length: MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE + 1 },
+      (_, index) =>
+        artifact(
+          'page-1',
+          `Shared ${index}`,
+          'Incoming body',
+          `artifact-${index}`,
+        ),
     );
     const affectedContributions = incomingArtifacts.map((incoming, index) =>
       contribution(
@@ -243,7 +246,9 @@ describe('KnowledgeArtifactMaterializerService', () => {
         incomingArtifacts,
       }),
     ).rejects.toMatchObject({ code: 'page_complexity_limit' });
-    expect(provider.completeMerge).toHaveBeenCalledTimes(8);
+    expect(provider.completeMerge).toHaveBeenCalledTimes(
+      MAX_KNOWLEDGE_MATERIALIZATIONS_PER_PAGE,
+    );
   });
 });
 
