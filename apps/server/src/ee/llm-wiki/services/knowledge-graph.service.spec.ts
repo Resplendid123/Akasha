@@ -44,61 +44,24 @@ describe('KnowledgeGraphService', () => {
     };
     const service = createService({ capsuleRepo, sourceAuthorization });
 
-    await expect(
-      service.getSpaceGraph({
-        workspaceId: 'workspace-1',
-        userId: 'user-1',
-        spaceId: 'space-1',
-      }),
-    ).resolves.toEqual({
-      nodes: [
-        {
-          id: 'kp-1',
-          title: 'Kafka',
-          spaceId: 'space-1',
-          sourcePageId: 'source-1',
-          kind: 'page',
-          degree: 2,
-          artifactKind: 'source_summary',
-          communityId: 'community-1',
-        },
-        {
-          id: 'kp-2',
-          title: 'Chaterm',
-          spaceId: 'space-1',
-          sourcePageId: 'source-2',
-          kind: 'page',
-          degree: 2,
-          artifactKind: 'source_summary',
-          communityId: 'community-1',
-        },
-      ],
-      edges: [
-        {
-          id: 'link-1',
-          from: 'kp-1',
-          to: 'kp-2',
-          type: 'link',
-          label: 'references',
-          weight: 3,
-          reasons: ['direct-link'],
-        },
-        {
-          id: 'edge-1',
-          from: 'kp-2',
-          to: 'kp-1',
-          type: 'semantic',
-          label: 'depends on',
-          weight: 2,
-          reasons: ['semantic-edge'],
-        },
-      ],
-      insights: {
-        isolatedNodeIds: [],
-        bridgeNodeIds: [],
-        communityCount: 1,
-      },
+    const result = await service.getSpaceGraph({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      spaceId: 'space-1',
     });
+    expect(result.nodes.map((node) => node.id)).not.toContain('kp-hidden');
+    expect(result.nodes.map((node) => node.kind)).toEqual(['page', 'page']);
+    expect(result.nodes.map((node) => node.id)).toEqual(['kp-1', 'kp-2']);
+    expect(result.edges).toContainEqual(
+      expect.objectContaining({
+        id: 'link-1',
+        from: 'kp-1',
+        to: 'kp-2',
+        type: 'link',
+      }),
+    );
+    expect(result.edges.map((edge) => edge.id)).not.toContain('link-hidden');
+    expect(result.edges.map((edge) => edge.id)).not.toContain('edge-1');
 
     expect(capsuleRepo.findGraphCandidatesForSpace).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
@@ -319,7 +282,7 @@ describe('KnowledgeGraphService', () => {
   it('uses common neighbors but excludes catalog links and type-only affinity', async () => {
     const catalogLink = {
       ...link('catalog-link', 'kp-a', 'kp-b', 'catalog'),
-      linkType: 'catalog_entry',
+      linkType: 'catalog_mention',
     };
     const capsuleRepo = {
       findGraphCandidatesForSpace: jest.fn().mockResolvedValue({
@@ -591,8 +554,19 @@ function graphEdge(
     id,
     workspaceId: 'workspace-1',
     spaceId: 'space-1',
-    fromKnowledgePageId,
-    toKnowledgePageId,
+    fromNodeId: fromKnowledgePageId,
+    toNodeId: toKnowledgePageId,
+    fromType: 'service',
+    toType: 'service',
+    fromAlias: ['A'],
+    toAlias: [],
+    fromEntityKind: 'entity',
+    fromEntityKey: fromKnowledgePageId,
+    fromEntityName: fromKnowledgePageId,
+    toEntityKind: 'entity',
+    toEntityKey: toKnowledgePageId,
+    toEntityName: toKnowledgePageId,
+    ownerSourcePageId: 'source-1',
     relation,
     compilerRunId: 'run-1',
     compileTaskId: 'task-1',

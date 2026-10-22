@@ -356,6 +356,8 @@ export class KnowledgePageCompilationService {
       const importResult = await this.importService.importCompileResult({
         input: compileInput,
         artifacts: compileResult.artifacts,
+        graphEdges: compileResult.graphEdges ?? [],
+        graphNodes: compileResult.graphNodes ?? [],
         publicationGuard: input.execution.publicationGuard,
         onStage: async (stage) => {
           await this.compilationRepo.updateStage({
@@ -581,6 +583,8 @@ export class KnowledgePageCompilationService {
       const importResult = await this.importService.importCompileResult({
         input: compileInput,
         artifacts: compileResult.artifacts,
+        graphEdges: compileResult.graphEdges ?? [],
+        graphNodes: compileResult.graphNodes ?? [],
         publicationGuard: input.execution.publicationGuard,
         onStage: async (stage) => {
           await this.compilationRepo.updateStage({
@@ -739,13 +743,22 @@ export class KnowledgePageCompilationService {
       retryable: boolean;
     },
   ): void {
-    if (!(error instanceof KnowledgeCompilerLlmError)) return;
-    if (!error.diagnostic && !error.diagnosticClass) return;
-    this.logger.warn({
-      message: 'Knowledge compiler provider failure diagnostic',
+    if (error instanceof KnowledgeCompilerLlmError) {
+      if (!error.diagnostic && !error.diagnosticClass) return;
+      this.logger.warn({
+        message: 'Knowledge compiler provider failure diagnostic',
+        ...context,
+        diagnosticClass: error.diagnosticClass,
+        providerDiagnostic: error.diagnostic,
+      });
+      return;
+    }
+    if (context.failureCode !== 'compile_failed') return;
+    this.logger.error({
+      message: 'Unclassified knowledge compilation failure',
       ...context,
-      diagnosticClass: error.diagnosticClass,
-      providerDiagnostic: error.diagnostic,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     });
   }
 }

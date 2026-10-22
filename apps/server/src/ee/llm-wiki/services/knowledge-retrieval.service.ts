@@ -1,3 +1,4 @@
+import { EntityGraphPath } from '../types/entity-graph.types';
 import { Injectable } from '@nestjs/common';
 import { GroupUserRepo } from '@akasha/db/repos/group/group-user.repo';
 import {
@@ -72,6 +73,7 @@ export type KnowledgeRetrievalResult = {
     origin: KnowledgeRetrievalOrigin;
     authorizationMode: KnowledgeRetrievalAuthorizationMode;
     parentSection?: KnowledgeParentSection;
+    graphPaths?: EntityGraphPath[];
   }>;
   capsules: KnowledgePage[];
   completenessNotice: typeof KNOWLEDGE_COMPLETENESS_NOTICE;
@@ -475,6 +477,11 @@ export class KnowledgeRetrievalService {
         ) {
           authorized.push({
             chunk: candidate.chunk,
+            graphPaths: candidate.graphPaths?.filter((path) =>
+              path.inputSourceRefs.every((ref) =>
+                readable.has(ref.sourcePageId),
+              ),
+            ),
             page: candidate.page,
             sourcePageIds,
             rankReasons: candidate.rankReasons,
@@ -598,9 +605,15 @@ export class KnowledgeRetrievalService {
             workspaceId: input.workspaceId,
             userId: input.userId,
             supplementalUserId: input.supplementalUserId,
-            sourcePageIds: unique(
-              fusedSourceRows.flatMap((row) => row.sourcePageIds),
-            ),
+            sourcePageIds: unique([
+              ...fusedSourceRows.flatMap((row) => row.sourcePageIds),
+              ...fusedCandidates.flatMap(
+                (candidate) =>
+                  candidate.graphPaths?.flatMap((path) =>
+                    path.inputSourceRefs.map((ref) => ref.sourcePageId),
+                  ) ?? [],
+              ),
+            ]),
             cache: authCache,
           }),
         (result) => ({ readableSourceCount: result.length }),
@@ -740,6 +753,7 @@ export class KnowledgeRetrievalService {
     if (eligibleSeeds.length === 0) return empty;
     const seedsSkippedByThreshold = input.seeds.length - eligibleSeeds.length;
 
+    const entityPaths = new Map<string, EntityGraphPath[]>();
     const visited = new Set(input.seeds.map((seed) => seed.knowledgePageId));
     const hopByPageId = new Map<string, number>();
     const typeWeightByPageId = new Map<string, number>();
@@ -771,6 +785,38 @@ export class KnowledgeRetrievalService {
           sourcePageIds: frontierSourceIds,
           cache: input.authCache,
         });
+      const discovered = await this.capsuleRepo.findEntityGraphEdges({
+        workspaceId: input.workspaceId,
+        spaceIds: input.readableSpaceIds,
+        knowledgePageIds: frontierPageIds,
+        readableSourcePageIds,
+        limit: Math.min(edgeLimit, 256),
+      });
+      const readableDependencies = new Set(
+        await this.sourceAuthorization.filterReadableSources({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          supplementalUserId: input.supplementalUserId,
+          sourcePageIds: unique(
+            discovered.flatMap((edge) => edge.sourcePageIds),
+          ),
+          cache: input.authCache,
+        }),
+      );
+      const entityEdges = discovered.filter((edge) =>
+        allSourcesReadable(edge.sourcePageIds, readableDependencies),
+      );
+      edgesScanned += discovered.length;
+      edgesAuthorized += entityEdges.length;
+      edgesByType.semantic += entityEdges.length;
+      const mapped = await this.capsuleRepo.findEntityGraphEvidence({
+        workspaceId: input.workspaceId,
+        edges: entityEdges,
+        limit: Math.max(input.candidateLimit * 40, 100),
+      });
+      for (const candidate of mapped) {
+        entityPaths.set(candidate.chunkId, candidate.paths);
+      }
       const edges = await this.capsuleRepo.findGraphTraversalEdges({
         workspaceId: input.workspaceId,
         spaceIds: input.readableSpaceIds,
@@ -823,7 +869,7 @@ export class KnowledgeRetrievalService {
         return weightDifference || left.localeCompare(right);
       })
       .slice(0, graphWindowPageLimit(input.candidateLimit));
-    if (windowPageIds.length === 0) {
+    if (windowPageIds.length === 0 && entityPaths.size === 0) {
       return {
         ...empty,
         seedsExpanded: eligibleSeeds.length,
@@ -856,6 +902,33 @@ export class KnowledgeRetrievalService {
       }),
     ]);
 
+    const entityScope = {
+      ...windowScope,
+      knowledgePageIds: undefined,
+      chunkIds: [...entityPaths.keys()],
+    };
+    const [entityDense, entityLexical] = entityPaths.size
+      ? await Promise.all([
+          input.queryEmbedding
+            ? this.capsuleRepo.findDenseChunkCandidates({
+                ...entityScope,
+                embedding: input.queryEmbedding,
+              })
+            : Promise.resolve([]),
+          this.capsuleRepo.findLexicalChunkCandidates({
+            ...entityScope,
+            query: input.query,
+          }),
+        ])
+      : [[], []];
+    const mergeCandidates = (candidates: KnowledgeChunkCandidate[]) => [
+      ...new Map(
+        candidates.map((candidate) => [
+          candidate.chunk.id,
+          { ...candidate, graphPaths: entityPaths.get(candidate.chunk.id) },
+        ]),
+      ).values(),
+    ];
     const withGraphSignal = (candidate: KnowledgeChunkCandidate) => ({
       ...candidate,
       signals: unique([
@@ -865,8 +938,12 @@ export class KnowledgeRetrievalService {
     });
 
     return {
-      dense: denseWindow.map(withGraphSignal),
-      lexical: lexicalWindow.map(withGraphSignal),
+      dense: mergeCandidates([...denseWindow, ...entityDense]).map(
+        withGraphSignal,
+      ),
+      lexical: mergeCandidates([...lexicalWindow, ...entityLexical]).map(
+        withGraphSignal,
+      ),
       windowPageIds,
       seedsExpanded: eligibleSeeds.length,
       seedsSkippedByThreshold,

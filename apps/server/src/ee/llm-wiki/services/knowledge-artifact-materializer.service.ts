@@ -1,3 +1,4 @@
+import { mergeKnowledgeLinks } from './knowledge-links';
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { KnowledgeArtifactContribution } from '@akasha/db/types/entity.types';
@@ -56,7 +57,11 @@ export class KnowledgeArtifactMaterializerService {
       );
     }
     for (const artifact of input.incomingArtifacts) {
-      pushArtifact(artifactsById, artifact.artifactId, artifact);
+      pushArtifact(
+        artifactsById,
+        artifact.artifactId,
+        readStoredArtifact(artifact),
+      );
     }
 
     const artifacts: CompiledKnowledgeArtifact[] = [];
@@ -160,16 +165,7 @@ export class KnowledgeArtifactMaterializerService {
           chunk.stableKey ??
           `${chunk.text}:${JSON.stringify(chunk.inputSourceRefs ?? [])}`,
       ),
-      links: uniqueBy(
-        contributions.flatMap((artifact) => artifact.links ?? []),
-        (link) =>
-          `${link.linkType}:${link.toKnowledgePageId ?? ''}:${link.targetPageId ?? ''}`,
-      ),
-      graphEdges: uniqueBy(
-        contributions.flatMap((artifact) => artifact.graphEdges ?? []),
-        (edge) =>
-          `${edge.relation}:${edge.toKnowledgePageId ?? ''}:${edge.targetArtifactKind ?? ''}:${edge.targetCanonicalKey ?? ''}`,
-      ),
+      links: mergeKnowledgeLinks(contributions.flatMap(artifact=>artifact.links ?? [])),
     };
   }
 }

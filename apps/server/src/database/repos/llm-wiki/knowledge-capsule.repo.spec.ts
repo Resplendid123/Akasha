@@ -624,14 +624,14 @@ describe('KnowledgeCapsuleRepo', () => {
       .replace(/--[^\n]*/g, ' ')
       .replace(/\s+/g, ' ');
     expect(sql).toContain('knowledge_links');
-    expect(sql).toContain('knowledge_graph_edges');
+    expect(sql).not.toContain('knowledge_graph_edges');
     expect(sql).toContain('knowledge_page_sources');
     expect(sql.match(/limit/g) ?? []).toHaveLength(1);
     expect(sql.indexOf('readable_source')).toBeLessThan(
       sql.lastIndexOf('limit'),
     );
     expect(sql).toContain('from_page.space_id = l.space_id');
-    expect(sql).toContain('to_page.space_id = e.space_id');
+    expect(sql).not.toContain('from knowledge_graph_edges');
     expect(sql).toContain('bool_and');
     expect(sql.indexOf('group by')).toBeLessThan(
       sql.lastIndexOf('all_sources_readable'),
@@ -660,7 +660,7 @@ describe('KnowledgeCapsuleRepo', () => {
 
   it('batch upserts pages before relationship rows so new pages can link each other', async () => {
     const query = new FakeKyselyQuery({
-      knowledgePages: [{ id: 'knowledge-page-1' }, { id: 'knowledge-page-2' }],
+      knowledgePages: [{id:'knowledge-page-1',workspaceId:'workspace-1',spaceId:'space-1'}, {id:'knowledge-page-2',workspaceId:'workspace-1',spaceId:'space-1'}],
     });
     const repo = createRepo(query);
 
@@ -675,11 +675,8 @@ describe('KnowledgeCapsuleRepo', () => {
             spaceId: 'space-1',
             fromKnowledgePageId: 'knowledge-page-1',
             toKnowledgePageId: 'knowledge-page-2',
-            targetPageId: 'source-2',
-            targetSpaceId: 'space-1',
             linkText: 'Page 2',
-            linkType: 'same_space_reference',
-            isDangling: false,
+            linkType: 'catalog_mention' as const,
           },
         ],
       },
@@ -693,11 +690,8 @@ describe('KnowledgeCapsuleRepo', () => {
             spaceId: 'space-1',
             fromKnowledgePageId: 'knowledge-page-2',
             toKnowledgePageId: 'knowledge-page-1',
-            targetPageId: 'source-1',
-            targetSpaceId: 'space-1',
             linkText: 'Page 1',
-            linkType: 'same_space_reference',
-            isDangling: false,
+            linkType: 'catalog_mention' as const,
           },
         ],
       },
@@ -719,79 +713,52 @@ describe('KnowledgeCapsuleRepo', () => {
     expect(linkInsertIndex).toBeGreaterThan(Math.max(...pageInsertIndexes));
   });
 
-  it('rejects a graph edge whose endpoint lives in another space', async () => {
-    const query = new FakeKyselyQuery({
-      knowledgePages: [
-        { id: 'knowledge-page-1', spaceId: 'space-1' },
-        { id: 'knowledge-page-cross', spaceId: 'space-2' },
-      ],
-    });
+  it('rejects a relation publication with a mismatched scope before writing', async () => {
+    const query = new FakeKyselyQuery({});
     const repo = createRepo(query);
-
     await expect(
-      repo.upsertCompiledArtifacts([
+      repo.replaceSourceGraphEdges(
         {
-          page: basePage('knowledge-page-1'),
-          graphEdges: [
+          workspaceId: 'w',
+          spaceId: 's',
+          sourcePageIds: ['source'],
+          edges: [
             {
-              id: 'edge-cross',
-              workspaceId: 'workspace-1',
-              spaceId: 'space-1',
-              fromKnowledgePageId: 'knowledge-page-1',
-              toKnowledgePageId: 'knowledge-page-cross',
-              relation: 'relates_to',
+              id: 'e',
+              workspaceId: 'w',
+              spaceId: 'other',
+              ownerSourcePageId: 'source',
             },
-          ],
+          ] as never,
+          sources: [],
         },
-      ] as never),
-    ).rejects.toThrow('cross_space_graph_edge_disallowed');
+        query as never,
+      ),
+    ).rejects.toThrow('invalid_graph_publication');
+    expect(query.calls.some((call) => call.method === 'deleteFrom')).toBe(
+      false,
+    );
+  });
 
+  it('does not delete entity edges when rewriting a knowledge page', async () => {
+    const query = new FakeKyselyQuery({
+      knowledgePages: [{id:'knowledge-page-1',workspaceId:'workspace-1',spaceId:'space-1'}],
+    });
+    await createRepo(query).upsertCompiledArtifacts([
+      { page: basePage('knowledge-page-1') },
+    ]);
     expect(
       query.calls.some(
         (call) =>
-          call.method === 'insertInto' &&
+          call.method === 'deleteFrom' &&
           call.args[0] === 'knowledgeGraphEdges',
       ),
     ).toBe(false);
   });
 
-  it('accepts a graph edge whose endpoints share the edge space', async () => {
-    const query = new FakeKyselyQuery({
-      knowledgePages: [
-        { id: 'knowledge-page-1', spaceId: 'space-1' },
-        { id: 'knowledge-page-2', spaceId: 'space-1' },
-      ],
-    });
-    const repo = createRepo(query);
-
-    await repo.upsertCompiledArtifacts([
-      {
-        page: basePage('knowledge-page-1'),
-        graphEdges: [
-          {
-            id: 'edge-same',
-            workspaceId: 'workspace-1',
-            spaceId: 'space-1',
-            fromKnowledgePageId: 'knowledge-page-1',
-            toKnowledgePageId: 'knowledge-page-2',
-            relation: 'relates_to',
-          },
-        ],
-      },
-    ] as never);
-
-    expect(
-      query.calls.some(
-        (call) =>
-          call.method === 'insertInto' &&
-          call.args[0] === 'knowledgeGraphEdges',
-      ),
-    ).toBe(true);
-  });
-
   it('splits large child collections into bounded inserts', async () => {
     const query = new FakeKyselyQuery({
-      knowledgePages: [{ id: 'knowledge-page-1' }],
+      knowledgePages: [{id:'knowledge-page-1',workspaceId:'workspace-1',spaceId:'space-1'}],
     });
     const repo = createRepo(query);
     const links = Array.from({ length: 1_001 }, (_, index) => ({
@@ -799,12 +766,9 @@ describe('KnowledgeCapsuleRepo', () => {
       workspaceId: 'workspace-1',
       spaceId: 'space-1',
       fromKnowledgePageId: 'knowledge-page-1',
-      toKnowledgePageId: null,
-      targetPageId: null,
-      targetSpaceId: 'space-1',
+      toKnowledgePageId: 'knowledge-page-1',
       linkText: `Page ${index}`,
-      linkType: 'catalog_entry',
-      isDangling: true,
+      linkType: 'catalog_mention' as const,
     }));
 
     await repo.upsertCompiledArtifacts([
@@ -887,13 +851,8 @@ describe('KnowledgeCapsuleRepo', () => {
               spaceId: 'space-1',
               fromKnowledgePageId: 'knowledge-page-1',
               toKnowledgePageId: null,
-              targetPageId: null,
-              targetSpaceId: 'space-2',
               linkText: 'External page',
-              linkType: 'cross_space_reference',
-              isDangling: true,
-              compilerRunId: 'run-1',
-              compileTaskId: 'task-1',
+              linkType: 'catalog_mention' as const,
             },
           ],
           linkSources: [
@@ -906,35 +865,12 @@ describe('KnowledgeCapsuleRepo', () => {
               provenanceKind: 'synthesis_lineage',
             },
           ],
-          graphEdges: [
-            {
-              id: 'edge-1',
-              workspaceId: 'workspace-1',
-              spaceId: 'space-1',
-              fromKnowledgePageId: 'knowledge-page-1',
-              toKnowledgePageId: 'knowledge-page-2',
-              relation: 'depends_on',
-              compilerRunId: 'run-1',
-              compileTaskId: 'task-1',
-            },
-          ],
-          graphEdgeSources: [
-            {
-              workspaceId: 'workspace-1',
-              graphEdgeId: 'edge-1',
-              sourcePageId: 'source-1',
-              sourceVersion: 'v1',
-              contentHash: 'hash-1',
-              provenanceKind: 'synthesis_lineage',
-            },
-          ],
         },
       ]),
     ).resolves.toEqual([row]);
 
     expect(query.calls).toEqual(
       expect.arrayContaining([
-        { method: 'deleteFrom', args: ['knowledgeGraphEdges'] },
         { method: 'deleteFrom', args: ['knowledgeLinks'] },
         { method: 'deleteFrom', args: ['knowledgeChunks'] },
         { method: 'deleteFrom', args: ['knowledgePageSources'] },
@@ -945,15 +881,13 @@ describe('KnowledgeCapsuleRepo', () => {
         { method: 'insertInto', args: ['knowledgeChunkSources'] },
         { method: 'insertInto', args: ['knowledgeLinks'] },
         { method: 'insertInto', args: ['knowledgeLinkSources'] },
-        { method: 'insertInto', args: ['knowledgeGraphEdges'] },
-        { method: 'insertInto', args: ['knowledgeGraphEdgeSources'] },
       ]),
     );
   });
 
   it('updates compilation scope and generation mode when a stable artifact is republished', async () => {
     const query = new FakeKyselyQuery({
-      knowledgePages: [{ id: 'knowledge-page-1' }],
+      knowledgePages: [{id:'knowledge-page-1',workspaceId:'workspace-1',spaceId:'space-1'}],
     });
     const repo = createRepo(query);
 
@@ -1037,13 +971,7 @@ describe('KnowledgeCapsuleRepo', () => {
         workspaceId: 'workspace-1',
         knowledgePageIds: ['kp-1', 'kp-2'],
       }),
-    ).resolves.toEqual([
-      'source-1',
-      'source-2',
-      'source-4',
-      'source-5',
-      'source-6',
-    ]);
+    ).resolves.toEqual(['source-1', 'source-2', 'source-4', 'source-5']);
 
     expect(query.calls).toEqual(
       expect.arrayContaining([
@@ -1076,15 +1004,6 @@ describe('KnowledgeCapsuleRepo', () => {
             'knowledgeLinks',
             'knowledgeLinkSources.linkId',
             'knowledgeLinks.id',
-          ],
-        },
-        { method: 'selectFrom', args: ['knowledgeGraphEdgeSources'] },
-        {
-          method: 'innerJoin',
-          args: [
-            'knowledgeGraphEdges',
-            'knowledgeGraphEdgeSources.graphEdgeId',
-            'knowledgeGraphEdges.id',
           ],
         },
       ]),

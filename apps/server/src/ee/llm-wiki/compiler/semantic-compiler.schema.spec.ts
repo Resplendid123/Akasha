@@ -118,9 +118,6 @@ describe('semantic compiler schemas', () => {
       canonicalKey: 'distributed-systems',
       title: 'Distributed systems',
       markdown: 'A distributed system coordinates multiple nodes.',
-      claims: [],
-      links: [],
-      tags: [],
     };
 
     expect(() =>
@@ -201,7 +198,7 @@ describe('semantic compiler schemas', () => {
     expect(() => parseSemanticAnalysisJson(JSON.stringify(value))).toThrow();
   });
 
-  it('normalizes null optional artifact collections to empty arrays', () => {
+  it('parses only the final page-content contract', () => {
     const parsed = parseSemanticGenerationJson(
       JSON.stringify({
         version: '1',
@@ -211,50 +208,31 @@ describe('semantic compiler schemas', () => {
             canonicalKey: 'source-page-1',
             title: 'Source summary',
             markdown: 'Source summary body.',
-            claims: null,
-            links: null,
-            tags: null,
           },
         ],
       }),
     );
 
-    expect(parsed.artifacts[0]).toEqual(
-      expect.objectContaining({ links: [] }),
-    );
+    expect(parsed.artifacts[0]).not.toHaveProperty('links');
     expect(parsed.artifacts[0]).not.toHaveProperty('claims');
     expect(parsed.artifacts[0]).not.toHaveProperty('tags');
   });
 
-  it('drops retired claims and tags without counting the answer as a repair', () => {
-    const answer = {
-      version: '1',
-      artifacts: [
-        {
-          kind: 'source_summary',
-          canonicalKey: 'source-page-1',
-          title: 'Source summary',
-          markdown: 'Source summary body.',
-          claims: Array.from({ length: 250 }, (_, index) => ({
-            text: `Claim ${index}`,
-            evidenceQuote: 'quote',
-          })),
-          links: [],
-          tags: Array.from({ length: 60 }, (_, index) => `tag-${index}`),
-        },
-      ],
-    };
-
-    const direct = semanticGenerationSchema.safeParse(answer);
-
-    expect(direct.success).toBe(true);
-    expect(direct.data?.artifacts[0]).toEqual({
+  it('rejects retired model links rather than accepting a compatibility contract', () => {
+    const artifact = {
       kind: 'source_summary',
-      canonicalKey: 'source-page-1',
-      title: 'Source summary',
-      markdown: 'Source summary body.',
-      links: [],
-    });
+      canonicalKey: 'source',
+      title: 'Source',
+      markdown: 'Body',
+    };
+    for (const retired of ['links', 'claims', 'tags']) {
+      expect(
+        semanticGenerationSchema.safeParse({
+          version: '1',
+          artifacts: [{ ...artifact, [retired]: [] }],
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it('still rejects unknown generated artifact fields', () => {
@@ -267,7 +245,6 @@ describe('semantic compiler schemas', () => {
             canonicalKey: 'source-page-1',
             title: 'Source summary',
             markdown: 'Source summary body.',
-            links: [],
             unexpected: true,
           },
         ],
@@ -287,7 +264,6 @@ describe('semantic compiler schemas', () => {
               title: 'Overview',
               markdown: 'Overview',
               claims: [],
-              links: [],
               tags: [],
             },
           ],
@@ -320,7 +296,6 @@ describe('semantic compiler schemas', () => {
           canonicalKey: 'api-overview',
           title: 'API overview',
           markdown: 'Source-grounded API overview.',
-          links: [],
         },
       ],
     });
@@ -333,9 +308,6 @@ function generatedArtifactsAt(total: number) {
     canonicalKey: 'source-page-1',
     title: 'Source summary',
     markdown: 'Source summary body.',
-    claims: [],
-    links: [],
-    tags: [],
   };
 
   return [
@@ -386,8 +358,14 @@ function analysisClaim(index: number) {
 
 function analysisRelation(index: number) {
   return {
-    fromCanonicalKey: `entity-${index}`,
-    toCanonicalKey: `concept-${index}`,
+    from: {
+      kind: 'entity',
+      name: 'Node',
+      type: 'service',
+      alias: [],
+      canonicalKey: `entity-${index}`,
+    },
+    to: { kind: 'entity', canonicalKey: `concept-${index}` },
     relation: 'relates to',
   };
 }

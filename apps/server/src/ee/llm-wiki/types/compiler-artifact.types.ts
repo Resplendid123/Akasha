@@ -1,3 +1,7 @@
+import {
+  CompiledEntityGraphEdge,
+  CompiledGraphNode,
+} from './entity-graph.types';
 import { KnowledgeScope, KnowledgeSourceRef } from './knowledge.types';
 import { KnowledgeSourceSnapshot } from './source-snapshot.types';
 import { JsonValue } from '../../../database/types/db';
@@ -102,22 +106,9 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
     }>;
   }>;
   links?: Array<{
-    linkType: string;
-    linkText?: string;
-    targetPageId?: string;
-    targetSpaceId?: string;
-    targetArtifactKind?: CompiledKnowledgeArtifactKind;
-    targetCanonicalKey?: string;
-    toKnowledgePageId?: string;
-    isOpaque?: boolean;
-    isDangling?: boolean;
-    inputSourceRefs?: KnowledgeSourceRef[];
-  }>;
-  graphEdges?: Array<{
-    toKnowledgePageId?: string;
-    targetArtifactKind?: CompiledKnowledgeArtifactKind;
-    targetCanonicalKey?: string;
-    relation: string;
+    linkType: 'summary_mention' | 'catalog_mention';
+    linkText: string;
+    toKnowledgePageId: string;
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;
   rawArtifactKey?: string;
@@ -129,6 +120,8 @@ export interface CompileSpaceResult extends KnowledgeScope {
   promptVersion: string;
   compilerRunId: string;
   artifacts: CompiledKnowledgeArtifact[];
+  graphEdges?: CompiledEntityGraphEdge[];
+  graphNodes?: CompiledGraphNode[];
   diagnostics: CompileDiagnostics;
   resultQuality?: 'normal' | 'degraded';
 }

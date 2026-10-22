@@ -941,6 +941,20 @@ export class KnowledgeSpaceCompilationRepo {
       .where('sourcePageId', 'in', removedSourcePageIds)
       .execute();
 
+    await trx
+      .updateTable('knowledgeGraphEdges')
+      .set({ staleAt: now })
+      .where('workspaceId', '=', request.workspaceId)
+      .where('spaceId', '=', request.spaceId)
+      .where('id', 'in', (eb) =>
+        eb
+          .selectFrom('knowledgeGraphEdgeSources')
+          .select('graphEdgeId')
+          .where('workspaceId', '=', request.workspaceId)
+          .where('sourcePageId', 'in', removedSourcePageIds),
+      )
+      .execute();
+
     const affectedArtifacts = await trx
       .selectFrom('knowledgeArtifactContributions')
       .select('artifactId')
@@ -964,7 +978,6 @@ export class KnowledgeSpaceCompilationRepo {
         ['knowledgeParentSections', 'knowledgePageId'],
         ['knowledgeChunks', 'knowledgePageId'],
         ['knowledgeLinks', 'fromKnowledgePageId'],
-        ['knowledgeGraphEdges', 'fromKnowledgePageId'],
       ] as const) {
         await trx
           .updateTable(table)
@@ -1139,9 +1152,9 @@ export class KnowledgeSpaceCompilationRepo {
             const counts = countsByRun.get(oldRun.id)!;
             return sql`(
               ${oldRun.id},
-              ${counts.succeeded},
-              ${counts.failed},
-              ${counts.skipped}
+              ${counts.succeeded}::integer,
+              ${counts.failed}::integer,
+              ${counts.skipped}::integer
             )`;
           }),
         )}) AS counts(id, succeeded, failed, skipped)
@@ -1195,6 +1208,16 @@ export class KnowledgeSpaceCompilationRepo {
         .execute();
       await trx
         .deleteFrom('knowledgeArtifactContributions')
+        .where('workspaceId', '=', input.workspaceId)
+        .where('spaceId', '=', input.spaceId)
+        .execute();
+      await trx
+        .deleteFrom('knowledgeGraphEdges')
+        .where('workspaceId', '=', input.workspaceId)
+        .where('spaceId', '=', input.spaceId)
+        .execute();
+      await trx
+        .deleteFrom('knowledgeGraphNodes')
         .where('workspaceId', '=', input.workspaceId)
         .where('spaceId', '=', input.spaceId)
         .execute();

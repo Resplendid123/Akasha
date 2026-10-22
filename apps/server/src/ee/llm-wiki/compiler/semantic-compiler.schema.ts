@@ -55,10 +55,19 @@ const analyzedClaimSchema = z
   })
   .strict();
 
+export const relationNodeSchema = z
+  .object({
+    canonicalKey: canonicalKeySchema,
+    name: z.string().trim().min(1).max(300),
+    type: z.string().trim().min(1).max(100),
+    alias: z.array(z.string().trim().min(1).max(300)).max(32),
+  })
+  .strict();
+
 const analyzedRelationSchema = z
   .object({
-    fromCanonicalKey: canonicalKeySchema,
-    toCanonicalKey: canonicalKeySchema,
+    from: relationNodeSchema,
+    to: relationNodeSchema,
     relation: z.string().trim().min(1),
     evidenceQuote: z.string().trim().min(1).optional(),
   })
@@ -120,51 +129,20 @@ export const semanticAnalysisSchema = z
 
 export type SemanticAnalysis = z.infer<typeof semanticAnalysisSchema>;
 
-const generatedLinkSchema = z
-  .object({
-    targetKind: z.enum(['source_summary', 'concept', 'entity', 'comparison']),
-    targetCanonicalKey: canonicalKeySchema,
-    relation: z.string().trim().min(1),
-    evidenceQuote: z.string().trim().min(1).optional(),
-  })
-  .strict();
-
-// Models trained on the previous contract may still emit these per-artifact
-// fields. They carry no downstream value, so they are dropped before the
-// strict parse instead of turning an otherwise valid answer into a repair.
-const RETIRED_GENERATED_ARTIFACT_KEYS = ['claims', 'tags'] as const;
-
 const strictGeneratedArtifactSchema = z
   .object({
     kind: z.enum(['source_summary', 'concept', 'entity', 'comparison']),
     canonicalKey: canonicalKeySchema,
     title: z.string().trim().min(1).max(300),
     markdown: z.string().trim().min(1),
-    links: arrayOrEmpty(z.array(generatedLinkSchema).max(200)),
   })
   .strict();
 
-export const semanticGeneratedArtifactSchema = z.preprocess(
-  dropRetiredGeneratedArtifactKeys,
-  strictGeneratedArtifactSchema,
-);
+export const semanticGeneratedArtifactSchema = strictGeneratedArtifactSchema;
 
 export type SemanticGeneratedArtifact = z.infer<
   typeof strictGeneratedArtifactSchema
 >;
-
-function dropRetiredGeneratedArtifactKeys(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return value;
-  }
-  const record = value as Record<string, unknown>;
-  if (!RETIRED_GENERATED_ARTIFACT_KEYS.some((key) => key in record)) {
-    return value;
-  }
-  const rest = { ...record };
-  for (const key of RETIRED_GENERATED_ARTIFACT_KEYS) delete rest[key];
-  return rest;
-}
 
 export const semanticGenerationSchema = z
   .object({
@@ -404,32 +382,20 @@ function repairClaim(value: unknown): unknown {
 function repairRelation(value: unknown): unknown {
   const item = asRecord(value);
   if (!item) return undefined;
-  const fromCanonicalKey = repairCanonicalKey(
-    readText(item, [
-      'fromCanonicalKey',
-      'from_canonical_key',
-      'from',
-      'source',
-    ]),
-  );
-  const toCanonicalKey = repairCanonicalKey(
-    readText(item, ['toCanonicalKey', 'to_canonical_key', 'to', 'target']),
-  );
-  const relation = readText(item, ['relation', 'type', 'label']);
-  if (!fromCanonicalKey || !toCanonicalKey || !relation) return undefined;
+  const relation = readText(item, ['relation']);
+  if (!relation) return undefined;
   const evidenceQuote = readText(item, [
     'evidenceQuote',
     'evidence_quote',
     'quote',
   ]);
   return {
-    fromCanonicalKey,
-    toCanonicalKey,
+    from: repairEndpoint(item.from),
+    to: repairEndpoint(item.to),
     relation,
     ...(evidenceQuote ? { evidenceQuote } : {}),
   };
 }
-
 function repairComparison(value: unknown): unknown {
   const item = asRecord(value);
   if (!item) return undefined;
@@ -496,39 +462,19 @@ function repairGeneratedArtifact(value: unknown): unknown {
     canonicalKey,
     title,
     markdown,
-    links: repairCollection(item.links, repairGeneratedLink),
   };
 }
 
-function repairGeneratedLink(value: unknown): unknown {
-  const item = asRecord(value);
-  if (!item) return undefined;
-  const targetKind = repairArtifactKind(
-    readText(item, ['targetKind', 'target_kind', 'kind', 'type']),
-  );
-  const targetCanonicalKey = repairCanonicalKey(
-    readText(item, [
-      'targetCanonicalKey',
-      'target_canonical_key',
-      'target',
-      'canonicalKey',
-    ]),
-  );
-  const relation = readText(item, ['relation', 'label', 'linkType']);
-  if (!targetKind || !targetCanonicalKey || !relation) return undefined;
-  const evidenceQuote = readText(item, [
-    'evidenceQuote',
-    'evidence_quote',
-    'quote',
-  ]);
+function repairEndpoint(value: unknown): unknown {
+  const endpoint = asRecord(value);
+  if (!endpoint) return value;
   return {
-    targetKind,
-    targetCanonicalKey,
-    relation,
-    ...(evidenceQuote ? { evidenceQuote } : {}),
+    canonicalKey: repairCanonicalKey(readText(endpoint, ['canonicalKey'])),
+    name: endpoint.name,
+    type: endpoint.type,
+    alias: endpoint.alias,
   };
 }
-
 function repairCollection(
   value: unknown,
   repair: (entry: unknown) => unknown,

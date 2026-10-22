@@ -61,12 +61,10 @@ describePostgres('graph traversal PostgreSQL behaviour', () => {
 
     expect(edges.map((edge) => edge.type).sort()).toEqual([
       'link',
-      'semantic',
       'shared-source',
       'shared-source',
     ]);
     const byType = new Map(edges.map((edge) => [edge.type, edge]));
-    expect(byType.get('semantic')!.weight).toBe(1);
     expect(byType.get('link')!.weight).toBe(0.7);
     expect(byType.get('shared-source')!.weight).toBe(0.2);
     for (const edge of edges) {
@@ -112,11 +110,11 @@ describePostgres('graph traversal PostgreSQL behaviour', () => {
     expect(await traverse([])).toEqual([]);
   });
 
-  it('keeps a reserved slot for semantic edges when shared-source could fill the limit', async () => {
+  it('keeps a reserved slot for page links when shared-source could fill the limit', async () => {
     const edges = await traverse([SRC_OPEN, SRC_SECRET], 2);
 
     expect(edges).toHaveLength(2);
-    expect(edges.some((edge) => edge.type === 'semantic')).toBe(true);
+    expect(edges.some((edge) => edge.type === 'link')).toBe(true);
   });
 });
 

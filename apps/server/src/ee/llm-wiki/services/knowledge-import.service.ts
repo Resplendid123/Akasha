@@ -1,3 +1,9 @@
+import { mergeKnowledgeLinks } from './knowledge-links';
+import {
+  CompiledEntityGraphEdge,
+  CompiledGraphNode,
+} from '../types/entity-graph.types';
+import { entityEdgeIdentity } from '../compiler/entity-graph';
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { toSql as vectorToSql } from 'pgvector';
@@ -85,6 +91,8 @@ export class KnowledgeImportService {
   async importCompileResult(input: {
     input: CompileSpaceInput;
     artifacts: CompiledKnowledgeArtifact[];
+    graphEdges?: CompiledEntityGraphEdge[];
+    graphNodes?: CompiledGraphNode[];
     onStage?: (stage: KnowledgeImportStage) => void | Promise<void>;
     upsertSources?: boolean;
     retireSources?: boolean;
@@ -96,6 +104,46 @@ export class KnowledgeImportService {
     input.input.operationBudget = operationBudget;
     operationBudget.throwIfAborted();
     await input.onStage?.('validation');
+    const graphEdges = input.graphEdges ?? [];
+    const graphNodes = input.graphNodes ?? [];
+    const nodeMap = new Map(graphNodes.map((node) => [node.id, node]));
+    if (
+      nodeMap.size !== graphNodes.length ||
+      graphNodes.some(
+        (node) =>
+          node.workspaceId !== input.input.workspaceId ||
+          node.spaceId !== input.input.spaceId ||
+          !input.input.sources.some(
+            (source) => source.sourcePageId === node.ownerSourcePageId,
+          ),
+      ) ||
+      graphEdges.some((edge) =>
+        [edge.from, edge.to].some((endpoint) => {
+          const node = nodeMap.get(endpoint.id);
+          return (
+            !node ||
+            node.ownerSourcePageId !== nodeMap.get(edge.from.id)?.ownerSourcePageId ||
+            !edge.inputSourceRefs.some(ref=>ref.sourcePageId===node.ownerSourcePageId) ||
+            node.canonicalKey !== endpoint.canonicalKey ||
+            node.name !== endpoint.name ||
+            node.type !== endpoint.type ||
+            JSON.stringify(node.alias) !== JSON.stringify(endpoint.alias)
+          );
+        }),
+      ) ||
+      graphNodes.some(
+        (node) =>
+          !graphEdges.some(
+            (edge) => edge.from.id === node.id || edge.to.id === node.id,
+          ),
+      )
+    )
+      throw new KnowledgeCompilationValidationError();
+    if (
+      graphEdges.length > 2000 ||
+      this.validator.validateGraphEdges(input.input, graphEdges).length > 0
+    )
+      throw new KnowledgeCompilationValidationError();
     const validation = this.validator.validateCompileResult(input);
     operationBudget.assertArtifactCount(validation.accepted.length);
     assertPublicationChunkBudgets(operationBudget, validation.accepted);
@@ -326,9 +374,10 @@ export class KnowledgeImportService {
           }),
         ),
       );
-      const links = (artifact.links ?? []).map((link, index) => {
+      const normalizedLinks = mergeKnowledgeLinks(artifact.links ?? []);
+      const links = normalizedLinks.map((link) => {
         const linkId = stableKnowledgeUuid(
-          `${artifact.artifactId}:link:${index}`,
+          JSON.stringify([artifact.workspaceId,artifact.artifactId,link.toKnowledgePageId,link.linkType]),
         );
 
         return {
@@ -336,24 +385,15 @@ export class KnowledgeImportService {
           workspaceId: artifact.workspaceId,
           spaceId: artifact.spaceId,
           fromKnowledgePageId: artifact.artifactId,
-          toKnowledgePageId: link.toKnowledgePageId ?? null,
-          targetPageId: link.targetPageId ?? null,
-          targetSpaceId: link.targetSpaceId ?? null,
-          targetArtifactKind: link.targetArtifactKind ?? null,
-          targetCanonicalKey: link.targetCanonicalKey ?? null,
-          linkText: link.linkText ?? '',
+          toKnowledgePageId: link.toKnowledgePageId,
+          linkText: link.linkText,
           linkType: link.linkType,
-          isDangling:
-            link.isDangling ??
-            (link.isOpaque === true || !link.toKnowledgePageId),
-          compilerRunId: artifact.compilerRunId ?? null,
-          compileTaskId: artifact.compileTaskId ?? null,
           staleAt: null,
         };
       });
       const linkSources = links.flatMap((link, index) =>
         (
-          artifact.links?.[index]?.inputSourceRefs ??
+          normalizedLinks[index]?.inputSourceRefs ??
           artifact.inputSourceRefs ??
           []
         ).map((source) => ({
@@ -367,37 +407,6 @@ export class KnowledgeImportService {
           provenanceKind: 'synthesis_lineage',
         })),
       );
-      const graphEdges = (artifact.graphEdges ?? []).map((edge, index) => ({
-        id: stableKnowledgeUuid(`${artifact.artifactId}:graph-edge:${index}`),
-        workspaceId: artifact.workspaceId,
-        spaceId: artifact.spaceId,
-        fromKnowledgePageId: artifact.artifactId,
-        toKnowledgePageId: edge.toKnowledgePageId ?? null,
-        targetArtifactKind: edge.targetArtifactKind ?? null,
-        targetCanonicalKey: edge.targetCanonicalKey ?? null,
-        isDangling: !edge.toKnowledgePageId,
-        relation: edge.relation,
-        compilerRunId: artifact.compilerRunId ?? null,
-        compileTaskId: artifact.compileTaskId ?? null,
-        staleAt: null,
-      }));
-      const graphEdgeSources = graphEdges.flatMap((edge, index) =>
-        (
-          artifact.graphEdges?.[index]?.inputSourceRefs ??
-          artifact.inputSourceRefs ??
-          []
-        ).map((source) => ({
-          workspaceId: artifact.workspaceId,
-          graphEdgeId: edge.id,
-          sourcePageId: source.sourcePageId,
-          sourceVersion: source.sourceVersion,
-          sourceRange: toStoredSourceRange(source),
-          quoteHash: source.quoteHash ?? null,
-          contentHash: source.contentHash,
-          provenanceKind: 'synthesis_lineage',
-        })),
-      );
-
       artifactInputs.push({
         page: {
           id: artifact.artifactId,
@@ -436,8 +445,6 @@ export class KnowledgeImportService {
         chunkAttachments,
         links,
         linkSources,
-        graphEdges,
-        graphEdgeSources,
       });
     }
 
@@ -606,6 +613,39 @@ export class KnowledgeImportService {
         if (artifactInputs.length > 0) {
           await this.capsuleRepo.upsertCompiledArtifacts(artifactInputs, trx);
         }
+
+        // Replace by publication owner, never by a generated knowledge page.
+        // Empty output (including original mode/retirement) withdraws old facts.
+        await this.capsuleRepo.replaceSourceGraphEdges(
+          {
+            workspaceId: input.input.workspaceId,
+            spaceId: input.input.spaceId,
+            sourcePageIds: uniqueSourcePageIds(input.input),
+            nodes: graphNodes,
+            edges: graphEdges.map((edge) => ({
+              id: stableKnowledgeUuid(entityEdgeIdentity(edge)),
+              workspaceId: edge.workspaceId,
+              spaceId: edge.spaceId,
+              fromNodeId: edge.from.id,
+              toNodeId: edge.to.id,
+              relation: edge.relation,
+              staleAt: null,
+            })),
+            sources: graphEdges.flatMap((edge) =>
+              edge.inputSourceRefs.map((source) => ({
+                graphEdgeId: stableKnowledgeUuid(entityEdgeIdentity(edge)),
+                workspaceId: edge.workspaceId,
+                sourcePageId: source.sourcePageId,
+                sourceVersion: source.sourceVersion,
+                contentHash: source.contentHash,
+                sourceRange: toStoredSourceRange(source),
+                quoteHash: source.quoteHash ?? null,
+                provenanceKind: 'source_evidence',
+              })),
+            ),
+          },
+          trx,
+        );
 
         operationBudget.throwIfAborted();
         await input.publicationComplete?.(trx);

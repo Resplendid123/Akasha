@@ -346,7 +346,6 @@ export interface KnowledgeChunkAttachments {
 }
 
 export interface KnowledgeChunkSources {
-  attachmentId: string | null;
   chunkId: string;
   contentHash: string;
   provenanceKind: string;
@@ -380,7 +379,6 @@ export interface KnowledgeCompilationAttempts {
   lastSuccessfulSourceVersion: string | null;
   promptVersion: string;
   queuedAt: Generated<Timestamp>;
-  resultQuality: Generated<string>;
   sourceContentHash: string | null;
   sourcePageId: string;
   sourceVersion: string | null;
@@ -392,24 +390,30 @@ export interface KnowledgeCompilationAttempts {
   workspaceId: string;
 }
 
-export interface KnowledgeGraphEdges {
-  compilerRunId: string | null;
-  compileTaskId: string | null;
+export interface KnowledgeGraphNodes {
+  id: string;
+  workspaceId: string;
+  spaceId: string;
+  ownerSourcePageId: string;
+  canonicalKey: string;
+  name: string;
+  type: string;
+  alias: Json;
   createdAt: Generated<Timestamp>;
-  fromKnowledgePageId: string;
+}
+
+export interface KnowledgeGraphEdges {
+  createdAt: Generated<Timestamp>;
   id: Generated<string>;
+  fromNodeId: string;
+  toNodeId: string;
   relation: string;
   spaceId: string;
   staleAt: Timestamp | null;
-  toKnowledgePageId: string | null;
-  targetArtifactKind: Generated<string | null>;
-  targetCanonicalKey: Generated<string | null>;
-  isDangling: Generated<boolean>;
   workspaceId: string;
 }
 
 export interface KnowledgeGraphEdgeSources {
-  attachmentId: string | null;
   contentHash: string;
   graphEdgeId: string;
   provenanceKind: string;
@@ -446,26 +450,18 @@ export interface KnowledgeImageExtractions {
 }
 
 export interface KnowledgeLinks {
-  compilerRunId: string | null;
-  compileTaskId: string | null;
   createdAt: Generated<Timestamp>;
   fromKnowledgePageId: string;
   id: Generated<string>;
-  isDangling: Generated<boolean>;
   linkText: string;
-  linkType: string;
+  linkType: 'summary_mention' | 'catalog_mention';
   spaceId: string;
   staleAt: Timestamp | null;
-  targetArtifactKind: string | null;
-  targetCanonicalKey: string | null;
-  targetPageId: string | null;
-  targetSpaceId: string | null;
-  toKnowledgePageId: string | null;
+  toKnowledgePageId: string;
   workspaceId: string;
 }
 
 export interface KnowledgeLinkSources {
-  attachmentId: string | null;
   contentHash: string;
   linkId: string;
   provenanceKind: string;
@@ -514,14 +510,12 @@ export interface KnowledgePages {
   slug: string;
   spaceId: string;
   staleAt: Timestamp | null;
-  summary: string | null;
   title: string;
   updatedAt: Generated<Timestamp>;
   workspaceId: string;
 }
 
 export interface KnowledgePageSources {
-  attachmentId: string | null;
   contentHash: string;
   knowledgePageId: string;
   provenanceKind: string;
@@ -549,7 +543,6 @@ export interface KnowledgeParentSections {
 }
 
 export interface KnowledgeParentSectionSources {
-  attachmentId: string | null;
   contentHash: string;
   createdAt: Generated<Timestamp>;
   parentSectionId: string;
@@ -711,7 +704,6 @@ export interface KnowledgeSpaceCompileRunPages {
   failedImageCount: Generated<number>;
   finishedAt: Timestamp | null;
   id: Generated<string>;
-  imageJobId: string | null;
   imageStatus: Generated<string>;
   indexMode: Generated<string>;
   jobId: string | null;
@@ -1186,6 +1178,7 @@ export interface DB {
   knowledgeChunks: KnowledgeChunks;
   knowledgeChunkSources: KnowledgeChunkSources;
   knowledgeCompilationAttempts: KnowledgeCompilationAttempts;
+  knowledgeGraphNodes: KnowledgeGraphNodes;
   knowledgeGraphEdges: KnowledgeGraphEdges;
   knowledgeGraphEdgeSources: KnowledgeGraphEdgeSources;
   knowledgeImageExtractions: KnowledgeImageExtractions;

@@ -1,105 +1,39 @@
 import { KnowledgeSpaceFinalizerService } from './knowledge-space-finalizer.service';
 
 describe('KnowledgeSpaceFinalizerService', () => {
-  it('resolves canonical links once without LLM, embedding, or Catalog work', async () => {
-    const executionRepo = {
-      isLeaseActive: jest.fn().mockResolvedValue(true),
-    };
-    const linkResolver = {
-      resolveSpace: jest.fn().mockResolvedValue({
-        resolvedLinkCount: 3,
-        resolvedEdgeCount: 4,
+  const lease = {
+    runId: 'r',
+    knowledgeGeneration: 1,
+    jobPhase: 'text' as const,
+    spaceJobSequence: 1,
+    spaceJobId: 'j',
+    executionToken: 't',
+  };
+  it.each([true, false])(
+    'checks lease without running a relationship resolver (%s)',
+    async (active) => {
+      const repo = { isLeaseActive: jest.fn().mockResolvedValue(active) };
+      const result = await new KnowledgeSpaceFinalizerService(
+        repo as never,
+      ).finalizeLeased(lease, { workspaceId: 'w', spaceId: 's' });
+      expect(result).toEqual({ outcome: active ? 'completed' : 'superseded' });
+      expect(repo.isLeaseActive).toHaveBeenCalledWith(lease);
+    },
+  );
+  it('does not finalize when cancelled while checking the lease', async () => {
+    const controller = new AbortController();
+    const repo = {
+      isLeaseActive: jest.fn().mockImplementation(async () => {
+        controller.abort();
+        return true;
       }),
     };
-    const service = new KnowledgeSpaceFinalizerService(
-      executionRepo as never,
-      linkResolver as never,
-    );
-    const abortController = new AbortController();
-
     await expect(
-      service.finalizeLeased(lease(), {
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-        abortSignal: abortController.signal,
+      new KnowledgeSpaceFinalizerService(repo as never).finalizeLeased(lease, {
+        workspaceId: 'w',
+        spaceId: 's',
+        abortSignal: controller.signal,
       }),
-    ).resolves.toEqual({
-      outcome: 'completed',
-      resolvedCanonicalLinkCount: 3,
-      resolvedCanonicalGraphEdgeCount: 4,
-    });
-
-    expect(linkResolver.resolveSpace).toHaveBeenCalledTimes(1);
-    expect(linkResolver.resolveSpace).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-      abortSignal: abortController.signal,
-    });
-    expect(executionRepo.isLeaseActive).toHaveBeenCalledTimes(2);
-  });
-
-  it('does no work when the lease is already superseded', async () => {
-    const executionRepo = {
-      isLeaseActive: jest.fn().mockResolvedValue(false),
-    };
-    const linkResolver = { resolveSpace: jest.fn() };
-    const service = new KnowledgeSpaceFinalizerService(
-      executionRepo as never,
-      linkResolver as never,
-    );
-
-    await expect(
-      service.finalizeLeased(lease(), {
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-      }),
-    ).resolves.toEqual({
-      outcome: 'superseded',
-      resolvedCanonicalLinkCount: 0,
-      resolvedCanonicalGraphEdgeCount: 0,
-    });
-    expect(linkResolver.resolveSpace).not.toHaveBeenCalled();
-  });
-
-  it('does not let a worker complete the Run when its lease is lost during resolution', async () => {
-    const executionRepo = {
-      isLeaseActive: jest
-        .fn()
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false),
-    };
-    const linkResolver = {
-      resolveSpace: jest.fn().mockResolvedValue({
-        resolvedLinkCount: 1,
-        resolvedEdgeCount: 1,
-      }),
-    };
-    const service = new KnowledgeSpaceFinalizerService(
-      executionRepo as never,
-      linkResolver as never,
-    );
-
-    await expect(
-      service.finalizeLeased(lease(), {
-        workspaceId: 'workspace-1',
-        spaceId: 'space-1',
-      }),
-    ).resolves.toEqual({
-      outcome: 'superseded',
-      resolvedCanonicalLinkCount: 0,
-      resolvedCanonicalGraphEdgeCount: 0,
-    });
-    expect(linkResolver.resolveSpace).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow();
   });
 });
-
-function lease() {
-  return {
-    runId: 'run-1',
-    knowledgeGeneration: 2,
-    jobPhase: 'text' as const,
-    spaceJobSequence: 3,
-    spaceJobId: 'job-3',
-    executionToken: 'lease-token',
-  };
-}

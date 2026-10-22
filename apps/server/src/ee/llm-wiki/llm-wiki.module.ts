@@ -39,7 +39,6 @@ import { ConfiguredKnowledgeCompilerLlmProvider } from './compiler/knowledge-com
 import { KnowledgeArtifactMaterializerService } from './services/knowledge-artifact-materializer.service';
 import { KnowledgeArtifactCatalogService } from './services/knowledge-artifact-catalog.service';
 import { KnowledgeSpaceCompilationService } from './services/knowledge-space-compilation.service';
-import { KnowledgeLinkResolverService } from './services/knowledge-link-resolver.service';
 import { KnowledgeSpaceFinalizerService } from './services/knowledge-space-finalizer.service';
 import { KnowledgeSourceRetirementService } from './services/knowledge-source-retirement.service';
 import { ConfiguredKnowledgeImageUnderstandingProvider } from './services/knowledge-image-understanding-provider.service';
@@ -113,7 +112,6 @@ import { KnowledgePageIndexSettingsRepo } from '../../database/repos/llm-wiki/kn
     KnowledgeRunRetentionService,
     KnowledgeRunRetentionScheduler,
     KnowledgeTextJobHandler,
-    KnowledgeLinkResolverService,
     KnowledgeSpaceFinalizerService,
     KnowledgeSourceRetirementService,
     KnowledgePageIndexSettingsRepo,

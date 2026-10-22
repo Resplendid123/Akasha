@@ -51,10 +51,6 @@ describe('KnowledgeSourceRetirementService', () => {
         publicationGuard: expect.any(Function),
       }),
     );
-    expect(fixture.linkResolver.resolveSpace).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-    });
   });
 
   it.each([
@@ -89,10 +85,6 @@ describe('KnowledgeSourceRetirementService', () => {
     ).toHaveBeenCalledWith(scope, fixture.transactionQuery);
     expect(fixture.importService.importCompileResult).not.toHaveBeenCalled();
     expect(fixture.query.forUpdate).toHaveBeenCalledTimes(1);
-    expect(fixture.linkResolver.resolveSpace).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-    });
   });
 
   it('preserves the rebuilt original index in the destination Space', async () => {
@@ -138,7 +130,6 @@ describe('KnowledgeSourceRetirementService', () => {
     expect(
       fixture.capsuleRepo.markSourceArtifactsStaleBySourcePageIds,
     ).not.toHaveBeenCalled();
-    expect(fixture.linkResolver.resolveSpace).not.toHaveBeenCalled();
   });
 
   it('retires a source only once when both discovery paths find it', async () => {
@@ -239,8 +230,8 @@ function createFixture(
           };
     }),
   };
-  const linkResolver = { resolveSpace: jest.fn() };
   const capsuleRepo = {
+    replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
     findSourceArtifactScopes: jest
       .fn()
       .mockResolvedValue(
@@ -257,7 +248,6 @@ function createFixture(
     db as never,
     contributionRepo as never,
     importService as never,
-    linkResolver as never,
     capsuleRepo as never,
     sourceRepo as never,
   );
@@ -265,7 +255,6 @@ function createFixture(
     service,
     contributionRepo,
     importService,
-    linkResolver,
     capsuleRepo,
     sourceRepo,
     query,

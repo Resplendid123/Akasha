@@ -7,6 +7,7 @@ import { envPath, normalizePostgresUrl } from '../common/helpers';
 import { PostgresJSDialect } from 'kysely-postgres-js';
 import postgres from 'postgres';
 import { buildMigrationPostgresOptions } from './database-postgres-options';
+import { adoptSquashedBaseline } from './adopt-squashed-baseline';
 
 dotenv.config({ path: envPath });
 
@@ -32,4 +33,16 @@ const migrator = new Migrator({
   }),
 });
 
-run(db, migrator, migrationFolder);
+adoptSquashedBaseline({
+  db,
+  migrator,
+  logger: {
+    log: (message) => console.log(message),
+    error: (message) => console.error(message),
+  },
+})
+  .then(() => run(db, migrator, migrationFolder))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

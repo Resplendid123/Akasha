@@ -167,8 +167,12 @@ function generationSignals(analysis: SemanticAnalysis): string[] {
       concept.name,
     ]),
     ...analysis.relations.flatMap((relation) => [
-      relation.fromCanonicalKey,
-      relation.toCanonicalKey,
+      relation.from.canonicalKey,
+      relation.to.canonicalKey,
+      relation.from.name,
+      relation.to.name,
+      ...relation.from.alias,
+      ...relation.to.alias,
     ]),
     ...analysis.comparisons.flatMap((comparison) => [
       comparison.canonicalKey,

@@ -1402,6 +1402,169 @@ describe('KnowledgeRetrievalService', () => {
       ]),
     );
   });
+  it('returns entity-path evidence chunks with complete evidence lineage', async () => {
+    const direct = chunkCandidate(
+      'direct',
+      'page-seed',
+      ['source-seed'],
+      ['lexical'],
+      null,
+      'Alpha',
+    );
+    const evidence = chunkCandidate(
+      'evidence',
+      'page-evidence',
+      ['source-evidence'],
+      ['lexical'],
+      null,
+      'Beta evidence',
+    );
+    const path = {
+      edgeId: 'entity-edge',
+      relation: 'depends_on',
+      direction: 'outbound' as const,
+      from: {
+        kind: 'entity' as const,
+        canonicalKey: 'alpha',
+        id: 'node-a',
+        type: 'service',
+        alias: [],
+        name: 'Alpha',
+      },
+      to: {
+        kind: 'concept' as const,
+        canonicalKey: 'beta',
+        id: 'node-b',
+        type: 'technique',
+        alias: [],
+        name: 'Beta',
+      },
+      inputSourceRefs: [
+        {
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          sourcePageId: 'source-edge',
+          sourceVersion: '1',
+          contentHash: 'h',
+          sourceRange: { startOffset: 1, endOffset: 10 },
+        },
+      ],
+    };
+    const edge = {
+      ...path,
+      id: 'entity-edge',
+      type: 'semantic' as const,
+      weight: 1,
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      ownerSourcePageId: 'source-edge',
+      compilerRunId: 'run',
+      compileTaskId: 'task',
+      sourcePageIds: ['source-edge'],
+      traversalDirections: ['outbound' as const],
+    };
+    const capsuleRepo = {
+      findLexicalChunkCandidates: jest
+        .fn()
+        .mockImplementation((input) =>
+          Promise.resolve(
+            input.chunkIds?.includes('evidence')
+              ? [evidence]
+              : input.knowledgePageIds
+                ? []
+                : [direct],
+          ),
+        ),
+      findChunkSourcePageIdsByChunkIds: jest.fn().mockResolvedValue([
+        { chunkId: 'direct', sourcePageIds: ['source-seed'] },
+        { chunkId: 'evidence', sourcePageIds: ['source-evidence'] },
+      ]),
+      findGraphFrontierSourceIds: jest.fn().mockResolvedValue(['source-seed']),
+      findEntityGraphEdges: jest.fn().mockResolvedValue([edge]),
+      findEntityGraphEvidence: jest.fn().mockResolvedValue([
+        {
+          chunkId: 'evidence',
+          knowledgePageId: 'page-evidence',
+          paths: [path],
+        },
+      ]),
+    };
+    const authorization = {
+      filterReadableSources: jest
+        .fn()
+        .mockImplementation((input) => Promise.resolve(input.sourcePageIds)),
+    };
+    const service = createService({
+      capsuleRepo,
+      sourceAuthorization: authorization,
+    });
+    const result = await service.retrieve({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'Alpha',
+      spaceIds: ['space-1'],
+      candidateLimit: 4,
+    });
+    expect(result.chunks).toContainEqual(
+      expect.objectContaining({
+        chunk: expect.objectContaining({ id: 'evidence' }),
+        origin: 'graph',
+        graphPaths: [path],
+      }),
+    );
+    expect(capsuleRepo.findLexicalChunkCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({ chunkIds: ['evidence'] }),
+    );
+    expect(result.diagnostics.graph.edgeCounts.semantic).toBe(1);
+    expect(capsuleRepo.findEntityGraphEdges).toHaveBeenCalledTimes(1);
+  });
+
+  it('never maps an entity edge when only part of its required sources is readable', async () => {
+    const direct = chunkCandidate(
+      'direct',
+      'page-seed',
+      ['source-seed'],
+      ['lexical'],
+      null,
+      'Alpha',
+    );
+    const capsuleRepo = {
+      findLexicalChunkCandidates: jest.fn().mockResolvedValue([direct]),
+      findChunkSourcePageIdsByChunkIds: jest
+        .fn()
+        .mockResolvedValue([
+          { chunkId: 'direct', sourcePageIds: ['source-seed'] },
+        ]),
+      findGraphFrontierSourceIds: jest.fn().mockResolvedValue(['source-seed']),
+      findEntityGraphEdges: jest
+        .fn()
+        .mockResolvedValue([
+          { id: 'edge', sourcePageIds: ['source-seed', 'secret'] },
+        ]),
+      findEntityGraphEvidence: jest.fn().mockResolvedValue([]),
+    };
+    await createService({
+      capsuleRepo,
+      sourceAuthorization: {
+        filterReadableSources: jest
+          .fn()
+          .mockImplementation((input) =>
+            Promise.resolve(
+              input.sourcePageIds.filter((id) => id !== 'secret'),
+            ),
+          ),
+      },
+    }).retrieve({
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+      query: 'Alpha',
+      spaceIds: ['space-1'],
+      candidateLimit: 4,
+    });
+    expect(capsuleRepo.findEntityGraphEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({ edges: [] }),
+    );
+  });
 });
 
 function createService(
@@ -1433,6 +1596,8 @@ function createService(
     findChunkSourcePageIdsByChunkIds: jest.fn().mockResolvedValue([]),
     findGraphFrontierSourceIds: jest.fn().mockResolvedValue([]),
     findGraphTraversalEdges: jest.fn().mockResolvedValue([]),
+    findEntityGraphEdges: jest.fn().mockResolvedValue([]),
+    findEntityGraphEvidence: jest.fn().mockResolvedValue([]),
     ...overrides.capsuleRepo,
   };
   const groupUserRepo = {

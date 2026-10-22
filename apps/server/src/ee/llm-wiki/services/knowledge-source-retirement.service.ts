@@ -8,7 +8,6 @@ import { KnowledgeCapsuleRepo } from '@akasha/db/repos/llm-wiki/knowledge-capsul
 import { KnowledgeSourceRepo } from '@akasha/db/repos/llm-wiki/knowledge-source.repo';
 import { executeTx } from '@akasha/db/utils';
 import { KnowledgeImportService } from './knowledge-import.service';
-import { KnowledgeLinkResolverService } from './knowledge-link-resolver.service';
 
 const MAX_RETIREMENT_CAS_ATTEMPTS = 3;
 
@@ -30,7 +29,6 @@ export class KnowledgeSourceRetirementService {
     @InjectKysely() private readonly db: KyselyDB,
     private readonly contributionRepo: KnowledgeArtifactContributionRepo,
     private readonly importService: KnowledgeImportService,
-    private readonly linkResolver: KnowledgeLinkResolverService,
     private readonly capsuleRepo: KnowledgeCapsuleRepo,
     private readonly sourceRepo: KnowledgeSourceRepo,
   ) {}
@@ -95,13 +93,6 @@ export class KnowledgeSourceRetirementService {
         retiredSourceCount += 1;
         affectedSpaces.add(scope.spaceId);
       }
-    }
-
-    for (const spaceId of affectedSpaces) {
-      await this.linkResolver.resolveSpace({
-        workspaceId: input.workspaceId,
-        spaceId,
-      });
     }
 
     return {
@@ -179,6 +170,10 @@ export class KnowledgeSourceRetirementService {
         spaceId: input.spaceId,
         sourcePageIds: [input.sourcePageId],
       };
+      await this.capsuleRepo.replaceSourceGraphEdges(
+        { ...scope, edges: [], sources: [] },
+        trx,
+      );
       await this.sourceRepo.markSpaceSourcesStale(scope, trx);
       await this.capsuleRepo.markSourceArtifactsStaleBySourcePageIds(
         scope,

@@ -1,3 +1,7 @@
+import {
+  buildEntityGraph,
+  normalizeEntityKey,
+} from '../compiler/entity-graph';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { KnowledgeCompilationRepo } from '@akasha/db/repos/llm-wiki/knowledge-compilation.repo';
@@ -89,6 +93,12 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       compileTaskId,
     );
     const analysis = analysisStage.analysis;
+    const { graphEdges, graphNodes } = buildEntityGraph({
+      input,
+      source,
+      analysis,
+      warnings,
+    });
 
     const generationCatalog = this.catalogService
       ? await this.catalogService.findGenerationCandidates({
@@ -156,25 +166,6 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
           : normalizeCanonicalKey(artifact.canonicalKey),
     }));
     assertUniqueArtifacts(normalizedDrafts);
-    const idByKey = new Map<string, string>();
-    for (const entry of generationCatalog.entries) {
-      if (!entry.artifactId) continue;
-      const normalizedKey = normalizeCanonicalKey(entry.canonicalKey);
-      // Artifacts without a canonical key (for example source_summary) cannot
-      // be resolved as link targets, and would otherwise collide on "kind:".
-      if (!normalizedKey) continue;
-      idByKey.set(
-        artifactLookupKey(entry.artifactKind, normalizedKey),
-        entry.artifactId,
-      );
-    }
-    for (const artifact of normalizedDrafts) {
-      idByKey.set(
-        artifactLookupKey(artifact.kind, artifact.canonicalKey),
-        stableArtifactId(input, artifact.kind, artifact.canonicalKey),
-      );
-    }
-
     const compiledArtifacts = normalizedDrafts.map((artifact) =>
       toCompiledArtifact({
         input,
@@ -182,13 +173,11 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
         artifact,
         compilerRunId,
         compileTaskId,
-        idByKey,
         warnings,
       }),
     );
     const artifacts = enrichArtifactRelationships({
       artifacts: compiledArtifacts,
-      analysis,
       input: { ...input, catalog: generationCatalog.entries },
       source,
       warnings,
@@ -201,6 +190,8 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
       promptVersion: input.promptVersion,
       compilerRunId,
       artifacts,
+      graphEdges,
+      graphNodes,
       diagnostics: { warnings, errors: [] },
       resultQuality: 'normal',
     };
@@ -381,7 +372,6 @@ function toCompiledArtifact(input: {
   artifact: SemanticGeneratedArtifact;
   compilerRunId: string;
   compileTaskId: string;
-  idByKey: Map<string, string>;
   warnings: CompileDiagnostic[];
 }): CompiledKnowledgeArtifact {
   const artifactId = stableArtifactId(
@@ -450,28 +440,38 @@ function toCompiledArtifact(input: {
   const chunks = [
     ...structuralChunks,
     ...tableRowChunks,
+    ...(isSourceSummary
+      ? chunkKnowledgeSource({
+          pageTitle: input.source.title,
+          text: input.source.text,
+          stableKeyNamespace: 'source-evidence',
+        }).flatMap((parent) =>
+          parent.children.map((child) => ({
+            text: child.text,
+            stableKey: child.stableKey,
+            parentStableKey: null,
+            chunkRole: 'standalone' as const,
+            retrievalChannel: 'evidence' as const,
+            headingPath: parent.headingPath,
+            startOffset: child.startOffset,
+            endOffset: child.endOffset,
+            contentHash: child.quoteHash,
+            embeddingText: child.embeddingText,
+            inputSourceRefs: [
+              {
+                ...sourceRef,
+                sourceRange: {
+                  startOffset: child.startOffset,
+                  endOffset: child.endOffset,
+                },
+                quoteHash: child.quoteHash,
+              },
+            ],
+          })),
+        )
+      : []),
     ...attachmentEvidence.chunks,
   ];
-  const links = input.artifact.links.map((link) => {
-    const lookupKey = artifactLookupKey(
-      link.targetKind,
-      normalizeCanonicalKey(link.targetCanonicalKey),
-    );
-    const generatedTarget = input.idByKey.get(lookupKey);
-    return {
-      linkType: link.relation,
-      linkText: link.targetCanonicalKey,
-      targetSpaceId: input.input.spaceId,
-      targetArtifactKind: link.targetKind,
-      targetCanonicalKey: normalizeCanonicalKey(link.targetCanonicalKey),
-      toKnowledgePageId: generatedTarget,
-      isOpaque: false,
-      isDangling: !generatedTarget,
-      inputSourceRefs: [
-        sourceRefForEvidence(input.source, link.evidenceQuote, input.warnings),
-      ],
-    };
-  });
 
   return {
     artifactId,
@@ -490,8 +490,7 @@ function toCompiledArtifact(input: {
     inputSourceRefs: [sourceRef],
     parentSections: [...parentSections, ...attachmentEvidence.parentSections],
     chunks,
-    links,
-    graphEdges: [],
+    links: [],
     rawArtifactKey: `${input.artifact.kind}:${input.artifact.canonicalKey}`,
   };
 }
@@ -543,72 +542,16 @@ type RelationshipTarget = {
 
 function enrichArtifactRelationships(input: {
   artifacts: CompiledKnowledgeArtifact[];
-  analysis: SemanticAnalysis;
   input: CompileSpaceInput;
   source: KnowledgeSourceSnapshot;
   warnings: CompileDiagnostic[];
 }): CompiledKnowledgeArtifact[] {
   const sourceRef = toSourceRef(input.source);
   const targets = relationshipTargets(input.artifacts, input.input.catalog);
-  const targetsByCanonicalKey = groupByCanonicalKey(targets);
   const localTargets = targets.filter((target) => target.local);
   const summary = localTargets.find(
     (target) => target.artifactKind === 'source_summary',
   );
-  const semanticEdgesByArtifactId = new Map<
-    string,
-    NonNullable<CompiledKnowledgeArtifact['graphEdges']>
-  >();
-
-  for (const relation of input.analysis.relations) {
-    const from = uniqueCanonicalTarget(
-      targetsByCanonicalKey,
-      relation.fromCanonicalKey,
-    );
-    const to = uniqueCanonicalTarget(
-      targetsByCanonicalKey,
-      relation.toCanonicalKey,
-    );
-    if (!from?.local) continue;
-    if (
-      normalizeCanonicalKey(from.canonicalKey) ===
-      normalizeCanonicalKey(relation.toCanonicalKey)
-    ) {
-      continue;
-    }
-    if (to && from.artifactId === to.artifactId) continue;
-
-    const edges = semanticEdgesByArtifactId.get(from.artifactId) ?? [];
-    if (
-      edges.some(
-        (edge) =>
-          edge.targetCanonicalKey ===
-            normalizeCanonicalKey(relation.toCanonicalKey) &&
-          edge.relation === relation.relation,
-      )
-    ) {
-      continue;
-    }
-    edges.push({
-      ...(to
-        ? {
-            toKnowledgePageId: to.artifactId,
-            targetArtifactKind: to.artifactKind,
-          }
-        : {}),
-      targetCanonicalKey: normalizeCanonicalKey(relation.toCanonicalKey),
-      relation: relation.relation,
-      inputSourceRefs: [
-        sourceRefForEvidence(
-          input.source,
-          relation.evidenceQuote,
-          input.warnings,
-        ),
-      ],
-    });
-    semanticEdgesByArtifactId.set(from.artifactId, edges);
-  }
-
   return input.artifacts.map((artifact) => {
     const links = [...(artifact.links ?? [])];
     const linkedTargetIds = new Set(
@@ -628,7 +571,7 @@ function enrichArtifactRelationships(input: {
         links.push(
           directLink({
             target,
-            linkType: 'mentions',
+            linkType: 'summary_mention',
             linkText: target.title,
             sourceRef,
           }),
@@ -663,7 +606,6 @@ function enrichArtifactRelationships(input: {
     return {
       ...artifact,
       links,
-      graphEdges: semanticEdgesByArtifactId.get(artifact.artifactId) ?? [],
     };
   });
 }
@@ -705,43 +647,16 @@ function relationshipTargets(
   return [...targetsByLookupKey.values()];
 }
 
-function groupByCanonicalKey(
-  targets: RelationshipTarget[],
-): Map<string, RelationshipTarget[]> {
-  const grouped = new Map<string, RelationshipTarget[]>();
-  for (const target of targets) {
-    const key = normalizeCanonicalKey(target.canonicalKey);
-    grouped.set(key, [...(grouped.get(key) ?? []), target]);
-  }
-  return grouped;
-}
-
-function uniqueCanonicalTarget(
-  grouped: Map<string, RelationshipTarget[]>,
-  canonicalKey: string,
-): RelationshipTarget | undefined {
-  const targets = grouped.get(normalizeCanonicalKey(canonicalKey)) ?? [];
-  const distinct = [
-    ...new Map(targets.map((target) => [target.artifactId, target])).values(),
-  ];
-  return distinct.length === 1 ? distinct[0] : undefined;
-}
-
 function directLink(input: {
   target: RelationshipTarget;
-  linkType: string;
+  linkType: 'summary_mention' | 'catalog_mention';
   linkText: string;
   sourceRef: KnowledgeSourceRef;
 }): NonNullable<CompiledKnowledgeArtifact['links']>[number] {
   return {
     linkType: input.linkType,
     linkText: input.linkText,
-    targetSpaceId: input.sourceRef.spaceId,
-    targetArtifactKind: input.target.artifactKind,
-    targetCanonicalKey: input.target.canonicalKey,
     toKnowledgePageId: input.target.artifactId,
-    isOpaque: false,
-    isDangling: false,
     inputSourceRefs: [input.sourceRef],
   };
 }
@@ -760,32 +675,6 @@ function isAscii(value: string): boolean {
   return [...value].every((character) => character.codePointAt(0)! <= 0x7f);
 }
 
-function sourceRefForEvidence(
-  source: KnowledgeSourceSnapshot,
-  evidenceQuote: string | undefined,
-  warnings: CompileDiagnostic[],
-): KnowledgeSourceRef {
-  const base = toSourceRef(source);
-  if (!evidenceQuote) return base;
-  const startOffset = source.text.indexOf(evidenceQuote);
-  if (startOffset < 0) {
-    warnings.push({
-      code: 'evidence_quote_not_found',
-      message: 'Generated evidence quote was not found in the source snapshot.',
-      sourcePageId: source.sourcePageId,
-    });
-    return base;
-  }
-  return {
-    ...base,
-    sourceRange: {
-      startOffset,
-      endOffset: startOffset + evidenceQuote.length,
-    },
-    quoteHash: `sha256:${sha256(evidenceQuote)}`,
-  };
-}
-
 function toSourceRef(source: KnowledgeSourceSnapshot): KnowledgeSourceRef {
   return {
     workspaceId: source.workspaceId,
@@ -797,9 +686,7 @@ function toSourceRef(source: KnowledgeSourceSnapshot): KnowledgeSourceRef {
 }
 
 function normalizeCanonicalKey(value: string | null | undefined): string {
-  // Stored source_summary artifacts legitimately have a null
-  // canonicalKey, so guard against it rather than assuming a string.
-  return (value ?? '').trim().toLocaleLowerCase('en-US');
+  return normalizeEntityKey(value ?? '');
 }
 
 function artifactLookupKey(kind: string, canonicalKey: string): string {

@@ -525,8 +525,6 @@ function finalizer() {
   return {
     finalizeLeased: jest.fn().mockResolvedValue({
       outcome: 'completed',
-      resolvedCanonicalLinkCount: 0,
-      resolvedCanonicalGraphEdgeCount: 0,
     }),
   };
 }

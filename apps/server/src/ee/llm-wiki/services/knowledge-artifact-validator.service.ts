@@ -1,4 +1,6 @@
+import { CompiledEntityGraphEdge } from '../types/entity-graph.types';
 import { Injectable } from '@nestjs/common';
+import { normalizeEntityKey } from '../compiler/entity-graph';
 import { createHash } from 'node:crypto';
 import {
   CompiledKnowledgeArtifact,
@@ -37,6 +39,55 @@ export class KnowledgeArtifactValidatorService {
     }
 
     return { accepted, quarantined };
+  }
+
+  validateGraphEdges(
+    input: CompileSpaceInput,
+    edges: CompiledEntityGraphEdge[],
+  ): string[] {
+    const reasons: string[] = [];
+    const sources = new Map(
+      input.sources.map((source) => [
+        sourceKey(
+          source.sourcePageId,
+          source.sourceVersion,
+          source.contentHash,
+        ),
+        source,
+      ]),
+    );
+    for (const edge of edges) {
+      if (
+        edge.workspaceId !== input.workspaceId ||
+        edge.spaceId !== input.spaceId ||
+        !edge.relation?.trim() ||
+        !edge.inputSourceRefs?.length
+      )
+        reasons.push('graph edge identity is invalid');
+      for (const endpoint of [edge.from, edge.to]) {
+        if (
+          !endpoint ||
+          !endpoint.canonicalKey?.trim() ||
+          !endpoint.name?.trim() ||
+          !isUuid(endpoint.id) ||
+          !endpoint.type?.trim() ||
+          !Array.isArray(endpoint.alias) ||
+          endpoint.alias.some(
+            (alias) => typeof alias !== 'string' || !alias.trim(),
+          ) ||
+          endpoint.canonicalKey !== normalizeEntityKey(endpoint.canonicalKey)
+        )
+          reasons.push('graph edge endpoint is invalid');
+      }
+    }
+    validateChildSourceRefs(
+      'graph edge',
+      edges.map((edge) => edge.inputSourceRefs),
+      input,
+      sources,
+      reasons,
+    );
+    return reasons;
   }
 
   private validateArtifact(
@@ -118,37 +169,14 @@ export class KnowledgeArtifactValidatorService {
     validateChunkAttachmentOccurrences(artifact, input, reasons);
 
     for (const link of artifact.links ?? []) {
-      if (
-        link.linkType === 'cross_space_reference' &&
-        link.targetSpaceId !== input.spaceId &&
-        link.isOpaque !== true
-      ) {
-        reasons.push('cross-space references must be opaque');
-        break;
+      if (!['summary_mention','catalog_mention'].includes(link.linkType) || !isUuid(link.toKnowledgePageId) || typeof link.linkText!=='string') {
+        reasons.push('link target or type is invalid');
       }
     }
 
     validateChildSourceRefs(
       'link',
       (artifact.links ?? []).map((link) => link.inputSourceRefs),
-      input,
-      compileSourcesByKey,
-      reasons,
-    );
-
-    if (
-      (artifact.graphEdges ?? []).some(
-        (edge) =>
-          (!edge.toKnowledgePageId && !edge.targetCanonicalKey?.trim()) ||
-          (edge.toKnowledgePageId != null && !isUuid(edge.toKnowledgePageId)),
-      )
-    ) {
-      reasons.push('graph edge target identity is invalid');
-    }
-
-    validateChildSourceRefs(
-      'graph edge',
-      (artifact.graphEdges ?? []).map((edge) => edge.inputSourceRefs),
       input,
       compileSourcesByKey,
       reasons,

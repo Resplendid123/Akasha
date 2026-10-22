@@ -50,7 +50,7 @@ describe('OriginalDocumentCompilerRunner', () => {
       }),
     );
     expect(result.artifacts[0].links).toBeUndefined();
-    expect(result.artifacts[0].graphEdges).toBeUndefined();
+    expect(result.artifacts[0]).not.toHaveProperty('graphEdges');
     expect(result.artifacts[0].chunks?.[0]).toEqual(
       expect.objectContaining({
         retrievalChannel: 'evidence',

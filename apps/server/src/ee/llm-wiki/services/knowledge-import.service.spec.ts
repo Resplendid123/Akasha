@@ -10,6 +10,46 @@ import { KnowledgeEmbeddingError } from './knowledge-embedding-provider.service'
 import { CompileSpaceInput } from '../types/compiler-artifact.types';
 
 describe('KnowledgeImportService', () => {
+  it('rejects an edge absent from graphNodes before any publication', async () => {
+    const validateCompileResult = jest.fn();
+    const service = new KnowledgeImportService(
+      {} as never,
+      {} as never,
+      { validateCompileResult } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const endpoint = {
+      id: 'node-1',
+      kind: 'entity' as const,
+      canonicalKey: 'source:source-1:alpha',
+      name: 'Alpha',
+      type: 'service',
+      alias: [],
+    };
+    await expect(
+      service.importCompileResult({
+        input: compileInput(),
+        artifacts: [],
+        graphNodes: [],
+        graphEdges: [
+          {
+            workspaceId: 'workspace-1',
+            spaceId: 'space-1',
+            from: endpoint,
+            to: endpoint,
+            relation: 'uses',
+            inputSourceRefs: [],
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(KnowledgeCompilationValidationError);
+    expect(validateCompileResult).not.toHaveBeenCalled();
+  });
   it('requires contribution merge dependencies at application startup', () => {
     expect(
       Reflect.getMetadata(OPTIONAL_DEPS_METADATA, KnowledgeImportService) ?? [],
@@ -32,13 +72,17 @@ describe('KnowledgeImportService', () => {
         text: `chunk-${index}`,
       })),
     };
-    const capsuleRepo = { upsertCompiledArtifacts: jest.fn() };
+    const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
+      upsertCompiledArtifacts: jest.fn(),
+    };
     const materializer = createMaterializer();
     const embeddingProvider = { embedQuery: jest.fn() };
     const service = new KnowledgeImportService(
       {} as KnowledgeSourceRepo,
       capsuleRepo as unknown as KnowledgeCapsuleRepo,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],
@@ -83,6 +127,7 @@ describe('KnowledgeImportService', () => {
       })),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -93,6 +138,7 @@ describe('KnowledgeImportService', () => {
       {} as KnowledgeSourceRepo,
       capsuleRepo as unknown as KnowledgeCapsuleRepo,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],
@@ -149,6 +195,7 @@ describe('KnowledgeImportService', () => {
       })),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -164,6 +211,7 @@ describe('KnowledgeImportService', () => {
       {} as KnowledgeSourceRepo,
       capsuleRepo as unknown as KnowledgeCapsuleRepo,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],
@@ -213,12 +261,16 @@ describe('KnowledgeImportService', () => {
         stableKey: `table-row:0:${index}`,
       })),
     };
-    const capsuleRepo = { upsertCompiledArtifacts: jest.fn() };
+    const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
+      upsertCompiledArtifacts: jest.fn(),
+    };
     const embeddingProvider = { embedManyRequired: jest.fn() };
     const service = new KnowledgeImportService(
       {} as KnowledgeSourceRepo,
       capsuleRepo as unknown as KnowledgeCapsuleRepo,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],
@@ -281,6 +333,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -290,6 +343,7 @@ describe('KnowledgeImportService', () => {
         .mockResolvedValue({ id: 'artifact-1' }),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -413,6 +467,7 @@ describe('KnowledgeImportService', () => {
       chunks: [{ text: 'Prepared knowledge chunk.' }],
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -437,6 +492,7 @@ describe('KnowledgeImportService', () => {
       embedQuery: jest.fn(),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest.fn(),
       markArtifactsStaleByIds: jest.fn(),
       upsertCompiledArtifacts: jest.fn(),
@@ -494,6 +550,7 @@ describe('KnowledgeImportService', () => {
       chunks: [{ text: 'Enterprise retrieval' }],
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest.fn(),
       markArtifactsStaleByIds: jest.fn(),
       upsertCompiledArtifacts: jest.fn(),
@@ -508,6 +565,7 @@ describe('KnowledgeImportService', () => {
       } as never,
       capsuleRepo as never,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],
@@ -578,12 +636,9 @@ describe('KnowledgeImportService', () => {
       ],
       links: [
         {
-          linkType: 'cross_space_reference',
-          targetSpaceId: 'space-2',
-          targetArtifactKind: 'concept' as const,
-          targetCanonicalKey: 'external-page',
+          linkType: 'catalog_mention' as const,
+          toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
           linkText: 'External page',
-          isOpaque: true,
         },
       ],
       graphEdges: [
@@ -598,6 +653,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -607,6 +663,7 @@ describe('KnowledgeImportService', () => {
         .mockResolvedValue({ id: 'artifact-1' }),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -722,41 +779,12 @@ describe('KnowledgeImportService', () => {
               workspaceId: 'workspace-1',
               spaceId: 'space-1',
               fromKnowledgePageId: 'artifact-1',
-              toKnowledgePageId: null,
-              targetPageId: null,
-              targetSpaceId: 'space-2',
-              targetArtifactKind: 'concept',
-              targetCanonicalKey: 'external-page',
+              toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
               linkText: 'External page',
-              linkType: 'cross_space_reference',
-              isDangling: true,
-              compilerRunId: 'run-1',
-              compileTaskId: 'task-1',
+              linkType: 'catalog_mention' as const,
             }),
           ],
           linkSources: [
-            expect.objectContaining({
-              workspaceId: 'workspace-1',
-              sourcePageId: 'source-1',
-              sourceVersion: 'v1',
-              sourceRange: null,
-              quoteHash: null,
-              contentHash: 'hash-1',
-              provenanceKind: 'synthesis_lineage',
-            }),
-          ],
-          graphEdges: [
-            expect.objectContaining({
-              workspaceId: 'workspace-1',
-              spaceId: 'space-1',
-              fromKnowledgePageId: 'artifact-1',
-              toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
-              relation: 'depends_on',
-              compilerRunId: 'run-1',
-              compileTaskId: 'task-1',
-            }),
-          ],
-          graphEdgeSources: [
             expect.objectContaining({
               workspaceId: 'workspace-1',
               sourcePageId: 'source-1',
@@ -813,7 +841,8 @@ describe('KnowledgeImportService', () => {
       ],
       links: [
         {
-          linkType: 'same_space_reference',
+          linkType: 'catalog_mention' as const,
+          toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
           linkText: 'Source',
           inputSourceRefs: [rangedSourceRef],
         },
@@ -831,6 +860,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -840,6 +870,7 @@ describe('KnowledgeImportService', () => {
         .mockResolvedValue({ id: 'artifact-1' }),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -873,7 +904,6 @@ describe('KnowledgeImportService', () => {
       persisted.pageSources,
       persisted.chunkSources,
       persisted.linkSources,
-      persisted.graphEdgeSources,
     ]) {
       expect(sourceRows[0]).toEqual(
         expect.objectContaining({
@@ -890,10 +920,12 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest.fn(),
       upsertCompiledArtifacts: jest.fn(),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [],
         quarantined: [{ artifact: {}, reasons: ['bad'] }],
@@ -955,6 +987,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -962,6 +995,7 @@ describe('KnowledgeImportService', () => {
       upsertCompiledArtifacts: jest.fn().mockResolvedValue([]),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -1043,6 +1077,7 @@ describe('KnowledgeImportService', () => {
       }),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest.fn(),
       markArtifactsStaleByIds: jest.fn().mockResolvedValue(undefined),
       upsertCompiledArtifacts: jest.fn().mockResolvedValue([]),
@@ -1056,6 +1091,7 @@ describe('KnowledgeImportService', () => {
       stages.push(stage);
     });
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -1193,6 +1229,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn(),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -1215,6 +1252,7 @@ describe('KnowledgeImportService', () => {
       sourceRepo as never,
       capsuleRepo as never,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [],
           quarantined: [],
@@ -1260,6 +1298,10 @@ describe('KnowledgeImportService', () => {
       operationBudget: expect.anything(),
     });
     expect(publicationGuard).toHaveBeenCalledWith(trx);
+    expect(capsuleRepo.replaceSourceGraphEdges).toHaveBeenCalledWith(
+      expect.objectContaining({ edges: [], sourcePageIds: ['source-1'] }),
+      trx,
+    );
     expect(sourceRepo.markSpaceSourcesStale).toHaveBeenCalledWith(
       {
         workspaceId: 'workspace-1',
@@ -1319,6 +1361,7 @@ describe('KnowledgeImportService', () => {
     };
     const materializer = { materializeSourceUpdate: jest.fn() };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markArtifactsStaleByIds: jest.fn(),
       upsertCompiledArtifacts: jest.fn(),
     };
@@ -1332,6 +1375,7 @@ describe('KnowledgeImportService', () => {
       } as never,
       capsuleRepo as never,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [],
           quarantined: [
@@ -1390,6 +1434,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest.fn(),
       upsertCompiledArtifacts: jest.fn(),
     };
@@ -1397,6 +1442,7 @@ describe('KnowledgeImportService', () => {
       recordQuarantinedArtifacts: jest.fn().mockResolvedValue(undefined),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [],
         quarantined: [
@@ -1489,6 +1535,7 @@ describe('KnowledgeImportService', () => {
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -1496,6 +1543,7 @@ describe('KnowledgeImportService', () => {
       upsertCompiledArtifacts: jest.fn().mockResolvedValue(undefined),
     };
     const validator = {
+      validateGraphEdges: jest.fn().mockReturnValue([]),
       validateCompileResult: jest.fn().mockReturnValue({
         accepted: [artifact],
         quarantined: [],
@@ -1563,6 +1611,7 @@ describe('KnowledgeImportService', () => {
       chunks: [{ text: 'Image facts' }],
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest.fn(),
       markArtifactsStaleByIds: jest.fn(),
       upsertCompiledArtifacts: jest.fn().mockResolvedValue(undefined),
@@ -1575,6 +1624,7 @@ describe('KnowledgeImportService', () => {
       } as never,
       capsuleRepo as never,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],
@@ -1599,6 +1649,19 @@ describe('KnowledgeImportService', () => {
       expect.any(Array),
       trx,
     );
+    expect(capsuleRepo.replaceSourceGraphEdges).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'workspace-1',
+        spaceId: 'space-1',
+        sourcePageIds: ['source-1'],
+        edges: [],
+        sources: [],
+      }),
+      trx,
+    );
+    expect(
+      capsuleRepo.replaceSourceGraphEdges.mock.invocationCallOrder[0],
+    ).toBeLessThan(publicationComplete.mock.invocationCallOrder[0]);
     expect(publicationComplete).toHaveBeenCalledWith(trx);
     expect(
       capsuleRepo.upsertCompiledArtifacts.mock.invocationCallOrder[0],
@@ -1651,6 +1714,7 @@ describe('KnowledgeImportService', () => {
       ],
     };
     const capsuleRepo = {
+      replaceSourceGraphEdges: jest.fn().mockResolvedValue(undefined),
       markSourceArtifactsStaleBySourcePageIds: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -1661,6 +1725,7 @@ describe('KnowledgeImportService', () => {
       {} as KnowledgeSourceRepo,
       capsuleRepo as unknown as KnowledgeCapsuleRepo,
       {
+        validateGraphEdges: jest.fn().mockReturnValue([]),
         validateCompileResult: jest.fn().mockReturnValue({
           accepted: [artifact],
           quarantined: [],

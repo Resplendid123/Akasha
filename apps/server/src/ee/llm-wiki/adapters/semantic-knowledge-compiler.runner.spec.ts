@@ -470,23 +470,27 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     expect(cacheKeys.join(' ')).not.toContain('Error rate');
   });
 
-  it('maps generated evidence quotes back to exact source ranges', async () => {
+  it('keeps deterministic source chunks with exact evidence ranges', async () => {
     const runner = new TestSemanticKnowledgeCompilerRunner(
       createProvider(),
       createCompilationRepo(),
     );
-
     const result = await runner.compileSpace(compileInput());
-    const source = result.artifacts[0].links?.[0].inputSourceRefs?.[0];
-
-    expect(source?.sourceRange).toEqual({ startOffset: 15, endOffset: 52 });
-    expect(source?.quoteHash).toMatch(/^sha256:/);
+    const chunk = result.artifacts[0].chunks?.find((chunk) =>
+      chunk.stableKey?.startsWith('source-evidence:'),
+    );
+    const ref = chunk?.inputSourceRefs?.[0];
+    expect(ref?.sourceRange).toBeDefined();
     expect(
       compileInput().sources[0].text.slice(
-        source!.sourceRange!.startOffset,
-        source!.sourceRange!.endOffset,
+        ref!.sourceRange!.startOffset,
+        ref!.sourceRange!.endOffset,
       ),
-    ).toBe('records changes as an append-only log');
+    ).toBe(chunk?.text);
+    for (const stableKey of (result.artifacts[0].chunks ?? []).map(
+      (entry) => entry.stableKey,
+    ))
+      expect(stableKey?.length ?? 0).toBeLessThanOrEqual(64);
   });
 
   it('keeps generated direct links separate from semantic graph edges', async () => {
@@ -501,9 +505,9 @@ describe('SemanticKnowledgeCompilerRunner', () => {
 
     expect(summary.links?.[0]).toMatchObject({
       toKnowledgePageId: concept.artifactId,
-      linkType: 'explains',
+      linkType: 'summary_mention',
     });
-    expect(summary.graphEdges).toEqual([]);
+    expect(summary).not.toHaveProperty('graphEdges');
   });
 
   it('adds deterministic summary links when the model returns no links', async () => {
@@ -526,12 +530,9 @@ describe('SemanticKnowledgeCompilerRunner', () => {
 
     expect(summary.links).toEqual([
       expect.objectContaining({
-        linkType: 'mentions',
+        linkType: 'summary_mention',
         linkText: 'Event sourcing',
-        targetArtifactKind: 'concept',
-        targetCanonicalKey: 'event-sourcing',
         toKnowledgePageId: concept.artifactId,
-        isDangling: false,
       }),
     ]);
   });
@@ -569,21 +570,38 @@ describe('SemanticKnowledgeCompilerRunner', () => {
       expect.objectContaining({
         linkType: 'catalog_mention',
         linkText: 'Existing concept',
-        targetArtifactKind: 'concept',
-        targetCanonicalKey: 'existing-concept',
         toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
       }),
     );
   });
 
-  it('materializes resolvable Stage 1 relations as semantic graph edges', async () => {
+  it('retains Stage 1 relations even when Stage 2 omits both endpoint pages', async () => {
     const provider = createProvider();
     provider.analyze.mockResolvedValueOnce({
       ...analysis,
+      concepts: [
+        ...analysis.concepts,
+        {
+          canonicalKey: 'log',
+          name: 'Log',
+          description: 'Log',
+          evidenceQuotes: [],
+        },
+      ],
       relations: [
         {
-          fromCanonicalKey: 'event-sourcing',
-          toCanonicalKey: 'existing-concept',
+          from: {
+            canonicalKey: 'event-sourcing',
+            name: 'event-sourcing',
+            type: 'technique',
+            alias: [],
+          },
+          to: {
+            canonicalKey: 'log',
+            name: 'log',
+            type: 'technique',
+            alias: [],
+          },
           relation: 'depends on',
           evidenceQuote: 'append-only log',
         },
@@ -591,67 +609,61 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     });
     provider.generate.mockResolvedValueOnce({
       ...generation,
-      artifacts: generation.artifacts.map((artifact) => ({
-        ...artifact,
-        links: [],
-      })),
+      artifacts: [generation.artifacts[0]],
     });
     const runner = new TestSemanticKnowledgeCompilerRunner(
       provider,
       createCompilationRepo(),
     );
-    const input = compileInput();
-    input.catalog = [
-      {
-        artifactId: '22222222-2222-4222-8222-222222222222',
-        artifactKind: 'concept',
-        canonicalKey: 'existing-concept',
-        title: 'Existing concept',
-      },
-    ];
-
-    const result = await runner.compileSpace(input);
-    const concept = result.artifacts.find(
-      (artifact) => artifact.canonicalKey === 'event-sourcing',
-    );
-
-    expect(concept?.graphEdges).toEqual([
+    const result = await runner.compileSpace(compileInput());
+    expect(result.artifacts).toHaveLength(1);
+    expect(result.graphEdges).toEqual([
       expect.objectContaining({
-        toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
+        from: expect.objectContaining({
+          canonicalKey: 'event-sourcing',
+        }),
+        to: expect.objectContaining({ canonicalKey: 'log' }),
         relation: 'depends on',
+        inputSourceRefs: [
+          expect.objectContaining({
+            sourceRange: expect.any(Object),
+            quoteHash: expect.stringMatching(/^sha256:/),
+          }),
+        ],
       }),
     ]);
   });
 
-  it('retains unresolved Stage 1 relations as dangling semantic graph edges', async () => {
+  it('derives graph nodes from relation endpoints absent from the page analysis lists', async () => {
     const provider = createProvider();
     provider.analyze.mockResolvedValueOnce({
       ...analysis,
+      entities: [],
+      concepts: [],
       relations: [
         {
-          fromCanonicalKey: 'event-sourcing',
-          toCanonicalKey: 'future-concept',
-          relation: 'depends on',
-          evidenceQuote: 'append-only log',
+          from: {
+            canonicalKey: 'a',
+            name: 'Alpha',
+            type: 'service',
+            alias: ['A'],
+          },
+          to: {
+            canonicalKey: 'b',
+            name: 'Beta',
+            type: 'service',
+            alias: [],
+          },
+          relation: 'calls',
         },
       ],
     });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
+    const result = await new TestSemanticKnowledgeCompilerRunner(
       provider,
       createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(compileInput());
-    const concept = result.artifacts.find(
-      (artifact) => artifact.canonicalKey === 'event-sourcing',
-    );
-
-    expect(concept?.graphEdges).toEqual([
-      expect.objectContaining({
-        targetCanonicalKey: 'future-concept',
-        relation: 'depends on',
-      }),
-    ]);
+    ).compileSpace(compileInput());
+    expect(result.graphNodes).toHaveLength(2);
+    expect(result.graphEdges?.[0].from.id).toBe(result.graphNodes?.[0].id);
   });
 
   it('materializes generated Markdown headings as parented structural chunks', async () => {
@@ -679,85 +691,47 @@ describe('SemanticKnowledgeCompilerRunner', () => {
     ).toEqual([['Architecture'], ['Architecture', 'Replay']]);
     expect(summary.chunks?.length).toBeGreaterThan(0);
     expect(
-      summary.chunks?.every(
-        (chunk) => chunk.chunkRole === 'child' && chunk.parentStableKey,
-      ),
+      summary.chunks
+        ?.filter((chunk) => !chunk.stableKey?.startsWith('source-evidence:'))
+        .every((chunk) => chunk.chunkRole === 'child' && chunk.parentStableKey),
     ).toBe(true);
   });
 
-  it('keeps unresolved canonical links dangling without inventing a foreign key', async () => {
-    const provider = createProvider();
-    provider.generate.mockResolvedValueOnce({
-      ...generation,
-      artifacts: [
-        {
-          ...generation.artifacts[0],
-          links: [
-            {
-              ...generation.artifacts[0].links[0],
-              targetCanonicalKey: 'missing-concept',
-            },
-          ],
-        },
-        generation.artifacts[1],
-      ],
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
+  it('ignores model links and creates only resolved deterministic links', async () => {
+    const result = await new TestSemanticKnowledgeCompilerRunner(
+      createProvider(),
       createCompilationRepo(),
-    );
-
-    const result = await runner.compileSpace(compileInput());
-    const summary = result.artifacts[0];
-
-    expect(summary.links?.[0]).toMatchObject({
-      toKnowledgePageId: undefined,
-      linkText: 'missing-concept',
-      targetArtifactKind: 'concept',
-      targetCanonicalKey: 'missing-concept',
-      isDangling: true,
-    });
-    expect(summary.graphEdges).toEqual([]);
+    ).compileSpace(compileInput());
+    expect(result.artifacts[0].links).toEqual([
+      expect.objectContaining({
+        linkType: 'summary_mention',
+        toKnowledgePageId: result.artifacts[1].artifactId,
+      }),
+    ]);
+    expect(result.artifacts[0].links?.[0]).not.toHaveProperty('isDangling');
   });
 
-  it('resolves cross-page links against the existing active catalog', async () => {
-    const provider = createProvider();
-    provider.generate.mockResolvedValueOnce({
-      ...generation,
-      artifacts: [
-        {
-          ...generation.artifacts[0],
-          links: [
-            {
-              ...generation.artifacts[0].links[0],
-              targetCanonicalKey: 'existing-concept',
-            },
-          ],
-        },
-        generation.artifacts[1],
-      ],
-    });
-    const runner = new TestSemanticKnowledgeCompilerRunner(
-      provider,
-      createCompilationRepo(),
-    );
+  it('does not let a model link resolve an unrelated catalog page', async () => {
     const input = compileInput();
     input.catalog = [
       {
         artifactId: '22222222-2222-4222-8222-222222222222',
         artifactKind: 'concept',
         canonicalKey: 'existing-concept',
-        title: 'Existing concept',
+        title: 'Unmentioned catalog page',
       },
     ];
-
-    const result = await runner.compileSpace(input);
-
-    expect(result.artifacts[0].links?.[0]).toMatchObject({
-      toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
-      isDangling: false,
-    });
-    expect(result.artifacts[0].graphEdges).toEqual([]);
+    const result = await new TestSemanticKnowledgeCompilerRunner(
+      createProvider(),
+      createCompilationRepo(),
+    ).compileSpace(input);
+    expect(
+      result.artifacts
+        .flatMap((artifact) => artifact.links ?? [])
+        .some(
+          (link) => link.toKnowledgePageId === input.catalog![0].artifactId,
+        ),
+    ).toBe(false);
   });
 
   it('rejects batches, empty sources, and generation without a source summary', async () => {

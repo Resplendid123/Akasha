@@ -58,6 +58,14 @@ export class KnowledgeRetrievalRankerService {
         const previous = merged.get(chunkId);
         merged.set(chunkId, {
           ...(previous ?? candidate),
+          graphPaths: [
+            ...new Map(
+              [
+                ...(previous?.graphPaths ?? []),
+                ...(candidate.graphPaths ?? []),
+              ].map((path) => [path.edgeId, path]),
+            ).values(),
+          ],
           sourcePageIds: unique([
             ...(previous?.sourcePageIds ?? []),
             ...candidate.sourcePageIds,

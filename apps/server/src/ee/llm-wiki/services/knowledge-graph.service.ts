@@ -144,7 +144,7 @@ export class KnowledgeGraphService {
       (source) => source.linkId,
     );
     const linkEdges = graph.links
-      .filter((link) => link.linkType !== 'catalog_entry')
+      .filter((link) => link.linkType !== 'catalog_mention')
       .filter((link) => link.toKnowledgePageId)
       .filter(
         (link) =>
@@ -165,37 +165,11 @@ export class KnowledgeGraphService {
         reasons: ['direct-link' as const],
       }));
 
-    const graphEdgeSourcesByEdgeId = groupBy(
-      graph.graphEdgeSources,
-      (source) => source.graphEdgeId,
-    );
-    const semanticEdges = graph.graphEdges
-      .filter((edge) => edge.relation !== 'catalog_entry')
-      .filter(
-        (edge) =>
-          edge.toKnowledgePageId !== null &&
-          visiblePageIds.has(edge.fromKnowledgePageId) &&
-          visiblePageIds.has(edge.toKnowledgePageId) &&
-          allSourcesReadable(
-            graphEdgeSourcesByEdgeId.get(edge.id) ?? [],
-            readableSourceSet,
-          ),
-      )
-      .map((edge) => ({
-        id: edge.id,
-        from: edge.fromKnowledgePageId,
-        to: edge.toKnowledgePageId,
-        type: 'semantic' as const,
-        label: edge.relation,
-        weight: 2,
-        reasons: ['semantic-edge' as const],
-      }));
-
     const derivedSemanticEdges = buildDerivedSemanticEdges({
       pages: visiblePages,
       pageSourcesByPageId,
       directEdges: linkEdges,
-      explicitSemanticEdges: semanticEdges,
+      explicitSemanticEdges: [],
     });
 
     const sectionEdges = visibleSections.map((section) => ({
@@ -208,11 +182,7 @@ export class KnowledgeGraphService {
       reasons: ['section-membership' as const],
     }));
 
-    const relationshipEdges = [
-      ...linkEdges,
-      ...semanticEdges,
-      ...derivedSemanticEdges,
-    ];
+    const relationshipEdges = [...linkEdges, ...derivedSemanticEdges];
     const edges = [...relationshipEdges, ...sectionEdges];
     const degreeByNodeId = new Map<string, number>();
     for (const edge of edges) {
@@ -230,10 +200,7 @@ export class KnowledgeGraphService {
         (relationshipDegreeByPageId.get(edge.to) ?? 0) + 1,
       );
     }
-    const communityByPageId = assignCommunities(
-      visiblePages,
-      relationshipEdges,
-    );
+    const communityByPageId = assignCommunities(visiblePages, relationshipEdges);
     const pageNodes = visiblePages.map((page) => ({
       id: page.id,
       title: page.title,
@@ -278,7 +245,7 @@ export class KnowledgeGraphService {
         visiblePages,
         relationshipDegreeByPageId,
         communityByPageId,
-        [...linkEdges, ...semanticEdges],
+        linkEdges,
       ),
     };
   }

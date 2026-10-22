@@ -36,6 +36,7 @@ import {
   KnowledgeArtifactContributions,
   KnowledgeCompilationAttempts,
   KnowledgeChunkSources,
+  KnowledgeGraphNodes,
   KnowledgeGraphEdges,
   KnowledgeGraphEdgeSources,
   KnowledgeImageExtractions,
@@ -201,6 +202,8 @@ export type UpdatableKnowledgeLink = Updateable<Omit<KnowledgeLinks, 'id'>>;
 export type KnowledgeLinkSource = Selectable<KnowledgeLinkSources>;
 export type InsertableKnowledgeLinkSource = Insertable<KnowledgeLinkSources>;
 
+export type KnowledgeGraphNode = Selectable<KnowledgeGraphNodes>;
+export type InsertableKnowledgeGraphNode = Insertable<KnowledgeGraphNodes>;
 export type KnowledgeGraphEdge = Selectable<KnowledgeGraphEdges>;
 export type InsertableKnowledgeGraphEdge = Insertable<KnowledgeGraphEdges>;
 export type UpdatableKnowledgeGraphEdge = Updateable<

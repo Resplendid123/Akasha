@@ -47,28 +47,22 @@ describe('knowledge compilation clean cutover', () => {
 
     expect(existsSync(aggregator)).toBe(false);
     expect(module).not.toContain('KnowledgeSpaceAggregatorService');
-    expect(finalizer).toContain('resolveSpace');
+    expect(finalizer).not.toContain('resolveSpace');
+    expect(finalizer).toContain('isLeaseActive');
     expect(finalizer).not.toContain('KNOWLEDGE_COMPILER_LLM_PROVIDER');
     expect(finalizer).not.toContain('KnowledgeVectorIndexService');
     expect(finalizer).not.toContain('KnowledgeArtifactCatalogService');
   });
 
-  it('ships a guarded migration for the removed Space overview model', () => {
+  it('keeps the Space overview retirement guard in the schema baseline', () => {
     const source = readFileSync(
-      join(
-        __dirname,
-        '../../database/migrations/20260923T130000-retire-legacy-knowledge-overviews.ts',
-      ),
+      join(__dirname, '../../database/migrations/20261021T000000-baseline-v1.sql'),
       'utf8',
     );
 
-    expect(source).toContain("page_type = 'overview'");
-    expect(source).toContain("compile_scope = 'space'");
-    expect(source).toContain("canonical_key = 'overview'");
     expect(source).toContain('chk_knowledge_pages_active_page_publication');
-    expect(source).toContain(
-      'Active legacy knowledge overview survived retirement',
-    );
+    expect(source).toContain("'overview'");
+    expect(source).toContain("'page'::text");
     expect(source).not.toContain('TRUNCATE');
   });
 

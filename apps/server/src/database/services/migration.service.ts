@@ -6,6 +6,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 import { MIGRATION_STATEMENT_TIMEOUT_MS } from '../database-postgres-options';
+import { adoptSquashedBaseline } from '../adopt-squashed-baseline';
 
 @Injectable()
 export class MigrationService {
@@ -22,6 +23,7 @@ export class MigrationService {
       .execute(async (db) => {
         await this.setStatementTimeout(db, MIGRATION_STATEMENT_TIMEOUT_MS);
         try {
+          await this.adoptSquashedBaseline(db);
           return await this.createMigrator(db).migrateToLatest();
         } finally {
           await this.setStatementTimeout(
@@ -32,6 +34,17 @@ export class MigrationService {
       });
 
     this.reportMigrationResult({ error, results });
+  }
+
+  protected async adoptSquashedBaseline(db: KyselyDB): Promise<void> {
+    await adoptSquashedBaseline({
+      db,
+      migrator: this.createMigrator(db),
+      logger: {
+        log: (message) => this.logger.log(message),
+        error: (message) => this.logger.error(message),
+      },
+    });
   }
 
   protected createMigrator(db: KyselyDB): Migrator {

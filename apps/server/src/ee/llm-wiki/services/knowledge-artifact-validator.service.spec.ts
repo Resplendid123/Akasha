@@ -42,7 +42,10 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines artifacts outside the compile scope', () => {
     const artifact = { ...validArtifact(), spaceId: 'space-2' };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined).toMatchObject([
@@ -56,7 +59,10 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines artifacts whose artifact id cannot be stored as a UUID', () => {
     const artifact = { ...validArtifact(), artifactId: 'not-a-uuid' };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -72,7 +78,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       inputSourceRefs: [],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -114,7 +123,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -159,7 +171,8 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
       links: [
         {
-          linkType: 'same_space_reference',
+          linkType: 'catalog_mention' as const,
+          toKnowledgePageId:'22222222-2222-4222-8222-222222222222',
           linkText: 'Bad link',
           inputSourceRefs: [outsideSourceRef()],
         },
@@ -182,7 +195,6 @@ describe('KnowledgeArtifactValidatorService', () => {
     expect(result.quarantined[0].reasons).toEqual([
       'chunk source is not in compile input',
       'link source is not in compile input',
-      'graph edge source is not in compile input',
     ]);
   });
 
@@ -196,7 +208,8 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
       links: [
         {
-          linkType: 'same_space_reference',
+          linkType: 'catalog_mention' as const,
+          toKnowledgePageId:'22222222-2222-4222-8222-222222222222',
           linkText: 'Link without lineage',
         },
       ],
@@ -217,7 +230,6 @@ describe('KnowledgeArtifactValidatorService', () => {
     expect(result.quarantined[0].reasons).toEqual([
       'chunk lineage is incomplete',
       'link lineage is incomplete',
-      'graph edge lineage is incomplete',
     ]);
   });
 
@@ -302,51 +314,59 @@ describe('KnowledgeArtifactValidatorService', () => {
     });
   });
 
-  it('quarantines graph edges whose target compiled page id is not a UUID', () => {
-    const artifact = {
-      ...validArtifact(),
-      graphEdges: [
-        {
-          toKnowledgePageId: 'not-a-uuid',
-          relation: 'depends_on',
-          inputSourceRefs: [sourceRef()],
+  it('validates entity graph endpoints and lineage separately from page artifacts', () => {
+    const reasons = service.validateGraphEdges(input, [
+      {
+        ...input,
+        from: {
+          canonicalKey: 'bare-name',
+          id: 'invalid',
+          type: 'service',
+          alias: [],
+          name: 'A',
         },
-      ],
-    };
-
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
-    });
-
-    expect(result.accepted).toEqual([]);
-    expect(result.quarantined[0].reasons).toEqual([
-      'graph edge target identity is invalid',
+        to: {
+          canonicalKey: 'bare-name',
+          id: 'invalid',
+          type: 'service',
+          alias: [],
+          name: 'B',
+        },
+        relation: 'depends_on',
+        inputSourceRefs: [outsideSourceRef()],
+      },
     ]);
+    expect(reasons).toContain('graph edge endpoint is invalid');
+    expect(reasons).toContain('graph edge source is not in compile input');
   });
 
-  it('quarantines cross-space links that materialize target content', () => {
-    const artifact = {
-      ...validArtifact(),
-      links: [
-        {
-          linkType: 'cross_space_reference',
-          targetSpaceId: 'space-2',
-          isOpaque: false,
-          inputSourceRefs: [sourceRef()],
-        },
-      ],
-    };
-
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
+  it('accepts space-scoped endpoint keys and rejects unnormalized ones', () => {
+    const endpoint = (canonicalKey: string, id: string) => ({
+      canonicalKey,
+      id,
+      type: 'service',
+      alias: [],
+      name: 'A',
+    });
+    const edge = (fromKey: string, toKey: string) => ({
+      ...input,
+      from: endpoint(fromKey, '11111111-1111-4111-8111-111111111111'),
+      to: endpoint(toKey, '22222222-2222-4222-8222-222222222222'),
+      relation: 'depends_on',
+      inputSourceRefs: [sourceRef()],
     });
 
-    expect(result.accepted).toEqual([]);
-    expect(result.quarantined[0].reasons).toEqual([
-      'cross-space references must be opaque',
-    ]);
+    expect(
+      service.validateGraphEdges(input, [edge('lisa_raymond', 'grand_slam')]),
+    ).not.toContain('graph edge endpoint is invalid');
+    expect(
+      service.validateGraphEdges(input, [edge('Lisa_Raymond', 'grand_slam')]),
+    ).toContain('graph edge endpoint is invalid');
+  });
+
+  it('rejects unresolved targets and unsupported link types',()=>{
+    const artifact={...validArtifact(),links:[{linkType:'catalog_mention' as const,toKnowledgePageId:'invalid',linkText:'Target',inputSourceRefs:[sourceRef()]}]};
+    expect(service.validateCompileResult({input,artifacts:[artifact]}).quarantined[0].reasons).toContain('link target or type is invalid');
   });
 
   it('accepts an attachment relation that matches a reconstructed source block', () => {

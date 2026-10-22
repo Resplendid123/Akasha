@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getKnowledgeGraph,
   cancelKnowledgeCompilationRun,
   compileKnowledgeSpaces,
   forceRebuildKnowledgeSpace,
@@ -15,6 +16,62 @@ import {
 } from "./knowledge-service";
 
 describe("knowledge service", () => {
+  it("normalizes graph nodes to page and section kinds only", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          nodes: [
+            {
+              id: "kp-1",
+              kind: "page",
+              title: "Alpha",
+              spaceId: "space",
+              degree: 1,
+            },
+            {
+              id: "section:s-1",
+              kind: "section",
+              title: "Alpha / Intro",
+              parentPageId: "kp-1",
+              spaceId: "space",
+              degree: 1,
+            },
+            {
+              id: "node:unknown",
+              kind: "entity",
+              title: "Alpha",
+              spaceId: "space",
+              degree: 1,
+            },
+          ],
+          edges: [
+            {
+              id: "edge",
+              from: "kp-1",
+              to: "section:s-1",
+              type: "contains",
+              label: "包含章节",
+            },
+          ],
+          insights: {},
+        }),
+      }),
+    );
+    const result = await getKnowledgeGraph({ spaceId: "space" });
+    expect(result.nodes.map((node) => node.kind)).toEqual([
+      "page",
+      "section",
+      "page",
+    ]);
+    expect(result.edges[0]).toMatchObject({
+      type: "contains",
+      from: "kp-1",
+      to: "section:s-1",
+    });
+  });
+
   afterEach(() => vi.restoreAllMocks());
 
   it("normalizes requestRuns dispositions from the multi-Space endpoint", async () => {

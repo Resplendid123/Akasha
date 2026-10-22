@@ -72,7 +72,7 @@ describe('semantic compiler prompts', () => {
     expect(messages.system).toContain('entity');
     expect(messages.system).toContain('concept');
     expect(messages.system).toContain('comparison');
-    expect(messages.system).toContain('evidenceQuote');
+    expect(messages.system).toContain('Never generate links or graphEdges');
     expect(messages.system).toContain('same language');
     expect(messages.system).toContain('Do not generate overview');
     expect(messages.system).toContain(

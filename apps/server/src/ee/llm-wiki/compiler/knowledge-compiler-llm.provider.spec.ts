@@ -41,9 +41,6 @@ const generationJson = JSON.stringify({
       canonicalKey: 'page-1',
       title: 'Summary',
       markdown: 'Summary body',
-      claims: [],
-      links: [],
-      tags: [],
     },
   ],
 });
@@ -634,7 +631,6 @@ describe('ConfiguredKnowledgeCompilerLlmProvider', () => {
           canonicalKey: 'source-page-1',
           title: 'Source summary',
           markdown: 'Grounded summary body.',
-          links: [],
         },
       ],
       compilerRecovery: 'local_repair',
