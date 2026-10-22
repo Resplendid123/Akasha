@@ -9,10 +9,6 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/hooks/use-user-role", () => ({
-  default: () => ({ isAdmin: false }),
-}));
-
 vi.mock("@/features/space/components/space-filter-menu", () => ({
   SpaceFilterMenu: ({
     children,

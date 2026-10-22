@@ -1,13 +1,11 @@
 import { Button } from "@mantine/core";
 import {
-  IconActivityHeartbeat,
   IconBuilding,
   IconChevronDown,
   IconTopologyStar3,
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import useUserRole from "@/hooks/use-user-role";
 import { SpaceFilterMenu } from "@/features/space/components/space-filter-menu";
 import classes from "../styles/ai-chat.module.css";
 
@@ -29,7 +27,6 @@ export default function KnowledgeScopeBar({
   showManagementLinks,
 }: Props) {
   const { t } = useTranslation();
-  const { isAdmin } = useUserRole();
   const selectedSpace = selectedSpaceId
     ? options.find((option) => option.value === selectedSpaceId)
     : undefined;
@@ -80,18 +77,6 @@ export default function KnowledgeScopeBar({
           >
             {t("Knowledge graph")}
           </Button>
-          {isAdmin && (
-            <Button
-              component={Link}
-              to="/knowledge/admin"
-              variant="subtle"
-              color="gray"
-              size="compact-sm"
-              leftSection={<IconActivityHeartbeat size={15} />}
-            >
-              {t("Diagnostics")}
-            </Button>
-          )}
         </div>
       )}
     </div>
