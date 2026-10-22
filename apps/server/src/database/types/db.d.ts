@@ -315,7 +315,6 @@ export interface KnowledgeChunks {
   createdAt: Generated<Timestamp>;
   embedding: string | null;
   embeddingDimensions: number | null;
-  embeddingLegacy: Json | null;
   embeddingModel: string | null;
   embeddingProfile: string | null;
   endOffset: number | null;
