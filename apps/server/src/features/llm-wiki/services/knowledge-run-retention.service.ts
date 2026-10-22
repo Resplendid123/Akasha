@@ -8,11 +8,30 @@ const RUN_RETENTION_DAYS = 30;
 const RUN_IMAGE_BATCH_SIZE = 1_000;
 const RUN_PAGE_BATCH_SIZE = 1_000;
 const RUN_BATCH_SIZE = 100;
+// Stale KnowledgePages keep their stable id so a later compile can revive them
+// in place. After this grace period revival is unlikely and the rows (plus
+// their cascaded chunks/sections/links/edges) are only dead weight.
+const STALE_ARTIFACT_RETENTION_DAYS = 30;
+// Each KnowledgePage cascades to roughly ten child rows; keep transactions short.
+const STALE_ARTIFACT_BATCH_SIZE = 200;
 
 export type KnowledgeRunRetentionBatchResult = {
   deletedImages: number;
   deletedPages: number;
   deletedRuns: number;
+  durationMs: number;
+};
+
+export type KnowledgeStaleArtifactPurgeResult = {
+  deletedKnowledgePages: number;
+  danglingLinks: number;
+  danglingEdges: number;
+  /**
+   * True when this batch claimed nothing but eligible pages still exist, i.e.
+   * they are locked by a concurrent purger. Callers should not treat the batch
+   * as "backlog empty".
+   */
+  remainingLocked: boolean;
   durationMs: number;
 };
 
@@ -102,6 +121,102 @@ export class KnowledgeRunRetentionService {
       durationMs: Date.now() - startedAt,
     };
   }
+
+  /**
+   * Hard-deletes KnowledgePages that have been stale for longer than the grace
+   * period. Child rows go through FK cascades. Active inbound links/edges are
+   * first turned back into dangling canonical references: otherwise the edge
+   * FK would cascade-delete them and the link FK would null the target while
+   * leaving is_dangling=false, so resolveCanonicalReferences could never
+   * re-attach them when the concept is regenerated.
+   */
+  async purgeStaleArtifactsBatch(): Promise<KnowledgeStaleArtifactPurgeResult> {
+    const startedAt = Date.now();
+    const cutoff = new Date(
+      startedAt - STALE_ARTIFACT_RETENTION_DAYS * 24 * 60 * 60 * 1_000,
+    );
+
+    return executeTx(this.db, async (trx) => {
+      const candidates = await sql<{ id: string }>`
+        SELECT kp.id
+        FROM knowledge_pages AS kp
+        WHERE ${eligibleStalePage(cutoff)}
+        ORDER BY kp.stale_at ASC, kp.id ASC
+        LIMIT ${STALE_ARTIFACT_BATCH_SIZE}
+        FOR UPDATE OF kp SKIP LOCKED
+      `.execute(trx);
+      if (candidates.rows.length === 0) {
+        // SKIP LOCKED cannot tell "nothing eligible" from "every eligible row
+        // is held by another purger". Check without locking so callers only
+        // stop when the backlog is actually empty.
+        const remaining = await sql<{ exists: boolean }>`
+          SELECT EXISTS (
+            SELECT 1 FROM knowledge_pages AS kp
+            WHERE ${eligibleStalePage(cutoff)}
+          ) AS exists
+        `.execute(trx);
+        return {
+          deletedKnowledgePages: 0,
+          danglingLinks: 0,
+          danglingEdges: 0,
+          remainingLocked: remaining.rows[0]?.exists === true,
+          durationMs: Date.now() - startedAt,
+        };
+      }
+      const ids = sql.join(candidates.rows.map((row) => sql`${row.id}`));
+
+      // Stale inbound rows are left alone: they are purged with their own
+      // stale owner page or rewritten when that page is republished.
+      const danglingLinks = await sql<{ id: string }>`
+        UPDATE knowledge_links
+        SET is_dangling = true, to_knowledge_page_id = NULL
+        WHERE to_knowledge_page_id IN (${ids})
+          AND stale_at IS NULL
+        RETURNING id
+      `.execute(trx);
+      const danglingEdges = await sql<{ id: string }>`
+        UPDATE knowledge_graph_edges
+        SET is_dangling = true, to_knowledge_page_id = NULL
+        WHERE to_knowledge_page_id IN (${ids})
+          AND stale_at IS NULL
+        RETURNING id
+      `.execute(trx);
+
+      // Re-check staleness: the rows are locked, but keep the delete predicate
+      // self-contained so it can never remove a revived page.
+      const deleted = await sql<{ id: string }>`
+        DELETE FROM knowledge_pages
+        WHERE id IN (${ids})
+          AND stale_at IS NOT NULL
+          AND stale_at < ${cutoff}
+        RETURNING id
+      `.execute(trx);
+
+      return {
+        deletedKnowledgePages: deleted.rows.length,
+        danglingLinks: danglingLinks.rows.length,
+        danglingEdges: danglingEdges.rows.length,
+        remainingLocked: false,
+        durationMs: Date.now() - startedAt,
+      };
+    });
+  }
+}
+
+// Spaces with a live Run are skipped: only Runs publish (and therefore revive)
+// KnowledgePages, so this avoids racing a concurrent publish.
+function eligibleStalePage(cutoff: Date) {
+  return sql<boolean>`
+    kp.stale_at IS NOT NULL
+    AND kp.stale_at < ${cutoff}
+    AND NOT EXISTS (
+      SELECT 1
+      FROM knowledge_space_compile_runs AS run
+      WHERE run.workspace_id = kp.workspace_id
+        AND run.space_id = kp.space_id
+        AND run.status IN ('queued', 'compiling', 'aggregating')
+    )
+  `;
 }
 
 function eligibleRun(cutoff: Date) {

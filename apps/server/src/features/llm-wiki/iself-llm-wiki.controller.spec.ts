@@ -312,7 +312,6 @@ describe('IsElfLlmWikiController', () => {
         text: 'Kafka setup guide',
         contentHash: 'chunk-hit-hash',
         embedding: null,
-        embeddingLegacy: null,
         embeddingProfile: null,
         embeddingModel: null,
         embeddingDimensions: null,

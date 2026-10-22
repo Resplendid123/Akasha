@@ -89,16 +89,21 @@ export class KnowledgeQualityService {
           and p.deleted_at is null
           and p.space_id in (${sql.join(spaceIds.map((id) => sql`${id}`))})
       ),
+      -- knowledge_sources keeps one row per source version, so an old stale
+      -- row next to a fresh one is history, not drift. A page is stale only
+      -- when it has text, stale rows, and no fresh row at all. Soft-deleted
+      -- rows count as neither (such a page is reported as missing_sources).
       source_stats as (
         select source.source_page_id,
                count(*)::integer as source_count,
-               count(*) filter (where source.stale_at is not null)::integer
-                 as stale_source_count,
-               min(source.stale_at) filter (where source.stale_at is not null)
-                 as oldest_stale_source_at
+               bool_or(source.stale_at is not null)
+                 and not bool_or(source.stale_at is null)
+                 as stale_without_fresh,
+               min(source.stale_at) as oldest_stale_source_at
         from knowledge_sources source
         inner join scoped_pages page on page.id = source.source_page_id
         where source.workspace_id = ${input.workspaceId}
+          and source.deleted_at is null
         group by source.source_page_id
       ),
       chunk_stats as (
@@ -111,6 +116,7 @@ export class KnowledgeQualityService {
         inner join knowledge_chunks chunk
           on chunk.id = source.chunk_id
          and chunk.workspace_id = source.workspace_id
+         and chunk.stale_at is null
         where source.workspace_id = ${input.workspaceId}
         group by source.source_page_id
       ),
@@ -130,15 +136,17 @@ export class KnowledgeQualityService {
                coalesce(chunk.chunk_count, 0) > 0 as has_chunks,
                coalesce(chunk.missing_embedding_count, 0) > 0
                  as has_missing_embeddings,
-               coalesce(source.stale_source_count, 0) > 0
+               page.has_text and coalesce(source.stale_without_fresh, false)
                  as has_stale_source,
                coalesce(access.stale_access_policy_count, 0) > 0
                  as has_stale_access_policy,
-               source.oldest_stale_source_at,
+               case when page.has_text and source.stale_without_fresh
+                    then source.oldest_stale_source_at end
+                 as oldest_stale_source_at,
                greatest(
                  0,
                  100
-                   - case when coalesce(source.stale_source_count, 0) > 0
+                   - case when (page.has_text and coalesce(source.stale_without_fresh, false))
                                or coalesce(access.stale_access_policy_count, 0) > 0
                           then 30 else 0 end
                    - case when page.has_text and coalesce(source.source_count, 0) = 0

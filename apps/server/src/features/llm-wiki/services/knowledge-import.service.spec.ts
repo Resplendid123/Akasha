@@ -341,7 +341,6 @@ describe('KnowledgeImportService', () => {
             expect.objectContaining({
               text: 'Chaterm Flutter uses layered modules.',
               embedding: '[0.12,0.34,0.56]',
-              embeddingLegacy: [0.12, 0.34, 0.56],
               embeddingProfile: 'a'.repeat(64),
               embeddingModel: 'bge-m3',
               embeddingDimensions: 3,
@@ -359,6 +358,11 @@ describe('KnowledgeImportService', () => {
       ],
       expect.anything(),
     );
+    const [[publishedArtifacts]] = capsuleRepo.upsertCompiledArtifacts.mock
+      .calls as Array<[Array<{ chunks: Array<Record<string, unknown>> }>]>;
+    for (const chunk of publishedArtifacts.flatMap((item) => item.chunks)) {
+      expect(chunk).not.toHaveProperty('embeddingLegacy');
+    }
     expect(vectorIndex.ensureProfileIndex).toHaveBeenCalledWith({
       profile: 'a'.repeat(64),
       dimensions: 3,

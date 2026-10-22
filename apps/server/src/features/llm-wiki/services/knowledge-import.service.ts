@@ -273,7 +273,6 @@ export class KnowledgeImportService {
         text: chunk.text,
         contentHash: chunk.contentHash ?? hashContent(chunk.text),
         embedding: chunk.embedding ? vectorToSql(chunk.embedding.vector) : null,
-        embeddingLegacy: chunk.embedding?.vector ?? null,
         embeddingProfile: chunk.embedding?.profile ?? null,
         embeddingModel: chunk.embedding?.model ?? null,
         embeddingDimensions: chunk.embedding?.dimensions ?? null,

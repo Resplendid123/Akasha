@@ -68,6 +68,49 @@ describePostgres('KnowledgeQualityService PostgreSQL aggregates', () => {
     ]);
     expect(JSON.stringify(report)).not.toContain('Space B');
   });
+
+  it('ignores superseded and retired source rows and stale chunks', async () => {
+    const report = await service.getReport({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-c'],
+    });
+
+    // superseded 100, stale 70, retired 100, stale-chunks 65, stale-embedding 100
+    expect(report.summary).toEqual({
+      pageCount: 5,
+      compiledPageCount: 3,
+      stalePageCount: 1,
+      missingSourcePageCount: 0,
+      missingChunkPageCount: 1,
+      missingEmbeddingPageCount: 0,
+      healthScore: 87,
+    });
+    expect(report.topIssues.map((issue) => issue.code)).toEqual([
+      'missing_chunks',
+      'stale_sources',
+    ]);
+    // Only the genuinely stale page contributes the oldest stale age (~3h),
+    // not the superseded (2d) or retired (1d) rows.
+    expect(report.spaces[0].oldestStaleSourceAgeHours).toBe(3);
+  });
+
+  it('reports a page whose source rows are all soft-deleted only as missing_sources', async () => {
+    const report = await service.getReport({
+      workspaceId: 'workspace-1',
+      spaceIds: ['space-d'],
+    });
+
+    expect(report.summary).toEqual(
+      expect.objectContaining({
+        pageCount: 1,
+        stalePageCount: 0,
+        missingSourcePageCount: 1,
+        // -35 missing source, -35 missing chunks; no -30 stale penalty
+        healthScore: 30,
+      }),
+    );
+    expect(report.spaces[0].oldestStaleSourceAgeHours).toBeNull();
+  });
 });
 
 async function createFixture(db: Kysely<unknown>): Promise<void> {
@@ -89,12 +132,14 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       id varchar primary key,
       workspace_id varchar not null,
       source_page_id varchar not null,
-      stale_at timestamptz
+      stale_at timestamptz,
+      deleted_at timestamptz
     );
     create table knowledge_chunks (
       id varchar primary key,
       workspace_id varchar not null,
-      embedding jsonb
+      embedding jsonb,
+      stale_at timestamptz
     );
     create table knowledge_chunk_sources (
       workspace_id varchar not null,
@@ -132,5 +177,50 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
     ) values
       ('workspace-1', 'page-a-healthy', now() - interval '1 hour'),
       ('workspace-1', 'page-b-private', null);
+
+    -- space-c: stale-row semantics
+    insert into spaces (id, workspace_id, name) values
+      ('space-c', 'workspace-1', 'Space C');
+    insert into pages (id, workspace_id, space_id, text_content) values
+      ('page-c-superseded', 'workspace-1', 'space-c', 'new version'),
+      ('page-c-stale', 'workspace-1', 'space-c', 'changed content'),
+      ('page-c-retired', 'workspace-1', 'space-c', ''),
+      ('page-c-stale-chunks', 'workspace-1', 'space-c', 'recompile pending'),
+      ('page-c-stale-embedding', 'workspace-1', 'space-c', 'old chunk lacks vector');
+    insert into knowledge_sources (
+      id, workspace_id, source_page_id, stale_at
+    ) values
+      ('source-c-superseded-old', 'workspace-1', 'page-c-superseded', now() - interval '2 days'),
+      ('source-c-superseded-new', 'workspace-1', 'page-c-superseded', null),
+      ('source-c-stale', 'workspace-1', 'page-c-stale', now() - interval '3 hours'),
+      ('source-c-retired', 'workspace-1', 'page-c-retired', now() - interval '1 day'),
+      ('source-c-stale-chunks', 'workspace-1', 'page-c-stale-chunks', null),
+      ('source-c-stale-embedding', 'workspace-1', 'page-c-stale-embedding', null);
+    insert into knowledge_chunks (id, workspace_id, embedding, stale_at) values
+      ('chunk-c-superseded', 'workspace-1', '[0.1]'::jsonb, null),
+      ('chunk-c-stale', 'workspace-1', '[0.1]'::jsonb, null),
+      ('chunk-c-stale-only', 'workspace-1', '[0.1]'::jsonb, now() - interval '1 day'),
+      ('chunk-c-active', 'workspace-1', '[0.1]'::jsonb, null),
+      ('chunk-c-old-no-vector', 'workspace-1', null, now() - interval '1 day');
+    insert into knowledge_chunk_sources (
+      workspace_id, chunk_id, source_page_id
+    ) values
+      ('workspace-1', 'chunk-c-superseded', 'page-c-superseded'),
+      ('workspace-1', 'chunk-c-stale', 'page-c-stale'),
+      ('workspace-1', 'chunk-c-stale-only', 'page-c-stale-chunks'),
+      ('workspace-1', 'chunk-c-active', 'page-c-stale-embedding'),
+      ('workspace-1', 'chunk-c-old-no-vector', 'page-c-stale-embedding');
+
+    -- space-d: every source row soft-deleted, one of them stale
+    insert into spaces (id, workspace_id, name) values
+      ('space-d', 'workspace-1', 'Space D');
+    insert into pages (id, workspace_id, space_id, text_content) values
+      ('page-d-deleted-sources', 'workspace-1', 'space-d', 'has text');
+    insert into knowledge_sources (
+      id, workspace_id, source_page_id, stale_at, deleted_at
+    ) values
+      ('source-d-stale', 'workspace-1', 'page-d-deleted-sources',
+        now() - interval '1 day', now()),
+      ('source-d-fresh', 'workspace-1', 'page-d-deleted-sources', null, now());
   `.execute(db);
 }

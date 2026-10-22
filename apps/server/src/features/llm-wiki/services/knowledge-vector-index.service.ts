@@ -184,7 +184,6 @@ export class KnowledgeVectorIndexService {
           .updateTable('knowledgeChunks')
           .set({
             embedding: vectorToSql(chunk.vector),
-            embeddingLegacy: chunk.vector,
             embeddingProfile: chunk.profile,
             embeddingModel: chunk.model,
             embeddingDimensions: chunk.dimensions,

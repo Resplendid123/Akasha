@@ -1504,7 +1504,6 @@ function chunk(
     text,
     contentHash: `${id}-hash`,
     embedding: embedding ? JSON.stringify(embedding) : null,
-    embeddingLegacy: embedding,
     embeddingProfile: embedding ? 'a'.repeat(64) : null,
     embeddingModel: embedding ? 'test-embedding' : null,
     embeddingDimensions: embedding?.length ?? null,
