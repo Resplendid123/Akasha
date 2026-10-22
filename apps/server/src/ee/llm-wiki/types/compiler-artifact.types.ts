@@ -25,7 +25,6 @@ export interface KnowledgeArtifactCatalogEntry {
   artifactKind: CompiledKnowledgeArtifactKind;
   canonicalKey: string;
   title: string;
-  summary?: string;
 }
 
 export interface CompileDiagnostic {
@@ -68,14 +67,8 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
     endOffset?: number | null;
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;
-  claims?: Array<{
-    text: string;
-    confidence?: number | null;
-    inputSourceRefs?: KnowledgeSourceRef[];
-  }>;
   chunks?: Array<{
     text: string;
-    claimIndex?: number | null;
     embedding?: JsonValue;
     contentHash?: string;
     inputSourceRefs?: KnowledgeSourceRef[];

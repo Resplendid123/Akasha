@@ -154,11 +154,6 @@ export class KnowledgeArtifactMaterializerService {
         contributions.flatMap((artifact) => artifact.parentSections ?? []),
         (section) => section.stableKey,
       ),
-      claims: uniqueBy(
-        contributions.flatMap((artifact) => artifact.claims ?? []),
-        (claim) =>
-          `${claim.text}:${JSON.stringify(claim.inputSourceRefs ?? [])}`,
-      ),
       chunks: uniqueBy(
         contributions.flatMap((artifact) => artifact.chunks ?? []),
         (chunk) =>

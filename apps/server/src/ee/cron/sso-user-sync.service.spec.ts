@@ -15,6 +15,13 @@ describe('SsoUserSyncService', () => {
   const workspaceRepo = {
     findFirst: jest.fn(() => Promise.resolve({ id: 'workspace-1' })),
   };
+  const redisClient = {
+    set: jest.fn(),
+    del: jest.fn(),
+  };
+  const redisService = {
+    getOrThrow: jest.fn(() => redisClient),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -52,6 +59,7 @@ describe('SsoUserSyncService', () => {
       env as any,
       hoidcService as any,
       workspaceRepo as any,
+      redisService as any,
     );
 
     const result = await service.syncAllUsers();
@@ -124,6 +132,7 @@ describe('SsoUserSyncService', () => {
       env as any,
       hoidcService as any,
       workspaceRepo as any,
+      redisService as any,
     );
 
     const result = await service.syncAllUsers();
@@ -149,6 +158,7 @@ describe('SsoUserSyncService', () => {
       disabledEnv as any,
       hoidcService as any,
       workspaceRepo as any,
+      redisService as any,
     );
 
     const result = await service.syncAllUsers();
@@ -174,6 +184,7 @@ describe('SsoUserSyncService', () => {
       env as any,
       hoidcService as any,
       emptyWorkspaceRepo as any,
+      redisService as any,
     );
 
     const result = await service.syncAllUsers();

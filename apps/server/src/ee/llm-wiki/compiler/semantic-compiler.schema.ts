@@ -120,14 +120,6 @@ export const semanticAnalysisSchema = z
 
 export type SemanticAnalysis = z.infer<typeof semanticAnalysisSchema>;
 
-const generatedClaimSchema = z
-  .object({
-    text: z.string().trim().min(1),
-    confidence: z.number().min(0).max(1).optional(),
-    evidenceQuote: z.string().trim().min(1),
-  })
-  .strict();
-
 const generatedLinkSchema = z
   .object({
     targetKind: z.enum(['source_summary', 'concept', 'entity', 'comparison']),
@@ -137,21 +129,42 @@ const generatedLinkSchema = z
   })
   .strict();
 
-export const semanticGeneratedArtifactSchema = z
+// Models trained on the previous contract may still emit these per-artifact
+// fields. They carry no downstream value, so they are dropped before the
+// strict parse instead of turning an otherwise valid answer into a repair.
+const RETIRED_GENERATED_ARTIFACT_KEYS = ['claims', 'tags'] as const;
+
+const strictGeneratedArtifactSchema = z
   .object({
     kind: z.enum(['source_summary', 'concept', 'entity', 'comparison']),
     canonicalKey: canonicalKeySchema,
     title: z.string().trim().min(1).max(300),
     markdown: z.string().trim().min(1),
-    claims: arrayOrEmpty(z.array(generatedClaimSchema).max(200)),
     links: arrayOrEmpty(z.array(generatedLinkSchema).max(200)),
-    tags: arrayOrEmpty(z.array(z.string().trim().min(1)).max(50)),
   })
   .strict();
 
+export const semanticGeneratedArtifactSchema = z.preprocess(
+  dropRetiredGeneratedArtifactKeys,
+  strictGeneratedArtifactSchema,
+);
+
 export type SemanticGeneratedArtifact = z.infer<
-  typeof semanticGeneratedArtifactSchema
+  typeof strictGeneratedArtifactSchema
 >;
+
+function dropRetiredGeneratedArtifactKeys(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  if (!RETIRED_GENERATED_ARTIFACT_KEYS.some((key) => key in record)) {
+    return value;
+  }
+  const rest = { ...record };
+  for (const key of RETIRED_GENERATED_ARTIFACT_KEYS) delete rest[key];
+  return rest;
+}
 
 export const semanticGenerationSchema = z
   .object({
@@ -483,9 +496,7 @@ function repairGeneratedArtifact(value: unknown): unknown {
     canonicalKey,
     title,
     markdown,
-    claims: repairCollection(item.claims, repairClaim),
     links: repairCollection(item.links, repairGeneratedLink),
-    tags: repairStringArray(item.tags),
   };
 }
 

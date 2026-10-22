@@ -97,46 +97,6 @@ class FakeKyselyQuery {
 }
 
 describe('KnowledgeCompilationRepo', () => {
-  it('queues a page without incrementing attempts or clearing last-success fields', async () => {
-    const query = new FakeKyselyQuery();
-    const repo = new KnowledgeCompilationRepo(query as never);
-
-    await repo.queueAttempt({
-      workspaceId: 'workspace-1',
-      spaceId: 'space-1',
-      sourcePageId: 'page-1',
-      sourceVersion: 'v2',
-      sourceContentHash: 'hash-2',
-      effectiveKnowledgeHash: 'effective-hash-2',
-      compilerVersion: 'compiler-v2',
-      promptVersion: 'prompt-v2',
-      compilerRunId: 'run-2',
-      compileTaskId: 'task-page-1',
-    });
-
-    const valuesCall = query.calls.find((call) => call.method === 'values');
-    expect(valuesCall?.args[0]).toEqual(
-      expect.objectContaining({
-        status: 'queued',
-        stage: 'queued',
-        attemptCount: 0,
-        sourceVersion: 'v2',
-        sourceContentHash: 'hash-2',
-        effectiveKnowledgeHash: 'effective-hash-2',
-        startedAt: null,
-        finishedAt: null,
-      }),
-    );
-    expect(JSON.stringify(query.calls)).not.toContain(
-      'lastSuccessfulSourceVersion',
-    );
-    expect(JSON.stringify(query.calls)).not.toContain('attempt_count + 1');
-    const conflictUpdate = query.calls.find(
-      (call) => call.method === 'doUpdateSet',
-    );
-    expect(conflictUpdate?.args[1]).not.toHaveProperty('attemptCount');
-  });
-
   it('starts a page attempt without clearing the last successful version', async () => {
     const query = new FakeKyselyQuery();
     const repo = new KnowledgeCompilationRepo(query as never);
@@ -471,7 +431,6 @@ describe('KnowledgeCompilationRepo', () => {
       false,
     );
   });
-
 });
 
 const integrationDatabaseUrl =
@@ -519,13 +478,6 @@ describePostgres('KnowledgeCompilationRepo PostgreSQL round trip', () => {
       compileTaskId: 'task-1',
     };
 
-    await repo.queueAttempt(identity);
-    await expectAttemptHashes(db, {
-      current: 'sha256:effective-1',
-      successful: null,
-      status: 'queued',
-    });
-
     await repo.startAttempt({
       ...identity,
       effectiveKnowledgeHash: 'sha256:effective-2',
@@ -557,13 +509,12 @@ describePostgres('KnowledgeCompilationRepo PostgreSQL round trip', () => {
       compilerRunId: 'run-2',
       compileTaskId: 'task-2',
     };
-    await repo.queueAttempt(next);
+    await repo.startAttempt(next);
     await expectAttemptHashes(db, {
       current: null,
       successful: 'sha256:effective-2',
-      status: 'queued',
+      status: 'running',
     });
-    await repo.startAttempt(next);
     await repo.succeedAttempt({
       workspaceId: next.workspaceId,
       sourcePageId: next.sourcePageId,
@@ -600,7 +551,6 @@ describePostgres('KnowledgeCompilationRepo PostgreSQL round trip', () => {
       }),
     ).resolves.toBeUndefined();
   });
-
 });
 
 async function createEffectiveHashFixture(db: Kysely<unknown>): Promise<void> {
