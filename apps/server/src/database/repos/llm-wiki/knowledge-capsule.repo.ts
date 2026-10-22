@@ -1,5 +1,5 @@
 import { discoverEntityEdges, mapEntityEvidence } from './entity-graph.queries';
-import { EntityGraphPath } from '../../../ee/llm-wiki/types/entity-graph.types';
+import { EntityGraphPath } from '../../../features/llm-wiki/types/entity-graph.types';
 import { Injectable } from '@nestjs/common';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';

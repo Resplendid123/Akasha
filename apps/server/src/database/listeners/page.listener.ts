@@ -10,7 +10,7 @@ import {
   DEFAULT_KNOWLEDGE_COMPILER_VERSION,
   KNOWLEDGE_PAGE_COMPILE_QUIET_PERIOD_MS,
   DEFAULT_KNOWLEDGE_PROMPT_VERSION,
-} from '../../ee/llm-wiki/llm-wiki.constants';
+} from '../../features/llm-wiki/llm-wiki.constants';
 
 export class PageEvent {
   pageIds: string[];

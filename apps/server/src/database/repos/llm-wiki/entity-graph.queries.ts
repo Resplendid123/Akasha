@@ -3,7 +3,7 @@ import { KyselyDB, KyselyTransaction } from '../../types/kysely.types';
 import {
   EntityGraphTraversalEdge,
   EntityGraphPath,
-} from '../../../ee/llm-wiki/types/entity-graph.types';
+} from '../../../features/llm-wiki/types/entity-graph.types';
 
 /** Internal discovery. Authorize every dependency before using endpoint names. */
 export async function discoverEntityEdges(

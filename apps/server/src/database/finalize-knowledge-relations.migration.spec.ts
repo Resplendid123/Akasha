@@ -1,6 +1,6 @@
 import { up as nodesMigration } from './migrations/20261021T110000-knowledge-graph-nodes';
-import { buildEntityGraph } from '../ee/llm-wiki/compiler/entity-graph';
-import { SemanticAnalysis } from '../ee/llm-wiki/compiler/semantic-compiler.schema';
+import { buildEntityGraph } from '../features/llm-wiki/compiler/entity-graph';
+import { SemanticAnalysis } from '../features/llm-wiki/compiler/semantic-compiler.schema';
 import { createHash } from 'node:crypto';
 import { CamelCasePlugin, Kysely, sql } from 'kysely';
 import { PostgresJSDialect } from 'kysely-postgres-js';

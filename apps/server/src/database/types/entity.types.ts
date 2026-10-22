@@ -168,7 +168,6 @@ type KnowledgeChunkMigrationColumn =
   | 'embeddingDurationMs'
   | 'embeddingTotalTokens'
   | 'embeddingDimensions'
-  | 'embeddingLegacy'
   | 'embeddingModel'
   | 'embeddingProfile'
   | 'endOffset'
