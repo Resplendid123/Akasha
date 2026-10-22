@@ -23,8 +23,14 @@ import { isPersonalSpace } from "@/features/space/personal-space.ts";
 interface SpaceDetailsProps {
   spaceId: string;
   readOnly?: boolean;
+  // Space admins can change the icon even when other settings are read-only.
+  canEditIcon?: boolean;
 }
-export default function SpaceDetails({ spaceId, readOnly }: SpaceDetailsProps) {
+export default function SpaceDetails({
+  spaceId,
+  readOnly,
+  canEditIcon,
+}: SpaceDetailsProps) {
   const { t } = useTranslation();
   const { data: space, isLoading, refetch } = useSpaceQuery(spaceId);
   const [exportOpened, { open: openExportModal, close: closeExportModal }] =
@@ -82,7 +88,7 @@ export default function SpaceDetails({ spaceId, readOnly }: SpaceDetailsProps) {
               onUpload={handleIconUpload}
               onRemove={handleIconRemove}
               isLoading={isIconUploading}
-              disabled={readOnly}
+              disabled={readOnly && !canEditIcon}
             />
           </div>
 
