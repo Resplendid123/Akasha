@@ -1,9 +1,18 @@
-import { Modal, Tabs, rem, Group, ScrollArea, Text } from "@mantine/core";
+import {
+  Modal,
+  Tabs,
+  rem,
+  Group,
+  ScrollArea,
+  Text,
+  Divider,
+} from "@mantine/core";
 import SpaceMembersList from "@/features/space/components/space-members.tsx";
 import AddSpaceMembersModal from "@/features/space/components/add-space-members-modal.tsx";
 import React from "react";
 import SpaceDetails from "@/features/space/components/space-details.tsx";
 import SpaceSecuritySettings from "@/features/space/components/space-security-settings.tsx";
+import SpaceKnowledgeSettings from "@/features/space/components/space-knowledge-settings.tsx";
 import { useSpaceQuery } from "@/features/space/queries/space-query.ts";
 import { useSpaceAbility } from "@/features/space/permissions/use-space-ability.ts";
 import {
@@ -77,6 +86,15 @@ export default function SpaceSettingsModal({
                   <ScrollArea h={580} scrollbarSize={5} pr={8}>
                     <div style={{ paddingBottom: "100px" }}>
                       <SpaceDetails spaceId={space?.id} readOnly={!isOwner} />
+                      {space && (
+                        <>
+                          <Divider my="lg" />
+                          <SpaceKnowledgeSettings
+                            space={space}
+                            readOnly={!canManageSettings}
+                          />
+                        </>
+                      )}
                     </div>
                   </ScrollArea>
                 </Tabs.Panel>

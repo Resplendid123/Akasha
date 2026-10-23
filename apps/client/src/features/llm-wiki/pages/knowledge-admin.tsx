@@ -572,7 +572,7 @@ export default function KnowledgeAdminPage() {
             }}
             title={
               confirmedCompilation?.mode === "force"
-                ? t("Force rebuild knowledge")
+                ? t("Republish space by settings")
                 : t("Update knowledge")
             }
             centered
@@ -580,18 +580,20 @@ export default function KnowledgeAdminPage() {
             {confirmedCompilation && (
               <Stack gap="md">
                 <Alert
-                  color={confirmedCompilation.mode === "force" ? "red" : "blue"}
+                  color={
+                    confirmedCompilation.mode === "update" ? "blue" : "red"
+                  }
                   icon={
-                    confirmedCompilation.mode === "force" ? (
-                      <IconAlertTriangle size={18} />
-                    ) : (
+                    confirmedCompilation.mode === "update" ? (
                       <IconInfoCircle size={18} />
+                    ) : (
+                      <IconAlertTriangle size={18} />
                     )
                   }
                 >
                   {confirmedCompilation.mode === "force"
                     ? t(
-                        "Compiled knowledge is cleared before a complete rebuild. Original pages and attachments are preserved.",
+                        "Compiled knowledge is cleared and the whole space is rebuilt. Pages with their own publish mode keep it; other pages use the space default publish mode. Original pages and attachments are preserved.",
                       )
                     : t(
                         "Only changed pages are compiled; unchanged knowledge is reused.",
@@ -623,7 +625,7 @@ export default function KnowledgeAdminPage() {
                   </Button>
                   <Button
                     color={
-                      confirmedCompilation.mode === "force" ? "red" : undefined
+                      confirmedCompilation.mode === "update" ? undefined : "red"
                     }
                     loading={confirmedCompilationMutation.isPending}
                     disabled={
@@ -1771,7 +1773,7 @@ function PageLogRow({
           {imageSummary}
         </Text>
       </Table.Td>
-            <Table.Td>
+      <Table.Td>
         <StateBadge value={item.mergeStatus} />
       </Table.Td>
       <Table.Td>
@@ -2136,7 +2138,7 @@ function MaintenanceMenu({
           </Stack>
         </Menu.Item>
         <Menu.Item color="red" onClick={onForce}>
-          {t("Force rebuild knowledge")}
+          {t("Republish space by settings")}
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>

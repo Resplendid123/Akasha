@@ -41,21 +41,16 @@ export interface SpaceRunRequest {
   confirmationSpaceName?: string;
   removedSourcePageIds?: string[];
   scanRemovedSources?: boolean;
-  // When set, the Run compiles only these source pages instead of the whole
-  // Space (page-scoped retry). Undefined/empty means a full-Space Run.
   targetSourcePageIds?: string[];
   pageIndexSetting?: {
     sourcePageId: string;
-    indexMode: 'compiled' | 'original';
+    indexMode: 'compiled' | 'original' | null;
     updatedBy: string | null;
   };
 }
 
 export const KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER = 'manual_page_publish';
 
-// Pure scope helpers now live in a shared, dependency-free module so the
-// execution repo can reuse the same follow-up narrowing semantics. Re-exported
-// here to keep existing import paths (and their unit tests) stable.
 export {
   reconcileRunTargetScope,
   reconcileFollowUpTargetScope,
@@ -705,23 +700,32 @@ export class KnowledgeSpaceCompilationRepo {
         .where('deletedAt', 'is', null)
         .executeTakeFirst();
       if (!page) throw new Error('Knowledge source page is unavailable.');
-      await trx
-        .insertInto('knowledgePageIndexSettings')
-        .values({
-          workspaceId: request.workspaceId,
-          sourcePageId: setting.sourcePageId,
-          indexMode: setting.indexMode,
-          updatedBy: setting.updatedBy,
-          updatedAt: now,
-        })
-        .onConflict((oc) =>
-          oc.columns(['workspaceId', 'sourcePageId']).doUpdateSet({
-            indexMode: setting.indexMode,
+      if (setting.indexMode === null) {
+        await trx
+          .deleteFrom('knowledgePageIndexSettings')
+          .where('workspaceId', '=', request.workspaceId)
+          .where('sourcePageId', '=', setting.sourcePageId)
+          .execute();
+      } else {
+        const indexMode = setting.indexMode;
+        await trx
+          .insertInto('knowledgePageIndexSettings')
+          .values({
+            workspaceId: request.workspaceId,
+            sourcePageId: setting.sourcePageId,
+            indexMode,
             updatedBy: setting.updatedBy,
             updatedAt: now,
-          }),
-        )
-        .execute();
+          })
+          .onConflict((oc) =>
+            oc.columns(['workspaceId', 'sourcePageId']).doUpdateSet({
+              indexMode,
+              updatedBy: setting.updatedBy,
+              updatedAt: now,
+            }),
+          )
+          .execute();
+      }
     }
 
     let activeRun = await trx

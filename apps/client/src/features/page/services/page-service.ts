@@ -39,10 +39,14 @@ export interface PublishPageKnowledgeResult {
   disposition: "created" | "coalesced" | "rerun_requested";
   mode: "incremental";
   knowledgeGeneration: number;
-  indexMode: "compiled" | "original";
+  indexMode: KnowledgeIndexMode;
+  pageIndexMode: KnowledgeIndexMode | null;
 }
 
 export type KnowledgeIndexMode = "compiled" | "original";
+
+/** Page-level choice; `inherit` follows the space default. */
+export type KnowledgePageIndexModeChoice = KnowledgeIndexMode | "inherit";
 
 export interface PagePublishCooldown {
   step: number;
@@ -65,7 +69,10 @@ export interface PageCompileStatusResult {
   errorMessage?: string;
   sourceVersion?: number;
   publishedSourceVersion?: number;
+  /** Effective mode: page override if set, otherwise the space default. */
   configuredIndexMode?: KnowledgeIndexMode;
+  pageIndexMode?: KnowledgeIndexMode | null;
+  spaceIndexMode?: KnowledgeIndexMode;
   publishedIndexMode?: KnowledgeIndexMode;
 }
 
@@ -87,9 +94,21 @@ export async function getPagePublishCooldown(
   return req.data;
 }
 
+/** Saves the page publish mode without publishing; returns the new status. */
+export async function setPageIndexMode(
+  pageId: string,
+  indexMode: KnowledgePageIndexModeChoice,
+): Promise<PageCompileStatusResult> {
+  const req = await api.post<PageCompileStatusResult>(
+    `/llm-wiki/pages/${pageId}/index-mode`,
+    { indexMode },
+  );
+  return req.data;
+}
+
 export async function publishPageKnowledge(
   pageId: string,
-  indexMode: KnowledgeIndexMode = "compiled",
+  indexMode: KnowledgePageIndexModeChoice = "inherit",
 ): Promise<PublishPageKnowledgeResult> {
   const req = await api.post<PublishPageKnowledgeResult>(
     `/llm-wiki/pages/${pageId}/publish`,

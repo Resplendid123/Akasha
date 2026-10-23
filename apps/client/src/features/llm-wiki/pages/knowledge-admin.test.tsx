@@ -607,6 +607,37 @@ describe("KnowledgeAdminPage", () => {
     );
   });
 
+  it("offers a single whole-space republish that follows the Space settings", async () => {
+    renderPage();
+    await screen.findByText("Space compilation runs");
+    selectOption("space-1");
+    await screen.findByText("Space operations");
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "Republish space by settings",
+      }),
+    );
+    expect(
+      screen.queryByRole("menuitem", { name: /Rebuild space/ }),
+    ).toBeNull();
+
+    const input = await screen.findByLabelText(
+      "Type the space name to confirm",
+    );
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "AIM" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() =>
+      expect(forceRebuildKnowledgeSpace).toHaveBeenCalledWith({
+        spaceId: "space-1",
+        confirmationSpaceName: "AIM",
+      }),
+    );
+  });
+
   it("cancels one exact active Run only after explicit Space confirmation", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Cancel run" }));

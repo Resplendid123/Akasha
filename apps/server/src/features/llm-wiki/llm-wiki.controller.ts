@@ -95,9 +95,17 @@ import { AgentCapability } from '../../common/auth/agent-capability';
 import { AgentAccess } from '../../common/decorators/agent-access.decorator';
 import type { AgentAccessContext } from '../../common/auth/agent-access-context';
 import { AgentAccessService } from '../../core/page/page-access/agent-access.service';
-import { KnowledgePageIndexSettingsRepo } from '../../database/repos/llm-wiki/knowledge-page-index-settings.repo';
+import {
+  KnowledgePageIndexSettingsRepo,
+  type ResolvedKnowledgeIndexMode,
+} from '../../database/repos/llm-wiki/knowledge-page-index-settings.repo';
 import { PagePublishDto } from './dto/page-publish.dto';
-import { DEFAULT_KNOWLEDGE_INDEX_MODE } from './types/knowledge-index-mode.types';
+import { PageIndexModeDto } from './dto/page-index-mode.dto';
+import {
+  DEFAULT_KNOWLEDGE_INDEX_MODE,
+  KNOWLEDGE_PAGE_INDEX_MODE_INHERIT,
+  isKnowledgeIndexMode,
+} from './types/knowledge-index-mode.types';
 
 @UseGuards(JwtAuthGuard)
 @Controller('llm-wiki')
@@ -137,6 +145,25 @@ export class LlmWikiController {
 
   private publishCooldownKey(pageId: string) {
     return `llm-wiki:page-publish-cooldown:${pageId}`;
+  }
+
+  private async resolvePageIndexMode(page: {
+    id: string;
+    workspaceId: string;
+    spaceId: string;
+  }): Promise<ResolvedKnowledgeIndexMode> {
+    if (!this.pageIndexSettingsRepo) {
+      return {
+        pageIndexMode: null,
+        spaceIndexMode: DEFAULT_KNOWLEDGE_INDEX_MODE,
+        effectiveIndexMode: DEFAULT_KNOWLEDGE_INDEX_MODE,
+      };
+    }
+    return this.pageIndexSettingsRepo.resolveMode({
+      workspaceId: page.workspaceId,
+      spaceId: page.spaceId,
+      sourcePageId: page.id,
+    });
   }
 
   @HttpCode(HttpStatus.OK)
@@ -455,18 +482,25 @@ export class LlmWikiController {
     if (!page || page.workspaceId !== workspace.id || page.deletedAt !== null) {
       throw new NotFoundException('Page not found');
     }
-    const status = await this.spaceCompilation.getPageCompileStatus({
-      workspaceId: workspace.id,
-      spaceId: page.spaceId,
-      sourcePageId: page.id,
-      currentSourceVersion: page.updatedAt?.toISOString(),
-    });
-    const configuredIndexMode = this.pageIndexSettingsRepo
-      ? await this.pageIndexSettingsRepo.findMode({
-          workspaceId: workspace.id,
-          sourcePageId: page.id,
-        })
-      : DEFAULT_KNOWLEDGE_INDEX_MODE;
+    return this.buildPageCompileStatus(page);
+  }
+
+  private async buildPageCompileStatus(page: {
+    id: string;
+    workspaceId: string;
+    spaceId: string;
+    updatedAt?: Date | null;
+  }) {
+    const [status, resolved] = await Promise.all([
+      this.spaceCompilation.getPageCompileStatus({
+        workspaceId: page.workspaceId,
+        spaceId: page.spaceId,
+        sourcePageId: page.id,
+        currentSourceVersion: page.updatedAt?.toISOString(),
+      }),
+      this.resolvePageIndexMode(page),
+    ]);
+    const configuredIndexMode = resolved.effectiveIndexMode;
     return {
       ...status,
       status:
@@ -476,7 +510,41 @@ export class LlmWikiController {
           ? 'outdated'
           : status.status,
       configuredIndexMode,
+      pageIndexMode: resolved.pageIndexMode,
+      spaceIndexMode: resolved.spaceIndexMode,
     };
+  }
+
+  /** Saves the page publish mode without publishing the page. */
+  @HttpCode(HttpStatus.OK)
+  @Post('pages/:pageId/index-mode')
+  async setPageIndexMode(
+    @Param('pageId', ParseUUIDPipe) pageId: string,
+    @Body() dto: PageIndexModeDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    if (!this.chatService.isEnabledForWorkspace(workspace)) {
+      throw new ForbiddenException('AI knowledge chat is disabled');
+    }
+    if (!this.pageIndexSettingsRepo) {
+      throw new NotFoundException('Page publish mode is unavailable');
+    }
+
+    const page = await this.pageRepo.findById(pageId);
+    if (!page || page.workspaceId !== workspace.id || page.deletedAt !== null) {
+      throw new NotFoundException('Page not found');
+    }
+
+    await this.pageAccessService.validateCanEdit(page, user);
+
+    await this.pageIndexSettingsRepo.setMode({
+      workspaceId: workspace.id,
+      sourcePageId: page.id,
+      indexMode: isKnowledgeIndexMode(dto.indexMode) ? dto.indexMode : null,
+      updatedBy: user.id,
+    });
+    return this.buildPageCompileStatus(page);
   }
 
   @HttpCode(HttpStatus.OK)
@@ -498,7 +566,13 @@ export class LlmWikiController {
 
     await this.pageAccessService.validateCanEdit(page, user);
 
-    const indexMode = dto.indexMode ?? DEFAULT_KNOWLEDGE_INDEX_MODE;
+    // `inherit` clears the page override and publishes with the Space default.
+    const requestedMode = dto.indexMode ?? KNOWLEDGE_PAGE_INDEX_MODE_INHERIT;
+    const pageIndexMode = isKnowledgeIndexMode(requestedMode)
+      ? requestedMode
+      : null;
+    const indexMode =
+      pageIndexMode ?? (await this.resolvePageIndexMode(page)).spaceIndexMode;
 
     const cooldownKey = this.publishCooldownKey(page.id);
     const cooldown = await this.cacheManager?.get<{
@@ -519,7 +593,7 @@ export class LlmWikiController {
       workspaceId: workspace.id,
       spaceId: page.spaceId,
       sourcePageId: page.id,
-      indexMode,
+      indexMode: pageIndexMode,
       updatedBy: user.id,
     });
     const run = request.run!;
@@ -542,6 +616,7 @@ export class LlmWikiController {
       mode: 'incremental' as const,
       knowledgeGeneration: run.knowledgeGeneration,
       indexMode,
+      pageIndexMode,
     };
 
     this.auditService.log({
@@ -555,6 +630,7 @@ export class LlmWikiController {
         disposition: request.disposition,
         priority: 0,
         indexMode,
+        pageIndexMode,
       },
     });
 

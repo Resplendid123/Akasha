@@ -4,6 +4,7 @@ import {
   SpaceCaslSubject,
 } from "@/features/space/permissions/permissions.type.ts";
 import { ExportFormat } from "@/features/page/types/page.types.ts";
+import type { KnowledgeIndexMode } from "@/features/page/services/page-service.ts";
 import { QueryParams } from "@/lib/types.ts";
 
 export type SpaceType = "public" | "personal";
@@ -20,9 +21,14 @@ export interface ISpaceCommentsSettings {
   allowViewerComments?: boolean;
 }
 
+export interface ISpaceKnowledgeSettings {
+  indexMode?: KnowledgeIndexMode;
+}
+
 export interface ISpaceSettings {
   sharing?: ISpaceSharingSettings;
   comments?: ISpaceCommentsSettings;
+  knowledge?: ISpaceKnowledgeSettings;
 }
 
 export interface ISpace {
@@ -43,6 +49,7 @@ export interface ISpace {
   // for updates
   disablePublicSharing?: boolean;
   allowViewerComments?: boolean;
+  knowledgeIndexMode?: KnowledgeIndexMode;
 }
 
 interface IMembership {

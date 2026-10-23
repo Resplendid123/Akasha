@@ -45,6 +45,7 @@ import { useParams } from "react-router-dom";
 import {
   usePageQuery,
   usePublishPageKnowledgeMutation,
+  useSetPageIndexModeMutation,
   usePagePublishCooldownQuery,
   usePageCompileStatusQuery,
 } from "@/features/page/queries/page-query.ts";
@@ -81,7 +82,7 @@ import {
   useWatchPageMutation,
   useUnwatchPageMutation,
 } from "@/features/page/queries/watcher-query";
-import type { KnowledgeIndexMode } from "@/features/page/services/page-service";
+import type { KnowledgePageIndexModeChoice } from "@/features/page/services/page-service";
 
 const PUBLISH_COOLDOWNS = [10 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
 const publishCooldownKey = (pageId: string) =>
@@ -204,6 +205,7 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   const watchPage = useWatchPageMutation();
   const unwatchPage = useUnwatchPageMutation();
   const publishPageKnowledge = usePublishPageKnowledgeMutation();
+  const setPageIndexMode = useSetPageIndexModeMutation();
   const { data: serverCooldown, refetch: refetchCooldown } =
     usePagePublishCooldownQuery(page?.id);
   const { data: compileStatus, refetch: refetchCompileStatus } =
@@ -213,7 +215,8 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
     step: number;
   } | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [indexMode, setIndexMode] = useState<KnowledgeIndexMode>("compiled");
+  const [indexMode, setIndexMode] =
+    useState<KnowledgePageIndexModeChoice>("inherit");
   const publishCooldownRemaining = publishCooldown
     ? publishCooldown.expiresAt - now
     : 0;
@@ -229,8 +232,12 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   const isPublishing = compileStatus?.status === "compiling";
 
   useEffect(() => {
-    setIndexMode(compileStatus?.configuredIndexMode ?? "compiled");
-  }, [page?.id, compileStatus?.configuredIndexMode]);
+    setIndexMode(compileStatus?.pageIndexMode ?? "inherit");
+  }, [page?.id, compileStatus?.pageIndexMode]);
+  const spaceIndexModeLabel =
+    compileStatus?.spaceIndexMode === "original"
+      ? t("Original text indexing")
+      : t("Smart compilation");
 
   useEffect(() => {
     setPublishCooldown(null);
@@ -306,6 +313,7 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
     if (
       !page?.id ||
       !compileStatus ||
+      setPageIndexMode.isPending ||
       publishPageKnowledge.isPending ||
       publishCoolingDown ||
       isPublishing
@@ -334,6 +342,31 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
           notifications.show({
             message:
               error?.response?.data?.message || t("Failed to publish page"),
+            color: "red",
+          });
+        },
+      },
+    );
+  };
+
+  // Saved immediately; independent of publishing and its cooldown.
+  const handleIndexModeChange = (value: string) => {
+    if (
+      !page?.id ||
+      (value !== "inherit" && value !== "compiled" && value !== "original")
+    )
+      return;
+    const previous = indexMode;
+    setIndexMode(value);
+    setPageIndexMode.mutate(
+      { pageId: page.id, indexMode: value },
+      {
+        onError: (error: any) => {
+          setIndexMode(previous);
+          notifications.show({
+            message:
+              error?.response?.data?.message ||
+              t("Failed to save publish mode"),
             color: "red",
           });
         },
@@ -520,25 +553,29 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
                   styles={{ label: { whiteSpace: "normal" } }}
                   value={indexMode}
                   data={[
+                    { value: "inherit", label: t("Follow space") },
                     { value: "compiled", label: t("Smart compilation") },
                     { value: "original", label: t("Original text indexing") },
                   ]}
-                  onChange={(value) => {
-                    if (value === "compiled" || value === "original") {
-                      setIndexMode(value);
-                    }
-                  }}
+                  onChange={handleIndexModeChange}
                   onKeyDown={(event) => {
                     if (event.key.startsWith("Arrow")) event.stopPropagation();
                   }}
                   disabled={
                     !compileStatus ||
+                    setPageIndexMode.isPending ||
                     publishPageKnowledge.isPending ||
-                    publishCoolingDown ||
                     isPublishing
                   }
                   aria-label={t("Publish mode")}
                 />
+                {indexMode === "inherit" && compileStatus && (
+                  <Text size="xs" c="dimmed" mt={4}>
+                    {t("Space default: {{mode}}", {
+                      mode: spaceIndexModeLabel,
+                    })}
+                  </Text>
+                )}
               </Box>
             </>
           )}
@@ -549,6 +586,7 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
               onClick={handlePublishPage}
               disabled={
                 !compileStatus ||
+                setPageIndexMode.isPending ||
                 publishPageKnowledge.isPending ||
                 publishCoolingDown ||
                 isPublishing
