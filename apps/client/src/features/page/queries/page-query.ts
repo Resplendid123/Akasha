@@ -5,6 +5,7 @@ import {
   UseInfiniteQueryResult,
   useMutation,
   useQuery,
+  useQueryClient,
   UseQueryResult,
   keepPreviousData,
 } from "@tanstack/react-query";
@@ -22,9 +23,10 @@ import {
   getDeletedPages,
   restorePage,
   publishPageKnowledge,
+  setPageIndexMode,
   getPagePublishCooldown,
   getPageCompileStatus,
-  KnowledgeIndexMode,
+  KnowledgePageIndexModeChoice,
 } from "@/features/page/services/page-service";
 import {
   IMovePage,
@@ -127,8 +129,23 @@ export function usePublishPageKnowledgeMutation() {
       indexMode,
     }: {
       pageId: string;
-      indexMode: KnowledgeIndexMode;
+      indexMode: KnowledgePageIndexModeChoice;
     }) => publishPageKnowledge(pageId, indexMode),
+  });
+}
+
+export function useSetPageIndexModeMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      pageId,
+      indexMode,
+    }: {
+      pageId: string;
+      indexMode: KnowledgePageIndexModeChoice;
+    }) => setPageIndexMode(pageId, indexMode),
+    onSuccess: (data, { pageId }) =>
+      queryClient.setQueryData(["page-compile-status", pageId], data),
   });
 }
 
@@ -146,6 +163,9 @@ export function usePageCompileStatusQuery(pageId?: string) {
     queryKey: ["page-compile-status", pageId],
     queryFn: () => getPageCompileStatus(pageId!),
     enabled: !!pageId,
+    // Overrides the global default so the status reloads after space
+    // settings invalidate it.
+    refetchOnMount: true,
     refetchInterval: (query) =>
       query.state.data?.status === "compiling" ? 5_000 : false,
   });

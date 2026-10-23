@@ -55,7 +55,10 @@ export class KnowledgeSpaceResetService {
     // active jobs remain and are stopped by the publication fence.
     await this.removeSupersededJobs(result.supersededJobIds);
     await this.compilation.dispatchPending();
-    return { generation: result.generation, run: result.run };
+    return {
+      generation: result.generation,
+      run: result.run,
+    };
   }
 
   private async removeSupersededJobs(jobIds: string[]): Promise<void> {
