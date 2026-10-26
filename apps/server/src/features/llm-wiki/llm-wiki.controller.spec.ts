@@ -868,6 +868,7 @@ describe('LlmWikiController', () => {
       mode: 'incremental',
       knowledgeGeneration: 7,
       indexMode: 'compiled',
+      pageIndexMode: null,
     });
 
     expect(pageAccessService.validateCanEdit).toHaveBeenCalledWith(
@@ -876,11 +877,12 @@ describe('LlmWikiController', () => {
       }),
       user(),
     );
+    // No explicit mode: clear the page override and follow the Space.
     expect(spaceCompilation.requestImmediatePagePublish).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       spaceId: 'space-1',
       sourcePageId: '11111111-1111-4111-8111-111111111111',
-      indexMode: 'compiled',
+      indexMode: null,
       updatedBy: 'user-1',
     });
     expect(auditService.log).toHaveBeenCalledWith({
@@ -894,8 +896,200 @@ describe('LlmWikiController', () => {
         disposition: 'created',
         priority: 0,
         indexMode: 'compiled',
+        pageIndexMode: null,
       },
     });
+  });
+
+  it.each([
+    // [requested, Space mode, stored page setting, saved, effective, reported]
+    ['inherit', 'default', 'original', null, 'compiled', null],
+    ['original', 'default', null, 'original', 'original', 'original'],
+    // A locked Space ignores the request and leaves the page setting alone.
+    ['compiled', 'original', 'compiled', undefined, 'original', 'compiled'],
+    ['inherit', 'compiled', null, undefined, 'compiled', null],
+  ] as const)(
+    'publishes page mode %s under Space mode %s',
+    async (
+      requested,
+      spaceIndexMode,
+      storedPageIndexMode,
+      savedPageIndexMode,
+      effective,
+      pageIndexMode,
+    ) => {
+      const pageRepo = {
+        findById: jest.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111',
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          deletedAt: null,
+        }),
+      };
+      const requestImmediatePagePublish = jest.fn().mockResolvedValue({
+        disposition: 'created',
+        run: { id: 'run-1', spaceId: 'space-1', knowledgeGeneration: 7 },
+      });
+      const pageIndexSettingsRepo = {
+        resolveMode: jest.fn().mockResolvedValue({
+          pageIndexMode: storedPageIndexMode,
+          spaceIndexMode,
+          effectiveIndexMode: effective,
+        }),
+      };
+      const controller = createController({
+        pageRepo,
+        pageAccessService: { validateCanEdit: jest.fn() },
+        spaceCompilation: { requestImmediatePagePublish },
+        pageIndexSettingsRepo,
+      });
+
+      await expect(
+        controller.publishPageKnowledge(
+          '11111111-1111-4111-8111-111111111111',
+          user(),
+          workspace(),
+          { indexMode: requested },
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({ indexMode: effective, pageIndexMode }),
+      );
+      expect(requestImmediatePagePublish.mock.calls[0][0].indexMode).toBe(
+        savedPageIndexMode,
+      );
+    },
+  );
+
+  it.each([
+    ['original', 'original'],
+    ['inherit', null],
+  ] as const)(
+    'saves page publish mode %s without publishing',
+    async (requested, stored) => {
+      const page = {
+        id: '11111111-1111-4111-8111-111111111111',
+        workspaceId: 'workspace-1',
+        spaceId: 'space-1',
+        deletedAt: null,
+      };
+      const validateCanEdit = jest.fn();
+      const requestImmediatePagePublish = jest.fn();
+      const pageIndexSettingsRepo = {
+        setMode: jest.fn().mockResolvedValue(undefined),
+        resolveMode: jest.fn().mockResolvedValue({
+          pageIndexMode: stored,
+          spaceIndexMode: 'default',
+          effectiveIndexMode: stored ?? 'compiled',
+        }),
+      };
+      const getPageCompileStatus = jest.fn().mockResolvedValue({
+        status: 'completed',
+        publishedIndexMode: 'compiled',
+      });
+      const controller = createController({
+        pageRepo: { findById: jest.fn().mockResolvedValue(page) },
+        pageAccessService: { validateCanEdit },
+        spaceCompilation: { requestImmediatePagePublish, getPageCompileStatus },
+        pageIndexSettingsRepo,
+      });
+
+      // Returns the full compile status so the client skips a refetch.
+      await expect(
+        controller.setPageIndexMode(
+          page.id,
+          { indexMode: requested },
+          user(),
+          workspace(),
+        ),
+      ).resolves.toEqual({
+        status: stored === 'original' ? 'outdated' : 'completed',
+        publishedIndexMode: 'compiled',
+        configuredIndexMode: stored ?? 'compiled',
+        pageIndexMode: stored,
+        spaceIndexMode: 'default',
+      });
+      expect(validateCanEdit).toHaveBeenCalledWith(page, user());
+      expect(pageIndexSettingsRepo.setMode).toHaveBeenCalledWith({
+        workspaceId: 'workspace-1',
+        sourcePageId: page.id,
+        indexMode: stored,
+        updatedBy: 'user-1',
+      });
+      expect(requestImmediatePagePublish).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects changing the page publish mode while the Space mode is locked', async () => {
+    const page = {
+      id: '11111111-1111-4111-8111-111111111111',
+      workspaceId: 'workspace-1',
+      spaceId: 'space-1',
+      deletedAt: null,
+    };
+    const pageIndexSettingsRepo = {
+      setMode: jest.fn(),
+      resolveMode: jest.fn().mockResolvedValue({
+        pageIndexMode: null,
+        spaceIndexMode: 'original',
+        effectiveIndexMode: 'original',
+      }),
+    };
+    const controller = createController({
+      pageRepo: { findById: jest.fn().mockResolvedValue(page) },
+      pageAccessService: { validateCanEdit: jest.fn() },
+      pageIndexSettingsRepo,
+    });
+
+    await expect(
+      controller.setPageIndexMode(
+        page.id,
+        { indexMode: 'compiled' },
+        user(),
+        workspace(),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(pageIndexSettingsRepo.setMode).not.toHaveBeenCalled();
+  });
+
+  it('reports Space-inherited modes in page compile status', async () => {
+    const controller = createController({
+      pageRepo: {
+        findById: jest.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111',
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          deletedAt: null,
+        }),
+      },
+      spaceCompilation: {
+        getPageCompileStatus: jest.fn().mockResolvedValue({
+          status: 'completed',
+          publishedIndexMode: 'compiled',
+        }),
+      },
+      pageIndexSettingsRepo: {
+        resolveMode: jest.fn().mockResolvedValue({
+          pageIndexMode: null,
+          spaceIndexMode: 'original',
+          effectiveIndexMode: 'original',
+        }),
+      },
+    });
+
+    await expect(
+      controller.getPageCompileStatus(
+        '11111111-1111-4111-8111-111111111111',
+        workspace(),
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        // The Space mode changed after publishing, so the page is stale.
+        status: 'outdated',
+        configuredIndexMode: 'original',
+        pageIndexMode: null,
+        spaceIndexMode: 'original',
+      }),
+    );
   });
 
   it('rejects immediate publish while the page cooldown is active', async () => {
@@ -1737,6 +1931,7 @@ function createController(
     apiKeyService?: Partial<ApiKeyService>;
     environmentService?: Partial<EnvironmentService>;
     cacheManager?: { get: jest.Mock; set?: jest.Mock; del?: jest.Mock };
+    pageIndexSettingsRepo?: { resolveMode: jest.Mock; setMode?: jest.Mock };
   } = {},
 ) {
   return new LlmWikiController(
@@ -1830,6 +2025,7 @@ function createController(
     overrides.environmentService as EnvironmentService | undefined,
     undefined,
     overrides.cacheManager as never,
+    overrides.pageIndexSettingsRepo as never,
   );
 }
 

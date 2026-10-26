@@ -11,6 +11,7 @@ import { SpaceListOptions } from '@akasha/db/repos/space/types';
 import { SpaceRepo } from '@akasha/db/repos/space/space.repo';
 import { KyselyDB, KyselyTransaction } from '@akasha/db/types/kysely.types';
 import { Space, User } from '@akasha/db/types/entity.types';
+import { readSpaceKnowledgeIndexMode } from '@akasha/db/types/knowledge-index-mode.types';
 import { UpdateSpaceDto } from '../dto/update-space.dto';
 import { executeTx } from '@akasha/db/utils';
 import { InjectKysely } from 'nestjs-kysely';
@@ -206,6 +207,22 @@ export class SpaceService {
           workspaceId,
           'allowViewerComments',
           updateSpaceDto.allowViewerComments,
+          trx,
+        );
+      }
+
+      if (typeof updateSpaceDto.knowledgeIndexMode !== 'undefined') {
+        const prev = readSpaceKnowledgeIndexMode(settingsBefore);
+        if (prev !== updateSpaceDto.knowledgeIndexMode) {
+          before.knowledgeIndexMode = prev;
+          after.knowledgeIndexMode = updateSpaceDto.knowledgeIndexMode;
+        }
+
+        await this.spaceRepo.updateKnowledgeSettings(
+          updateSpaceDto.spaceId,
+          workspaceId,
+          'indexMode',
+          updateSpaceDto.knowledgeIndexMode,
           trx,
         );
       }
