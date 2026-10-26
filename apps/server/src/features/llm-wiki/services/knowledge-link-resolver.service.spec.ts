@@ -6,7 +6,6 @@ describe('KnowledgeLinkResolverService', () => {
     const capsuleRepo = {
       resolveCanonicalReferences: jest.fn().mockResolvedValue({
         resolvedLinkCount: 2,
-        resolvedEdgeCount: 5,
       }),
     };
     const service = new KnowledgeLinkResolverService(
@@ -18,7 +17,7 @@ describe('KnowledgeLinkResolverService', () => {
         workspaceId: 'workspace-1',
         spaceId: 'space-1',
       }),
-    ).resolves.toEqual({ resolvedLinkCount: 2, resolvedEdgeCount: 5 });
+    ).resolves.toEqual({ resolvedLinkCount: 2 });
     expect(capsuleRepo.resolveCanonicalReferences).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       spaceId: 'space-1',

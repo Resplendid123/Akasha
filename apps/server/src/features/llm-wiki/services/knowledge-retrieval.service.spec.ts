@@ -125,6 +125,7 @@ describe('KnowledgeRetrievalService', () => {
     });
 
     const result = await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'AkashaQwenSmokeTest 是什么？',
@@ -355,6 +356,7 @@ describe('KnowledgeRetrievalService', () => {
 
     await expect(
       service.retrieve({
+        graphExpansionMode: 'window_recall',
         workspaceId: 'workspace-1',
         userId: 'user-1',
         query: 'AkashaQwenSmokeTest 是什么？',
@@ -582,8 +584,8 @@ describe('KnowledgeRetrievalService', () => {
             id: 'edge-2',
             fromKnowledgePageId: 'kp-neighbor-1',
             toKnowledgePageId: 'kp-neighbor-2',
-            type: 'semantic',
-            weight: 1,
+            type: 'link',
+            weight: 0.7,
             sourcePageIds: ['source-edge-2'],
           },
         ]),
@@ -598,6 +600,7 @@ describe('KnowledgeRetrievalService', () => {
     const service = createService({ capsuleRepo, sourceAuthorization });
 
     const result = await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'seed',
@@ -678,6 +681,7 @@ describe('KnowledgeRetrievalService', () => {
     const service = createService({ capsuleRepo, sourceAuthorization });
 
     const result = await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'seed',
@@ -738,8 +742,8 @@ describe('KnowledgeRetrievalService', () => {
             id: 'edge-1',
             fromKnowledgePageId: 'kp-seed',
             toKnowledgePageId: 'kp-neighbor',
-            type: 'semantic',
-            weight: 1,
+            type: 'link',
+            weight: 0.7,
             sourcePageIds: ['source-edge'],
           },
         ])
@@ -757,6 +761,7 @@ describe('KnowledgeRetrievalService', () => {
     });
 
     const result = await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'vacation policy',
@@ -823,8 +828,8 @@ describe('KnowledgeRetrievalService', () => {
             id: 'edge-1',
             fromKnowledgePageId: 'kp-seed',
             toKnowledgePageId: 'kp-neighbor',
-            type: 'semantic',
-            weight: 1,
+            type: 'link',
+            weight: 0.7,
             sourcePageIds: ['source-edge'],
           },
         ])
@@ -847,6 +852,7 @@ describe('KnowledgeRetrievalService', () => {
       query: 'vacation policy',
       spaceIds: ['space-1'],
       candidateLimit: 4,
+      graphExpansionMode: 'window_recall',
     });
 
     expect(result.chunks.map(({ chunk }) => chunk.id)).toEqual([
@@ -889,8 +895,8 @@ describe('KnowledgeRetrievalService', () => {
             id: `edge-hop1-${index}`,
             fromKnowledgePageId: 'kp-seed',
             toKnowledgePageId: pageId,
-            type: 'semantic',
-            weight: 1,
+            type: 'link',
+            weight: 0.7,
             sourcePageIds: ['source-edge'],
           })),
         )
@@ -899,8 +905,8 @@ describe('KnowledgeRetrievalService', () => {
             id: `edge-hop2-${index}`,
             fromKnowledgePageId: oneHop[0],
             toKnowledgePageId: pageId,
-            type: 'semantic',
-            weight: 1,
+            type: 'link',
+            weight: 0.7,
             sourcePageIds: ['source-edge'],
           })),
         )
@@ -918,6 +924,7 @@ describe('KnowledgeRetrievalService', () => {
     });
 
     await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'vacation policy',
@@ -978,6 +985,7 @@ describe('KnowledgeRetrievalService', () => {
     });
 
     const result = await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'vacation policy',
@@ -1045,6 +1053,7 @@ describe('KnowledgeRetrievalService', () => {
     const service = createService({ capsuleRepo, sourceAuthorization });
 
     const result = await service.retrieve({
+      graphExpansionMode: 'window_recall',
       workspaceId: 'workspace-1',
       userId: 'user-1',
       query: 'seed',
@@ -1286,6 +1295,7 @@ describe('KnowledgeRetrievalService', () => {
       query: 'shared query',
       spaceIds: ['space-1'],
       candidateLimit: 4,
+      graphExpansionMode: 'window_recall',
     });
 
     expect(
@@ -1356,8 +1366,8 @@ describe('KnowledgeRetrievalService', () => {
             id: `edge-${index}`,
             fromKnowledgePageId: 'kp-direct-0',
             toKnowledgePageId: candidate.page.id,
-            type: 'semantic',
-            weight: 1,
+            type: 'link',
+            weight: 0.7,
             sourcePageIds: ['source-edge'],
           })),
         )
@@ -1402,7 +1412,271 @@ describe('KnowledgeRetrievalService', () => {
       ]),
     );
   });
+
+  describe('edge_anchored graph expansion', () => {
+    const seed = {
+      ...chunkCandidate(
+        'chunk-seed',
+        'kp-seed',
+        ['source-seed'],
+        ['semantic'],
+        [1, 0],
+        'vacation policy seed',
+      ),
+      signalScore: 0.2,
+    };
+    const neighborChunk = (
+      chunkId: string,
+      pageId: string,
+      distance: number,
+    ) => ({
+      ...chunkCandidate(
+        chunkId,
+        pageId,
+        [`source-${pageId}`],
+        ['semantic'],
+        [0.5, 0.5],
+        `${chunkId} body`,
+      ),
+      signalScore: distance,
+    });
+    const graphRepo = (input: {
+      direct: KnowledgeChunkCandidateLike[];
+      window: KnowledgeChunkCandidateLike[];
+      edges: Array<{ to: string; type: 'link' | 'shared-source' }>;
+    }) => ({
+      findDenseChunkCandidates: jest
+        .fn()
+        .mockImplementation(({ knowledgePageIds, retrievalChannel }) =>
+          Promise.resolve(
+            knowledgePageIds
+              ? input.window
+              : retrievalChannel === 'evidence'
+                ? input.direct
+                : [],
+          ),
+        ),
+      findLexicalChunkCandidates: jest.fn().mockResolvedValue([]),
+      findExactTitleChunkCandidates: jest.fn().mockResolvedValue([]),
+      findChunkSourcePageIdsByChunkIds: jest
+        .fn()
+        .mockImplementation(({ chunkIds }) =>
+          Promise.resolve(
+            [...input.direct, ...input.window]
+              .filter((candidate) => chunkIds.includes(candidate.chunk.id))
+              .map((candidate) => ({
+                chunkId: candidate.chunk.id,
+                sourcePageIds: candidate.sourcePageIds,
+              })),
+          ),
+        ),
+      findGraphFrontierSourceIds: jest.fn().mockResolvedValue(['source-edge']),
+      findGraphTraversalEdges: jest.fn().mockResolvedValueOnce(
+        input.edges.map((edge, index) => ({
+          id: `edge-${index}`,
+          fromKnowledgePageId: 'kp-seed',
+          toKnowledgePageId: edge.to,
+          type: edge.type,
+          weight: { link: 0.7, 'shared-source': 0.2 }[edge.type],
+          sourcePageIds: ['source-edge'],
+        })),
+      ),
+    });
+    const readableEverything = {
+      filterReadableSources: jest
+        .fn()
+        .mockImplementation(({ sourcePageIds }) =>
+          Promise.resolve(sourcePageIds),
+        ),
+    };
+    const embeddingProvider = {
+      embedQuery: jest.fn().mockResolvedValue(queryEmbedding()),
+    };
+
+    it('admits an edge-anchored neighbor that the legacy similarity gate drops', async () => {
+      const repoInput = {
+        direct: [seed],
+        window: [neighborChunk('chunk-neighbor', 'kp-neighbor', 0.5)],
+        edges: [{ to: 'kp-neighbor', type: 'link' as const }],
+      };
+      const run = (mode: 'window_recall' | 'edge_anchored') =>
+        createService({
+          capsuleRepo: graphRepo(repoInput),
+          sourceAuthorization: readableEverything,
+          embeddingProvider,
+        }).retrieve({
+          workspaceId: 'workspace-1',
+          userId: 'user-1',
+          query: 'vacation policy',
+          spaceIds: ['space-1'],
+          candidateLimit: 4,
+          graphExpansionMode: mode,
+        });
+
+      const legacy = await run('window_recall');
+      const anchored = await run('edge_anchored');
+
+      expect(legacy.chunks.map(({ chunk }) => chunk.id)).toEqual([
+        'chunk-seed',
+      ]);
+      expect(legacy.diagnostics.graph.expansionMode).toBe('window_recall');
+      expect(
+        anchored.chunks.map(({ chunk, origin }) => [chunk.id, origin]),
+      ).toEqual([
+        ['chunk-seed', 'direct'],
+        ['chunk-neighbor', 'graph'],
+      ]);
+      expect(anchored.directHitChunkIds).toEqual(['chunk-seed']);
+      expect(anchored.diagnostics.graph).toEqual(
+        expect.objectContaining({
+          expansionMode: 'edge_anchored',
+          candidateCount: 1,
+          gatedOutCount: 0,
+          selectedCount: 1,
+        }),
+      );
+    });
+
+    it('still rejects a neighbor chunk that is off-topic beyond the relaxed gate', async () => {
+      const result = await createService({
+        capsuleRepo: graphRepo({
+          direct: [seed],
+          window: [neighborChunk('chunk-off-topic', 'kp-neighbor', 0.7)],
+          edges: [{ to: 'kp-neighbor', type: 'link' }],
+        }),
+        sourceAuthorization: readableEverything,
+        embeddingProvider,
+      }).retrieve({
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        query: 'vacation policy',
+        spaceIds: ['space-1'],
+        candidateLimit: 4,
+        graphExpansionMode: 'edge_anchored',
+      });
+
+      expect(result.chunks.map(({ chunk }) => chunk.id)).toEqual([
+        'chunk-seed',
+      ]);
+      expect(result.diagnostics.graph.gatedOutCount).toBe(1);
+      expect(result.retrievalObservation.dropped).toEqual(
+        expect.arrayContaining([
+          {
+            pageId: 'kp-neighbor',
+            chunkId: 'chunk-off-topic',
+            reason: 'below_threshold',
+          },
+        ]),
+      );
+    });
+
+    it('keeps one chunk per neighbor and orders neighbors by edge strength, not similarity', async () => {
+      const result = await createService({
+        capsuleRepo: graphRepo({
+          direct: [seed],
+          window: [
+            neighborChunk('chunk-shared-best', 'kp-shared', 0.3),
+            neighborChunk('chunk-link-a', 'kp-link', 0.5),
+            neighborChunk('chunk-link-b', 'kp-link', 0.52),
+          ],
+          edges: [
+            { to: 'kp-shared', type: 'shared-source' },
+            { to: 'kp-link', type: 'link' },
+          ],
+        }),
+        sourceAuthorization: readableEverything,
+        embeddingProvider,
+      }).retrieve({
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        query: 'vacation policy',
+        spaceIds: ['space-1'],
+        candidateLimit: 8,
+        graphExpansionMode: 'edge_anchored',
+      });
+
+      expect(result.chunks.map(({ chunk }) => chunk.id)).toEqual([
+        'chunk-seed',
+        'chunk-link-a',
+        'chunk-shared-best',
+      ]);
+    });
+
+    it('does not expand from a seed that is only weakly relevant', async () => {
+      const capsuleRepo = graphRepo({
+        direct: [{ ...seed, signalScore: 0.44 }],
+        window: [neighborChunk('chunk-neighbor', 'kp-neighbor', 0.3)],
+        edges: [{ to: 'kp-neighbor', type: 'link' }],
+      });
+      const result = await createService({
+        capsuleRepo,
+        sourceAuthorization: readableEverything,
+        embeddingProvider,
+      }).retrieve({
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        query: 'vacation policy',
+        spaceIds: ['space-1'],
+        candidateLimit: 4,
+      });
+
+      expect(result.chunks.map(({ chunk }) => chunk.id)).toEqual([
+        'chunk-seed',
+      ]);
+      expect(result.diagnostics.graph.expandedSeedCount).toBe(0);
+      expect(capsuleRepo.findGraphTraversalEdges).not.toHaveBeenCalled();
+    });
+
+    it('limits graph hits to a quarter of the slots when direct recall is full', async () => {
+      const direct = Array.from({ length: 4 }, (_, index) => ({
+        ...chunkCandidate(
+          `chunk-direct-${index}`,
+          'kp-seed',
+          ['source-seed'],
+          ['semantic'],
+          [1, 0],
+          `direct ${index}`,
+        ),
+        signalScore: 0.1 + index * 0.01,
+      }));
+      const result = await createService({
+        capsuleRepo: graphRepo({
+          direct,
+          window: [
+            neighborChunk('chunk-n1', 'kp-n1', 0.4),
+            neighborChunk('chunk-n2', 'kp-n2', 0.4),
+          ],
+          edges: [
+            { to: 'kp-n1', type: 'link' },
+            { to: 'kp-n2', type: 'link' },
+          ],
+        }),
+        sourceAuthorization: readableEverything,
+        embeddingProvider,
+      }).retrieve({
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        query: 'vacation policy',
+        spaceIds: ['space-1'],
+        candidateLimit: 4,
+        graphExpansionMode: 'edge_anchored',
+      });
+
+      expect(
+        result.chunks.map(({ chunk, origin }) => [chunk.id, origin]),
+      ).toEqual([
+        ['chunk-direct-0', 'direct'],
+        ['chunk-direct-1', 'direct'],
+        ['chunk-direct-2', 'direct'],
+        ['chunk-n1', 'graph'],
+      ]);
+    });
+  });
 });
+
+type KnowledgeChunkCandidateLike = ReturnType<typeof chunkCandidate> & {
+  signalScore?: number;
+};
 
 function createService(
   overrides: {
@@ -1522,7 +1796,7 @@ function noGraphDiagnostics() {
       gatedOutCount: 0,
       selectedCount: 0,
       expandedSeedCount: 0,
-      edgeCounts: { semantic: 0, link: 0, 'shared-source': 0 },
+      edgeCounts: { link: 0, 'shared-source': 0 },
       pageCountsByHop: {},
     },
   };

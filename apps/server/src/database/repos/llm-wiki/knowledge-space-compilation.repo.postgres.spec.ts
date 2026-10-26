@@ -207,7 +207,7 @@ describePostgres('KnowledgeSpaceCompilationRepo PostgreSQL round trip', () => {
     expect(evidence).toEqual({
       sourceStale: true,
       artifactStale: true,
-      childStaleCount: 5,
+      childStaleCount: 4,
       contributionCount: 1,
       initializedAt: null,
       status: 'queued',
@@ -896,12 +896,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
       from_knowledge_page_id varchar not null,
       stale_at timestamptz
     );
-    create table knowledge_graph_edges (
-      id varchar primary key,
-      workspace_id varchar not null,
-      from_knowledge_page_id varchar not null,
-      stale_at timestamptz
-    );
     create unique index uq_active_run on knowledge_space_compile_runs (
       workspace_id, space_id
     ) where status in ('queued', 'compiling', 'aggregating');
@@ -971,9 +965,6 @@ async function seedInitializedRemovedSourcePlan(
     );
     insert into knowledge_links values (
       'link-removed', 'workspace-1', 'artifact-removed', null
-    );
-    insert into knowledge_graph_edges values (
-      'edge-removed', 'workspace-1', 'artifact-removed', null
     )
   `.execute(db);
 }
@@ -1003,7 +994,6 @@ async function readRemovedSourceReplanEvidence(
        + (select count(*) from knowledge_claims where stale_at is not null)
        + (select count(*) from knowledge_chunks where stale_at is not null)
        + (select count(*) from knowledge_links where stale_at is not null)
-       + (select count(*) from knowledge_graph_edges where stale_at is not null)
       )::integer as "childStaleCount",
       (select count(*)::integer from knowledge_artifact_contributions
        where id = 'contribution-removed') as "contributionCount",

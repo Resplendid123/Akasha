@@ -10,7 +10,7 @@ const RUN_PAGE_BATCH_SIZE = 1_000;
 const RUN_BATCH_SIZE = 100;
 // Stale KnowledgePages keep their stable id so a later compile can revive them
 // in place. After this grace period revival is unlikely and the rows (plus
-// their cascaded chunks/sections/links/edges) are only dead weight.
+// their cascaded chunks/sections/links) are only dead weight.
 const STALE_ARTIFACT_RETENTION_DAYS = 30;
 // Each KnowledgePage cascades to roughly ten child rows; keep transactions short.
 const STALE_ARTIFACT_BATCH_SIZE = 200;
@@ -25,7 +25,6 @@ export type KnowledgeRunRetentionBatchResult = {
 export type KnowledgeStaleArtifactPurgeResult = {
   deletedKnowledgePages: number;
   danglingLinks: number;
-  danglingEdges: number;
   /**
    * True when this batch claimed nothing but eligible pages still exist, i.e.
    * they are locked by a concurrent purger. Callers should not treat the batch
@@ -124,11 +123,11 @@ export class KnowledgeRunRetentionService {
 
   /**
    * Hard-deletes KnowledgePages that have been stale for longer than the grace
-   * period. Child rows go through FK cascades. Active inbound links/edges are
-   * first turned back into dangling canonical references: otherwise the edge
-   * FK would cascade-delete them and the link FK would null the target while
-   * leaving is_dangling=false, so resolveCanonicalReferences could never
-   * re-attach them when the concept is regenerated.
+   * period. Child rows go through FK cascades. Active inbound links are first
+   * turned back into dangling canonical references: otherwise the link FK
+   * would null the target while leaving is_dangling=false, so
+   * resolveCanonicalReferences could never re-attach them when the concept is
+   * regenerated.
    */
   async purgeStaleArtifactsBatch(): Promise<KnowledgeStaleArtifactPurgeResult> {
     const startedAt = Date.now();
@@ -158,7 +157,6 @@ export class KnowledgeRunRetentionService {
         return {
           deletedKnowledgePages: 0,
           danglingLinks: 0,
-          danglingEdges: 0,
           remainingLocked: remaining.rows[0]?.exists === true,
           durationMs: Date.now() - startedAt,
         };
@@ -169,13 +167,6 @@ export class KnowledgeRunRetentionService {
       // stale owner page or rewritten when that page is republished.
       const danglingLinks = await sql<{ id: string }>`
         UPDATE knowledge_links
-        SET is_dangling = true, to_knowledge_page_id = NULL
-        WHERE to_knowledge_page_id IN (${ids})
-          AND stale_at IS NULL
-        RETURNING id
-      `.execute(trx);
-      const danglingEdges = await sql<{ id: string }>`
-        UPDATE knowledge_graph_edges
         SET is_dangling = true, to_knowledge_page_id = NULL
         WHERE to_knowledge_page_id IN (${ids})
           AND stale_at IS NULL
@@ -195,7 +186,6 @@ export class KnowledgeRunRetentionService {
       return {
         deletedKnowledgePages: deleted.rows.length,
         danglingLinks: danglingLinks.rows.length,
-        danglingEdges: danglingEdges.rows.length,
         remainingLocked: false,
         durationMs: Date.now() - startedAt,
       };

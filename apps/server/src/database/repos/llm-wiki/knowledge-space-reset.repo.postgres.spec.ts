@@ -258,7 +258,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
     create table knowledge_claims (id varchar primary key, knowledge_page_id varchar references knowledge_pages(id) on delete cascade);
     create table knowledge_chunks (id varchar primary key, knowledge_page_id varchar references knowledge_pages(id) on delete cascade);
     create table knowledge_links (id varchar primary key, from_knowledge_page_id varchar references knowledge_pages(id) on delete cascade);
-    create table knowledge_graph_edges (id varchar primary key, from_knowledge_page_id varchar references knowledge_pages(id) on delete cascade);
     create table knowledge_parent_sections (id varchar primary key, knowledge_page_id varchar references knowledge_pages(id) on delete cascade);
     create table knowledge_artifact_contributions (id varchar primary key, workspace_id varchar not null, space_id varchar not null);
     create table knowledge_sources (id varchar primary key, workspace_id varchar not null, source_space_id varchar not null);
@@ -304,7 +303,6 @@ async function createFixture(db: Kysely<unknown>): Promise<void> {
     insert into knowledge_claims values ('claim-target','kp-target'),('claim-control','kp-control');
     insert into knowledge_chunks values ('chunk-target','kp-target'),('chunk-control','kp-control');
     insert into knowledge_links values ('link-target','kp-target'),('link-control','kp-control');
-    insert into knowledge_graph_edges values ('edge-target','kp-target'),('edge-control','kp-control');
     insert into knowledge_parent_sections values ('section-target','kp-target'),('section-control','kp-control');
     insert into knowledge_artifact_contributions values ('contrib-target','workspace-1','space-target'),('contrib-control','workspace-1','space-control');
     insert into knowledge_sources values ('source-target','workspace-1','space-target'),('source-control','workspace-1','space-control');

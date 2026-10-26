@@ -968,7 +968,6 @@ export class KnowledgeSpaceCompilationRepo {
         ['knowledgeParentSections', 'knowledgePageId'],
         ['knowledgeChunks', 'knowledgePageId'],
         ['knowledgeLinks', 'fromKnowledgePageId'],
-        ['knowledgeGraphEdges', 'fromKnowledgePageId'],
       ] as const) {
         await trx
           .updateTable(table)

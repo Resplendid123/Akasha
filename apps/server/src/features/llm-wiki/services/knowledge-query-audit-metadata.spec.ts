@@ -209,7 +209,7 @@ describe('buildKnowledgeQueryAuditMetadata', () => {
           gatedOutCount: 1,
           selectedCount: 1,
           expandedSeedCount: 2,
-          edgeCounts: { semantic: 2, link: 1, 'shared-source': 0 },
+          edgeCounts: { link: 1, 'shared-source': 0 },
           pageCountsByHop: { 1: 2, 2: 1 },
         },
       },
@@ -220,7 +220,7 @@ describe('buildKnowledgeQueryAuditMetadata', () => {
       gatedOutCount: 1,
       selectedCount: 1,
       expandedSeedCount: 2,
-      edgeCounts: { semantic: 2, link: 1, 'shared-source': 0 },
+      edgeCounts: { link: 1, 'shared-source': 0 },
       pageCountsByHop: { 1: 2, 2: 1 },
     });
   });

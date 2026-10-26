@@ -366,37 +366,6 @@ export class KnowledgeImportService {
           provenanceKind: 'synthesis_lineage',
         })),
       );
-      const graphEdges = (artifact.graphEdges ?? []).map((edge, index) => ({
-        id: stableKnowledgeUuid(`${artifact.artifactId}:graph-edge:${index}`),
-        workspaceId: artifact.workspaceId,
-        spaceId: artifact.spaceId,
-        fromKnowledgePageId: artifact.artifactId,
-        toKnowledgePageId: edge.toKnowledgePageId ?? null,
-        targetArtifactKind: edge.targetArtifactKind ?? null,
-        targetCanonicalKey: edge.targetCanonicalKey ?? null,
-        isDangling: !edge.toKnowledgePageId,
-        relation: edge.relation,
-        compilerRunId: artifact.compilerRunId ?? null,
-        compileTaskId: artifact.compileTaskId ?? null,
-        staleAt: null,
-      }));
-      const graphEdgeSources = graphEdges.flatMap((edge, index) =>
-        (
-          artifact.graphEdges?.[index]?.inputSourceRefs ??
-          artifact.inputSourceRefs ??
-          []
-        ).map((source) => ({
-          workspaceId: artifact.workspaceId,
-          graphEdgeId: edge.id,
-          sourcePageId: source.sourcePageId,
-          sourceVersion: source.sourceVersion,
-          sourceRange: toStoredSourceRange(source),
-          quoteHash: source.quoteHash ?? null,
-          contentHash: source.contentHash,
-          provenanceKind: 'synthesis_lineage',
-        })),
-      );
-
       artifactInputs.push({
         page: {
           id: artifact.artifactId,
@@ -435,8 +404,6 @@ export class KnowledgeImportService {
         chunkAttachments,
         links,
         linkSources,
-        graphEdges,
-        graphEdgeSources,
       });
     }
 
@@ -862,17 +829,6 @@ const QUARANTINE_REASON_CODES = new Map<string, string>([
   [
     'chunk attachment occurrence does not match source snapshot',
     'chunk_attachment_occurrence_snapshot_mismatch',
-  ],
-  ['graph edge target identity is invalid', 'graph_edge_target_id_invalid'],
-  ['graph edge lineage is incomplete', 'graph_edge_lineage_incomplete'],
-  [
-    'graph edge source is not in compile input',
-    'graph_edge_source_outside_compile_input',
-  ],
-  ['graph edge source range is invalid', 'graph_edge_source_range_invalid'],
-  [
-    'graph edge quote hash does not match source range',
-    'graph_edge_quote_hash_mismatch',
   ],
 ]);
 

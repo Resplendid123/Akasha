@@ -165,11 +165,6 @@ export class KnowledgeArtifactMaterializerService {
         (link) =>
           `${link.linkType}:${link.toKnowledgePageId ?? ''}:${link.targetPageId ?? ''}`,
       ),
-      graphEdges: uniqueBy(
-        contributions.flatMap((artifact) => artifact.graphEdges ?? []),
-        (edge) =>
-          `${edge.relation}:${edge.toKnowledgePageId ?? ''}:${edge.targetArtifactKind ?? ''}:${edge.targetCanonicalKey ?? ''}`,
-      ),
     };
   }
 }

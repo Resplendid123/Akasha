@@ -42,7 +42,10 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines artifacts outside the compile scope', () => {
     const artifact = { ...validArtifact(), spaceId: 'space-2' };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined).toMatchObject([
@@ -56,7 +59,10 @@ describe('KnowledgeArtifactValidatorService', () => {
   it('quarantines artifacts whose artifact id cannot be stored as a UUID', () => {
     const artifact = { ...validArtifact(), artifactId: 'not-a-uuid' };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -72,7 +78,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       inputSourceRefs: [],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -114,7 +123,10 @@ describe('KnowledgeArtifactValidatorService', () => {
       ],
     };
 
-    const result = service.validateCompileResult({ input, artifacts: [artifact] });
+    const result = service.validateCompileResult({
+      input,
+      artifacts: [artifact],
+    });
 
     expect(result.accepted).toEqual([]);
     expect(result.quarantined[0].reasons).toEqual([
@@ -148,7 +160,7 @@ describe('KnowledgeArtifactValidatorService', () => {
     ]);
   });
 
-  it('quarantines chunks, links, and graph edges with source refs outside the compile input', () => {
+  it('quarantines chunks and links with source refs outside the compile input', () => {
     const artifact = {
       ...validArtifact(),
       chunks: [
@@ -164,13 +176,6 @@ describe('KnowledgeArtifactValidatorService', () => {
           inputSourceRefs: [outsideSourceRef()],
         },
       ],
-      graphEdges: [
-        {
-          toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
-          relation: 'bad edge',
-          inputSourceRefs: [outsideSourceRef()],
-        },
-      ],
     };
 
     const result = service.validateCompileResult({
@@ -182,7 +187,6 @@ describe('KnowledgeArtifactValidatorService', () => {
     expect(result.quarantined[0].reasons).toEqual([
       'chunk source is not in compile input',
       'link source is not in compile input',
-      'graph edge source is not in compile input',
     ]);
   });
 
@@ -200,12 +204,6 @@ describe('KnowledgeArtifactValidatorService', () => {
           linkText: 'Link without lineage',
         },
       ],
-      graphEdges: [
-        {
-          toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
-          relation: 'edge_without_lineage',
-        },
-      ],
     };
 
     const result = service.validateCompileResult({
@@ -217,7 +215,6 @@ describe('KnowledgeArtifactValidatorService', () => {
     expect(result.quarantined[0].reasons).toEqual([
       'chunk lineage is incomplete',
       'link lineage is incomplete',
-      'graph edge lineage is incomplete',
     ]);
   });
 
@@ -300,29 +297,6 @@ describe('KnowledgeArtifactValidatorService', () => {
       accepted: [artifact],
       quarantined: [],
     });
-  });
-
-  it('quarantines graph edges whose target compiled page id is not a UUID', () => {
-    const artifact = {
-      ...validArtifact(),
-      graphEdges: [
-        {
-          toKnowledgePageId: 'not-a-uuid',
-          relation: 'depends_on',
-          inputSourceRefs: [sourceRef()],
-        },
-      ],
-    };
-
-    const result = service.validateCompileResult({
-      input,
-      artifacts: [artifact],
-    });
-
-    expect(result.accepted).toEqual([]);
-    expect(result.quarantined[0].reasons).toEqual([
-      'graph edge target identity is invalid',
-    ]);
   });
 
   it('quarantines cross-space links that materialize target content', () => {

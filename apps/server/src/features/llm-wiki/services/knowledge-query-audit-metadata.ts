@@ -15,12 +15,12 @@ export type QueryAuditRetrievalDiagnostics = {
   authorizedChunkCount: number;
   filteredChunkCount: number;
   graph?: {
+    expansionMode?: string;
     candidateCount: number;
     gatedOutCount: number;
     selectedCount: number;
     expandedSeedCount: number;
     edgeCounts: {
-      semantic: number;
       link: number;
       'shared-source': number;
     };

@@ -178,7 +178,6 @@ function staleBatch(
   overrides: Partial<{
     deletedKnowledgePages: number;
     danglingLinks: number;
-    danglingEdges: number;
     remainingLocked: boolean;
     durationMs: number;
   }> = {},
@@ -186,7 +185,6 @@ function staleBatch(
   return {
     deletedKnowledgePages: 0,
     danglingLinks: 0,
-    danglingEdges: 0,
     remainingLocked: false,
     durationMs: 1,
     ...overrides,
