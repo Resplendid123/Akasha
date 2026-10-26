@@ -151,7 +151,8 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     spaceId: string;
     sourcePageId: string;
     currentSourceVersion?: string;
-    indexMode?: KnowledgeIndexMode;
+    // null clears the page override; undefined leaves it untouched.
+    indexMode?: KnowledgeIndexMode | null;
     updatedBy?: string;
   }) {
     // Keep this lookup optional for lightweight callers that provide only the
@@ -187,7 +188,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
         spaceId: input.spaceId,
         trigger: KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER,
         targetSourcePageIds: [input.sourcePageId],
-        ...(input.indexMode
+        ...(input.indexMode !== undefined
           ? {
               pageIndexSetting: {
                 sourcePageId: input.sourcePageId,
@@ -210,12 +211,14 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     sourcePageId: string;
     currentSourceVersion?: string;
   }) {
-    const published = await this.compilationRepo.findPublishedPageIndex({
-      workspaceId: input.workspaceId,
-      spaceId: input.spaceId,
-      sourcePageId: input.sourcePageId,
-    });
-    const latest = await this.runRepo.findLatestPageCompileStatus(input);
+    const [published, latest] = await Promise.all([
+      this.compilationRepo.findPublishedPageIndex({
+        workspaceId: input.workspaceId,
+        spaceId: input.spaceId,
+        sourcePageId: input.sourcePageId,
+      }),
+      this.runRepo.findLatestPageCompileStatus(input),
+    ]);
     if (!latest) {
       const active = this.runRepo.findActiveRunForPage
         ? await this.runRepo.findActiveRunForPage(input)

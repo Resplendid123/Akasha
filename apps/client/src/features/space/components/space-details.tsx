@@ -19,6 +19,8 @@ import {
   ResponsiveSettingsRow,
 } from "@/components/ui/responsive-settings-row.tsx";
 import { isPersonalSpace } from "@/features/space/personal-space.ts";
+import SpaceKnowledgeSettings from "@/features/space/components/space-knowledge-settings.tsx";
+import useUserRole from "@/hooks/use-user-role.tsx";
 
 interface SpaceDetailsProps {
   spaceId: string;
@@ -33,6 +35,7 @@ export default function SpaceDetails({
 }: SpaceDetailsProps) {
   const { t } = useTranslation();
   const { data: space, isLoading, refetch } = useSpaceQuery(spaceId);
+  const { isAdmin } = useUserRole();
   const [exportOpened, { open: openExportModal, close: closeExportModal }] =
     useDisclosure(false);
   const [isIconUploading, setIsIconUploading] = useState(false);
@@ -93,6 +96,14 @@ export default function SpaceDetails({
           </div>
 
           <EditSpaceForm space={space} readOnly={readOnly} />
+
+          {/* Workspace admins only, like the knowledge diagnostics page. */}
+          {isAdmin && (
+            <>
+              <Divider my="lg" />
+              <SpaceKnowledgeSettings space={space} />
+            </>
+          )}
 
           {!readOnly && (
             <>
