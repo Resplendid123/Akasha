@@ -59,7 +59,6 @@ export class KnowledgeRunRetentionScheduler {
     const totals = {
       deletedKnowledgePages: 0,
       danglingLinks: 0,
-      danglingEdges: 0,
       failedBatches: 0,
     };
     let consecutiveFailures = 0;
@@ -74,7 +73,6 @@ export class KnowledgeRunRetentionScheduler {
         consecutiveFailures = 0;
         totals.deletedKnowledgePages += result.deletedKnowledgePages;
         totals.danglingLinks += result.danglingLinks;
-        totals.danglingEdges += result.danglingEdges;
         if (result.deletedKnowledgePages > 0) continue;
         // Empty claim: stop only when the backlog is really empty. If another
         // instance holds the remaining rows, back off and try again so a

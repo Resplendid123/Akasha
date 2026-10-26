@@ -98,7 +98,6 @@ export type AiQaRetrievalDiagnostics = {
     selectedCount: number;
     expandedSeedCount: number;
     edgeCounts: {
-      semantic: number;
       link: number;
       "shared-source": number;
     };

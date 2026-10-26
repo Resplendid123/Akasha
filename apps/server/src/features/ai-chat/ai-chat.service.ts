@@ -586,7 +586,6 @@ export class AiChatService {
         selectedCount: number;
         expandedSeedCount: number;
         edgeCounts: {
-          semantic: number;
           link: number;
           'shared-source': number;
         };

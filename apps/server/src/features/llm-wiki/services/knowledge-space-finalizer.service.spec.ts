@@ -8,7 +8,6 @@ describe('KnowledgeSpaceFinalizerService', () => {
     const linkResolver = {
       resolveSpace: jest.fn().mockResolvedValue({
         resolvedLinkCount: 3,
-        resolvedEdgeCount: 4,
       }),
     };
     const service = new KnowledgeSpaceFinalizerService(
@@ -26,7 +25,6 @@ describe('KnowledgeSpaceFinalizerService', () => {
     ).resolves.toEqual({
       outcome: 'completed',
       resolvedCanonicalLinkCount: 3,
-      resolvedCanonicalGraphEdgeCount: 4,
     });
 
     expect(linkResolver.resolveSpace).toHaveBeenCalledTimes(1);
@@ -56,7 +54,6 @@ describe('KnowledgeSpaceFinalizerService', () => {
     ).resolves.toEqual({
       outcome: 'superseded',
       resolvedCanonicalLinkCount: 0,
-      resolvedCanonicalGraphEdgeCount: 0,
     });
     expect(linkResolver.resolveSpace).not.toHaveBeenCalled();
   });
@@ -71,7 +68,6 @@ describe('KnowledgeSpaceFinalizerService', () => {
     const linkResolver = {
       resolveSpace: jest.fn().mockResolvedValue({
         resolvedLinkCount: 1,
-        resolvedEdgeCount: 1,
       }),
     };
     const service = new KnowledgeSpaceFinalizerService(
@@ -87,7 +83,6 @@ describe('KnowledgeSpaceFinalizerService', () => {
     ).resolves.toEqual({
       outcome: 'superseded',
       resolvedCanonicalLinkCount: 0,
-      resolvedCanonicalGraphEdgeCount: 0,
     });
     expect(linkResolver.resolveSpace).toHaveBeenCalledTimes(1);
   });

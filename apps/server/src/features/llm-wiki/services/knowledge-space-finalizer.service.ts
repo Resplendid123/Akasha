@@ -9,12 +9,10 @@ export type KnowledgeSpaceFinalizationResult =
   | {
       outcome: 'completed';
       resolvedCanonicalLinkCount: number;
-      resolvedCanonicalGraphEdgeCount: number;
     }
   | {
       outcome: 'superseded';
       resolvedCanonicalLinkCount: 0;
-      resolvedCanonicalGraphEdgeCount: 0;
     };
 
 /**
@@ -42,8 +40,7 @@ export class KnowledgeSpaceFinalizerService {
       return supersededResult();
     }
 
-    const { resolvedLinkCount, resolvedEdgeCount } =
-      await this.linkResolver.resolveSpace(input);
+    const { resolvedLinkCount } = await this.linkResolver.resolveSpace(input);
 
     // Link resolution is idempotent. If the lease was superseded while the
     // scoped UPDATE ran, the new owner may safely repeat finalization, while
@@ -55,7 +52,6 @@ export class KnowledgeSpaceFinalizerService {
     return {
       outcome: 'completed',
       resolvedCanonicalLinkCount: resolvedLinkCount,
-      resolvedCanonicalGraphEdgeCount: resolvedEdgeCount,
     };
   }
 }
@@ -64,6 +60,5 @@ function supersededResult(): KnowledgeSpaceFinalizationResult {
   return {
     outcome: 'superseded',
     resolvedCanonicalLinkCount: 0,
-    resolvedCanonicalGraphEdgeCount: 0,
   };
 }

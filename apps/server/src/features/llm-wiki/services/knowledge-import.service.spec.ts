@@ -590,13 +590,15 @@ describe('KnowledgeImportService', () => {
           isOpaque: true,
         },
       ],
+      // Contributions stored before edges were removed still carry this key;
+      // import must ignore it rather than persist it.
       graphEdges: [
         {
           toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
           relation: 'depends_on',
         },
       ],
-    };
+    } as never;
     const sourceRepo = {
       upsertPageSource: jest.fn().mockResolvedValue({ id: 'source-row-1' }),
       replaceSourceChunks: jest.fn().mockResolvedValue(undefined),
@@ -749,32 +751,13 @@ describe('KnowledgeImportService', () => {
               provenanceKind: 'synthesis_lineage',
             }),
           ],
-          graphEdges: [
-            expect.objectContaining({
-              workspaceId: 'workspace-1',
-              spaceId: 'space-1',
-              fromKnowledgePageId: 'artifact-1',
-              toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
-              relation: 'depends_on',
-              compilerRunId: 'run-1',
-              compileTaskId: 'task-1',
-            }),
-          ],
-          graphEdgeSources: [
-            expect.objectContaining({
-              workspaceId: 'workspace-1',
-              sourcePageId: 'source-1',
-              sourceVersion: 'v1',
-              sourceRange: null,
-              quoteHash: null,
-              contentHash: 'hash-1',
-              provenanceKind: 'synthesis_lineage',
-            }),
-          ],
         },
       ],
       expect.anything(),
     );
+    const persisted = capsuleRepo.upsertCompiledArtifacts.mock.calls[0][0][0];
+    expect(persisted).not.toHaveProperty('graphEdges');
+    expect(persisted).not.toHaveProperty('graphEdgeSources');
   });
 
   it('persists verified source ranges and quote hashes from lineage refs', async () => {
@@ -819,13 +802,6 @@ describe('KnowledgeImportService', () => {
         {
           linkType: 'same_space_reference',
           linkText: 'Source',
-          inputSourceRefs: [rangedSourceRef],
-        },
-      ],
-      graphEdges: [
-        {
-          toKnowledgePageId: '22222222-2222-4222-8222-222222222222',
-          relation: 'mentions',
           inputSourceRefs: [rangedSourceRef],
         },
       ],
@@ -877,7 +853,6 @@ describe('KnowledgeImportService', () => {
       persisted.pageSources,
       persisted.chunkSources,
       persisted.linkSources,
-      persisted.graphEdgeSources,
     ]) {
       expect(sourceRows[0]).toEqual(
         expect.objectContaining({

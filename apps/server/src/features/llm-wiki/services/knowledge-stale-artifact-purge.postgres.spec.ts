@@ -17,11 +17,10 @@ const OLD_STALE = '00000000-0000-0000-0000-000000000c02';
 const FRESH_STALE = '00000000-0000-0000-0000-000000000c03';
 const OLD_STALE_SIBLING = '00000000-0000-0000-0000-000000000c04';
 const BUSY_OLD_STALE = '00000000-0000-0000-0000-000000000c05';
-// Links / edges
+// Links
 const ACTIVE_LINK = '00000000-0000-0000-0000-000000000d01';
 const STALE_LINK = '00000000-0000-0000-0000-000000000d02';
 const STALE_INBOUND_LINK = '00000000-0000-0000-0000-000000000d03';
-const ACTIVE_EDGE = '00000000-0000-0000-0000-000000000e01';
 
 describePostgres('KnowledgeRunRetentionService stale artifact purge', () => {
   const schema = `akasha_stale_purge_${process.pid}_${Date.now()}`;
@@ -66,7 +65,6 @@ describePostgres('KnowledgeRunRetentionService stale artifact purge', () => {
       expect.objectContaining({
         deletedKnowledgePages: 2,
         danglingLinks: 1,
-        danglingEdges: 1,
       }),
     );
     await expect(pageIds(db)).resolves.toEqual(
@@ -104,14 +102,6 @@ describePostgres('KnowledgeRunRetentionService stale artifact purge', () => {
       targetArtifactKind: 'concept',
       targetCanonicalKey: 'kafka',
     });
-    const edge = await sql<{
-      isDangling: boolean;
-      toKnowledgePageId: string | null;
-      targetCanonicalKey: string;
-    }>`
-      SELECT is_dangling, to_knowledge_page_id, target_canonical_key
-      FROM knowledge_graph_edges WHERE id = ${ACTIVE_EDGE}
-    `.execute(db);
     // A stale inbound link (owned by a kept stale page) is not rewritten: it is
     // not counted, stays non-dangling and keeps its stale marker. Only the FK
     // ON DELETE SET NULL touches its target column.
@@ -125,14 +115,6 @@ describePostgres('KnowledgeRunRetentionService stale artifact purge', () => {
     `.execute(db);
     expect(staleInbound.rows).toEqual([
       { isDangling: false, toKnowledgePageId: null, isStale: true },
-    ]);
-    // The active edge survives instead of being cascade-deleted.
-    expect(edge.rows).toEqual([
-      {
-        isDangling: true,
-        toKnowledgePageId: null,
-        targetCanonicalKey: 'kafka',
-      },
     ]);
   });
 
@@ -148,7 +130,7 @@ describePostgres('KnowledgeRunRetentionService stale artifact purge', () => {
       db as never,
     ).resolveCanonicalReferences({ workspaceId: WS, spaceId: SPACE });
 
-    expect(resolved).toEqual({ resolvedLinkCount: 1, resolvedEdgeCount: 1 });
+    expect(resolved).toEqual({ resolvedLinkCount: 1 });
     await expect(linkById(db, ACTIVE_LINK)).resolves.toEqual(
       expect.objectContaining({
         isDangling: false,
@@ -180,7 +162,6 @@ describePostgres('KnowledgeRunRetentionService stale artifact purge', () => {
       expect.objectContaining({
         deletedKnowledgePages: 0,
         danglingLinks: 0,
-        danglingEdges: 0,
         remainingLocked: false,
       }),
     );
@@ -261,17 +242,6 @@ async function createTables(db: Kysely<unknown>): Promise<void> {
       is_dangling boolean NOT NULL DEFAULT false,
       stale_at timestamptz
     );
-    CREATE TABLE knowledge_graph_edges (
-      id uuid PRIMARY KEY,
-      workspace_id uuid NOT NULL,
-      space_id uuid NOT NULL,
-      from_knowledge_page_id uuid NOT NULL REFERENCES knowledge_pages(id) ON DELETE CASCADE,
-      to_knowledge_page_id uuid REFERENCES knowledge_pages(id) ON DELETE CASCADE,
-      target_artifact_kind varchar,
-      target_canonical_key varchar,
-      is_dangling boolean NOT NULL DEFAULT false,
-      stale_at timestamptz
-    );
   `.execute(db);
 }
 
@@ -311,10 +281,6 @@ async function seedFixture(db: Kysely<unknown>): Promise<void> {
         now() - interval '35 days'),
       (${STALE_INBOUND_LINK}, ${WS}, ${SPACE}, ${FRESH_STALE}, ${OLD_STALE}, 'concept', 'kafka', false,
         now() - interval '5 days')
-  `.execute(db);
-  await sql`
-    INSERT INTO knowledge_graph_edges VALUES
-      (${ACTIVE_EDGE}, ${WS}, ${SPACE}, ${ACTIVE}, ${OLD_STALE}, 'concept', 'kafka', false, NULL)
   `.execute(db);
 }
 

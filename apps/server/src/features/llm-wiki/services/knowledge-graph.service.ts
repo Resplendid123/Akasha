@@ -104,7 +104,6 @@ export class KnowledgeGraphService {
       ...graph.pageSources.map((source) => source.sourcePageId),
       ...graph.parentSectionSources.map((source) => source.sourcePageId),
       ...graph.linkSources.map((source) => source.sourcePageId),
-      ...graph.graphEdgeSources.map((source) => source.sourcePageId),
     ]);
     const readableSourcePageIds =
       await this.sourceAuthorization.filterReadableSources({
@@ -165,37 +164,10 @@ export class KnowledgeGraphService {
         reasons: ['direct-link' as const],
       }));
 
-    const graphEdgeSourcesByEdgeId = groupBy(
-      graph.graphEdgeSources,
-      (source) => source.graphEdgeId,
-    );
-    const semanticEdges = graph.graphEdges
-      .filter((edge) => edge.relation !== 'catalog_entry')
-      .filter(
-        (edge) =>
-          edge.toKnowledgePageId !== null &&
-          visiblePageIds.has(edge.fromKnowledgePageId) &&
-          visiblePageIds.has(edge.toKnowledgePageId) &&
-          allSourcesReadable(
-            graphEdgeSourcesByEdgeId.get(edge.id) ?? [],
-            readableSourceSet,
-          ),
-      )
-      .map((edge) => ({
-        id: edge.id,
-        from: edge.fromKnowledgePageId,
-        to: edge.toKnowledgePageId,
-        type: 'semantic' as const,
-        label: edge.relation,
-        weight: 2,
-        reasons: ['semantic-edge' as const],
-      }));
-
     const derivedSemanticEdges = buildDerivedSemanticEdges({
       pages: visiblePages,
       pageSourcesByPageId,
       directEdges: linkEdges,
-      explicitSemanticEdges: semanticEdges,
     });
 
     const sectionEdges = visibleSections.map((section) => ({
@@ -208,11 +180,7 @@ export class KnowledgeGraphService {
       reasons: ['section-membership' as const],
     }));
 
-    const relationshipEdges = [
-      ...linkEdges,
-      ...semanticEdges,
-      ...derivedSemanticEdges,
-    ];
+    const relationshipEdges = [...linkEdges, ...derivedSemanticEdges];
     const edges = [...relationshipEdges, ...sectionEdges];
     const degreeByNodeId = new Map<string, number>();
     for (const edge of edges) {
@@ -278,7 +246,7 @@ export class KnowledgeGraphService {
         visiblePages,
         relationshipDegreeByPageId,
         communityByPageId,
-        [...linkEdges, ...semanticEdges],
+        linkEdges,
       ),
     };
   }
@@ -320,7 +288,6 @@ function buildDerivedSemanticEdges<
   pages: TPage[];
   pageSourcesByPageId: Map<string, Array<{ sourcePageId: string }>>;
   directEdges: Array<{ from: string; to: string }>;
-  explicitSemanticEdges: Array<{ from: string; to: string }>;
 }): KnowledgeGraphEdge[] {
   const pageById = new Map(input.pages.map((page) => [page.id, page]));
   const sourceIdsByPageId = new Map(
@@ -379,20 +346,13 @@ function buildDerivedSemanticEdges<
     }
   }
 
-  const explicitPairs = new Set(
-    input.explicitSemanticEdges.map((edge) => {
-      const pair = orderedPair(edge.from, edge.to);
-      return pairKey(pair[0], pair[1]);
-    }),
-  );
   const candidates: Array<{
     from: string;
     to: string;
     label: string;
     score: number;
   }> = [];
-  for (const [key, [from, to]] of candidatePairs) {
-    if (explicitPairs.has(key)) continue;
+  for (const [from, to] of candidatePairs.values()) {
     const fromPage = pageById.get(from);
     const toPage = pageById.get(to);
     if (!fromPage || !toPage) continue;

@@ -15,6 +15,7 @@ import { SpaceAuthorizationService } from '../../../core/space/services/space-au
 import { ConfiguredKnowledgeEmbeddingProvider } from './knowledge-embedding-provider.service';
 import {
   DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+  KnowledgeRankedChunkCandidate,
   KnowledgeRetrievalRankReason,
   KnowledgeRetrievalRankerService,
 } from './knowledge-retrieval-ranker.service';
@@ -30,6 +31,16 @@ export const KNOWLEDGE_COMPLETENESS_NOTICE =
 
 /** Whether a chunk entered the result via direct recall or graph expansion. */
 export type KnowledgeRetrievalOrigin = 'direct' | 'graph';
+
+/**
+ * How graph neighbors turn into chunk candidates.
+ * - window_recall: re-recall neighbor chunks by query similarity and fuse them
+ *   with direct hits under the same relevance gate (legacy behavior).
+ * - edge_anchored: the traversed edge vouches for the neighbor page; pick its
+ *   best chunk under a looser gate and rank it by edge strength in a reserved
+ *   slice, so graph hits no longer compete with direct hits on similarity.
+ */
+export type KnowledgeGraphExpansionMode = 'window_recall' | 'edge_anchored';
 
 /** Which authorization path admitted the chunk. */
 export type KnowledgeRetrievalAuthorizationMode =
@@ -106,6 +117,7 @@ export type KnowledgeRetrievalDiagnostics = {
   authorizedChunkCount: number;
   filteredChunkCount: number;
   graph: {
+    expansionMode?: KnowledgeGraphExpansionMode;
     candidateCount: number;
     gatedOutCount: number;
     selectedCount: number;
@@ -140,8 +152,13 @@ export class KnowledgeRetrievalService {
     abortSignal?: AbortSignal;
     authCache?: KnowledgeAuthorizationCache;
     debugTiming?: AiChatDebugTiming;
+    /** Defaults to edge_anchored; window_recall is kept for A/B evaluation. */
+    graphExpansionMode?: KnowledgeGraphExpansionMode;
   }): Promise<KnowledgeRetrievalResult> {
     const candidateLimit = input.candidateLimit ?? 20;
+    const graphExpansionMode = input.graphExpansionMode ?? 'edge_anchored';
+    const maxCosineDistance =
+      input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE;
     const requestedSpaceIds = unique(input.spaceIds);
     const emptyScope: KnowledgeRetrievalScope = {
       requestedSpaceIds,
@@ -523,6 +540,14 @@ export class KnowledgeRetrievalService {
           supplementalUserId: input.supplementalUserId,
           readableSpaceIds,
           principals,
+          ...(graphExpansionMode === 'edge_anchored'
+            ? {
+                expandablePageIds: strongSeedPageIds(
+                  rankedCandidates,
+                  authorizedChunkIds,
+                ),
+              }
+            : {}),
           seeds: unique(authorizedChunks.map((candidate) => candidate.page.id))
             .map((knowledgePageId) => ({
               knowledgePageId,
@@ -540,9 +565,11 @@ export class KnowledgeRetrievalService {
             ? 'final-authorization-fallback'
             : 'policy',
           authCache,
+          mode: graphExpansionMode,
           ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
         }),
       (result) => ({
+        graphExpansionMode,
         graphSeedsExpanded: result.seedsExpanded,
         graphWindowPageCount: result.windowPageIds.length,
         graphCandidateCount: graphCandidateIds(result).size,
@@ -552,7 +579,74 @@ export class KnowledgeRetrievalService {
 
     let selectedChunks = authorizedChunks.slice(0, candidateLimit);
     let gatedGraphCandidateCount = 0;
-    if (graphCandidateCount > 0) {
+    const graphMaxCosineDistance =
+      graphExpansionMode === 'edge_anchored'
+        ? maxCosineDistance + EDGE_ANCHORED_DISTANCE_SLACK
+        : maxCosineDistance;
+    if (graphCandidateCount > 0 && graphExpansionMode === 'edge_anchored') {
+      const anchoredStartedAt = performance.now();
+      const directSelectedChunkIds = new Set(
+        selectedChunks.map((candidate) => candidate.chunk.id),
+      );
+      const anchored = selectEdgeAnchoredCandidates({
+        ranker: this.ranker,
+        graph: graphExpansion,
+        excludeChunkIds: directSelectedChunkIds,
+        maxCosineDistance: graphMaxCosineDistance,
+      });
+      for (const candidate of anchored) {
+        relevantChunkIds.add(candidate.chunk.id);
+      }
+      gatedGraphCandidateCount = graphCandidateCount - anchored.length;
+      input.debugTiming?.record(
+        'retrieval.rank_candidates',
+        performance.now() - anchoredStartedAt,
+        { rankedCandidateCount: anchored.length, pass: 'graph-anchored' },
+      );
+
+      if (anchored.length > 0) {
+        const anchoredSourceRows = await measureAiChatPhase(
+          input.debugTiming,
+          'retrieval.load_graph_chunk_sources',
+          () =>
+            this.capsuleRepo.findChunkSourcePageIdsByChunkIds({
+              workspaceId: input.workspaceId,
+              chunkIds: anchored.map((candidate) => candidate.chunk.id),
+            }),
+          (result) => ({ sourceRowCount: result.length }),
+        );
+        const anchoredReadableSourcePageIds = await measureAiChatPhase(
+          input.debugTiming,
+          'retrieval.authorize_graph_sources',
+          () =>
+            this.sourceAuthorization.filterReadableSources({
+              workspaceId: input.workspaceId,
+              userId: input.userId,
+              supplementalUserId: input.supplementalUserId,
+              sourcePageIds: unique(
+                anchoredSourceRows.flatMap((row) => row.sourcePageIds),
+              ),
+              cache: authCache,
+            }),
+          (result) => ({ readableSourceCount: result.length }),
+        );
+        const authorizedAnchored = authorizeRanked(
+          anchored,
+          new Map(
+            anchoredSourceRows.map((row) => [row.chunkId, row.sourcePageIds]),
+          ),
+          new Set(anchoredReadableSourcePageIds),
+        ).map((candidate) => ({ ...candidate, origin: 'graph' as const }));
+        for (const candidate of authorizedAnchored) {
+          authorizedChunkIds.add(candidate.chunk.id);
+        }
+        selectedChunks = mergeAnchoredGraphCandidates({
+          directBaseline: authorizedChunks,
+          graph: authorizedAnchored,
+          limit: candidateLimit,
+        });
+      }
+    } else if (graphCandidateCount > 0) {
       const fusedStartedAt = performance.now();
       let fusedCandidates = filterRelevantCandidates(
         rankRecallCandidates(selectedRecall, {
@@ -642,8 +736,8 @@ export class KnowledgeRetrievalService {
       ),
       relevantChunkIds,
       authorizedChunkIds,
-      threshold:
-        input.maxCosineDistance ?? DEFAULT_MAX_RELEVANT_COSINE_DISTANCE,
+      threshold: maxCosineDistance,
+      graphThreshold: graphMaxCosineDistance,
     });
 
     return {
@@ -684,6 +778,7 @@ export class KnowledgeRetrievalService {
         filteredChunkCount:
           rankedCandidates.length + graphCandidateCount - selectedChunks.length,
         graph: {
+          expansionMode: graphExpansionMode,
           candidateCount: graphCandidateCount,
           gatedOutCount: gatedGraphCandidateCount,
           selectedCount: selectedChunks.filter(
@@ -717,17 +812,24 @@ export class KnowledgeRetrievalService {
     };
     authorizationMode: 'policy' | 'final-authorization-fallback';
     authCache: KnowledgeAuthorizationCache;
+    mode?: KnowledgeGraphExpansionMode;
+    /**
+     * When set, only these seed pages may be expanded. All seeds still count as
+     * visited so a weak direct page is never re-added as its own neighbor.
+     */
+    expandablePageIds?: Set<string>;
     labelNames?: string[];
   }): Promise<GraphExpansionResult> {
     const empty: GraphExpansionResult = {
       dense: [],
       lexical: [],
       windowPageIds: [],
+      anchorScoreByPageId: new Map(),
       seedsExpanded: 0,
       seedsSkippedByThreshold: 0,
       edgesScanned: 0,
       edgesAuthorized: 0,
-      edgesByType: { semantic: 0, link: 0, 'shared-source': 0 },
+      edgesByType: { link: 0, 'shared-source': 0 },
       pagesByHop: {},
     };
     if (input.seeds.length === 0 || input.candidateLimit <= 1) return empty;
@@ -736,6 +838,11 @@ export class KnowledgeRetrievalService {
     const weightThreshold = topWeight * GRAPH_SEED_WEIGHT_RATIO;
     const eligibleSeeds = input.seeds
       .filter((seed) => seed.weight >= weightThreshold)
+      .filter(
+        (seed) =>
+          !input.expandablePageIds ||
+          input.expandablePageIds.has(seed.knowledgePageId),
+      )
       .slice(0, GRAPH_SEED_LIMIT);
     if (eligibleSeeds.length === 0) return empty;
     const seedsSkippedByThreshold = input.seeds.length - eligibleSeeds.length;
@@ -743,8 +850,13 @@ export class KnowledgeRetrievalService {
     const visited = new Set(input.seeds.map((seed) => seed.knowledgePageId));
     const hopByPageId = new Map<string, number>();
     const typeWeightByPageId = new Map<string, number>();
+    // Strongest (relative seed weight × edge type weight) path into a neighbor;
+    // edge_anchored mode ranks graph candidates by it instead of similarity.
+    const anchorScoreByPageId = new Map<string, number>();
+    const seedWeightById = new Map(
+      eligibleSeeds.map((seed) => [seed.knowledgePageId, seed.weight]),
+    );
     const edgesByType: Record<KnowledgeGraphEdgeType, number> = {
-      semantic: 0,
       link: 0,
       'shared-source': 0,
     };
@@ -799,6 +911,17 @@ export class KnowledgeRetrievalService {
             neighborPageId,
             Math.max(typeWeightByPageId.get(neighborPageId) ?? 0, edge.weight),
           );
+          const relativeSeedWeight =
+            topWeight > 0
+              ? (seedWeightById.get(currentPageId) ?? 0) / topWeight
+              : 0;
+          anchorScoreByPageId.set(
+            neighborPageId,
+            Math.max(
+              anchorScoreByPageId.get(neighborPageId) ?? 0,
+              relativeSeedWeight * edge.weight,
+            ),
+          );
         }
       }
       frontier = [...nextFrontier].map(([knowledgePageId, weight]) => ({
@@ -840,7 +963,15 @@ export class KnowledgeRetrievalService {
       principals: input.principals,
       knowledgePageIds: windowPageIds,
       authorizationMode: input.authorizationMode,
-      limit: Math.max(input.candidateLimit * 2, input.candidateLimit),
+      // edge_anchored needs a best chunk per neighbor page, not just the
+      // globally nearest few, so the window recall must cover every page.
+      limit:
+        input.mode === 'edge_anchored'
+          ? Math.max(
+              windowPageIds.length * EDGE_ANCHORED_CHUNKS_PER_PAGE_RECALL,
+              input.candidateLimit * 2,
+            )
+          : Math.max(input.candidateLimit * 2, input.candidateLimit),
       ...(input.labelNames?.length ? { labelNames: input.labelNames } : {}),
     };
     const [denseWindow, lexicalWindow] = await Promise.all([
@@ -868,6 +999,12 @@ export class KnowledgeRetrievalService {
       dense: denseWindow.map(withGraphSignal),
       lexical: lexicalWindow.map(withGraphSignal),
       windowPageIds,
+      anchorScoreByPageId: new Map(
+        windowPageIds.map((pageId) => [
+          pageId,
+          anchorScoreByPageId.get(pageId) ?? 0,
+        ]),
+      ),
       seedsExpanded: eligibleSeeds.length,
       seedsSkippedByThreshold,
       edgesScanned,
@@ -893,10 +1030,120 @@ function graphWindowPageLimit(candidateLimit: number): number {
   return Math.max(candidateLimit * 4, 32);
 }
 
+/**
+ * edge_anchored relaxes the semantic gate for graph neighbors by this much:
+ * the edge already establishes that the page is related, so the gate only has
+ * to reject chunks that are plainly off-topic. Real audits show neighbor chunks
+ * sit at a median cosine distance of ~0.62 vs ~0.55 for direct candidates.
+ */
+const EDGE_ANCHORED_DISTANCE_SLACK = 0.1;
+const EDGE_ANCHORED_CHUNKS_PER_PAGE = 1;
+/**
+ * A seed page is only expanded when one of its authorized direct hits is
+ * strong on its own: an exact-title match or a close semantic match. Seed
+ * weights are relative (RRF), so without this floor a barely relevant top hit
+ * still expands at full strength and drags in its neighborhood.
+ */
+const EDGE_ANCHORED_STRONG_SEED_MAX_DISTANCE = 0.4;
+
+function strongSeedPageIds(
+  candidates: KnowledgeRankedChunkCandidate[],
+  authorizedChunkIds: Set<string>,
+): Set<string> {
+  const pageIds = new Set<string>();
+  for (const candidate of candidates) {
+    if (!authorizedChunkIds.has(candidate.chunk.id)) continue;
+    const distance = candidate.signalScores.semantic;
+    if (
+      candidate.signals.includes('exact-title') ||
+      (distance !== undefined &&
+        distance <= EDGE_ANCHORED_STRONG_SEED_MAX_DISTANCE)
+    ) {
+      pageIds.add(candidate.page.id);
+    }
+  }
+  return pageIds;
+}
+const EDGE_ANCHORED_CHUNKS_PER_PAGE_RECALL = 2;
+
+/**
+ * Turns graph window recall into edge-anchored candidates: chunks already
+ * selected as direct hits are skipped, each neighbor keeps only its best
+ * chunk(s) that clear the relaxed gate, and pages are ordered by the edge
+ * anchor score (seed strength × edge type weight) before query similarity.
+ */
+function selectEdgeAnchoredCandidates(input: {
+  ranker: KnowledgeRetrievalRankerService;
+  graph: GraphExpansionResult;
+  excludeChunkIds: Set<string>;
+  maxCosineDistance: number;
+}): KnowledgeRankedChunkCandidate[] {
+  const fused = input.ranker
+    .fuseRecallLists({
+      recallLists: [
+        { signal: 'semantic', candidates: input.graph.dense },
+        { signal: 'lexical', candidates: input.graph.lexical },
+      ],
+      limit: input.graph.dense.length + input.graph.lexical.length,
+    })
+    .filter(
+      (candidate) =>
+        !input.excludeChunkIds.has(candidate.chunk.id) &&
+        input.ranker.isCandidateRelevant({
+          candidate,
+          maxCosineDistance: input.maxCosineDistance,
+        }),
+    );
+
+  const keptPerPage = new Map<string, number>();
+  const kept: KnowledgeRankedChunkCandidate[] = [];
+  for (const candidate of fused) {
+    const pageId = candidate.page.id;
+    const count = keptPerPage.get(pageId) ?? 0;
+    if (count >= EDGE_ANCHORED_CHUNKS_PER_PAGE) continue;
+    keptPerPage.set(pageId, count + 1);
+    kept.push(candidate);
+  }
+
+  const anchorOf = (candidate: KnowledgeRankedChunkCandidate) =>
+    input.graph.anchorScoreByPageId.get(candidate.page.id) ?? 0;
+  return kept.sort(
+    (left, right) =>
+      anchorOf(right) - anchorOf(left) ||
+      right.score - left.score ||
+      left.chunk.id.localeCompare(right.chunk.id),
+  );
+}
+
+/**
+ * Direct hits keep their rank and fill the head of the result; graph hits take
+ * a reserved tail slice instead of competing with direct hits on similarity.
+ * When direct recall is sparse, graph hits may fill the remaining slots.
+ */
+function mergeAnchoredGraphCandidates(input: {
+  directBaseline: KnowledgeRetrievalResult['chunks'];
+  graph: KnowledgeRetrievalResult['chunks'];
+  limit: number;
+}): KnowledgeRetrievalResult['chunks'] {
+  if (input.limit <= 0) return [];
+  const graphReserve = Math.max(1, Math.floor(input.limit / 4));
+  const directSlots = Math.max(
+    input.limit - Math.min(graphReserve, input.graph.length),
+    0,
+  );
+  const direct = input.directBaseline.slice(0, directSlots);
+  const directChunkIds = new Set(direct.map((candidate) => candidate.chunk.id));
+  const graph = input.graph
+    .filter((candidate) => !directChunkIds.has(candidate.chunk.id))
+    .slice(0, input.limit - direct.length);
+  return [...direct, ...graph];
+}
+
 type GraphExpansionResult = {
   dense: KnowledgeChunkCandidate[];
   lexical: KnowledgeChunkCandidate[];
   windowPageIds: string[];
+  anchorScoreByPageId: Map<string, number>;
   seedsExpanded: number;
   seedsSkippedByThreshold: number;
   edgesScanned: number;
@@ -946,7 +1193,7 @@ function emptyResult(input: {
         gatedOutCount: 0,
         selectedCount: 0,
         expandedSeedCount: 0,
-        edgeCounts: { semantic: 0, link: 0, 'shared-source': 0 },
+        edgeCounts: { link: 0, 'shared-source': 0 },
         pageCountsByHop: {},
       },
       ...input.diagnostics,
@@ -1067,13 +1314,18 @@ function buildRetrievalDrops(input: {
   relevantChunkIds: Set<string>;
   authorizedChunkIds: Set<string>;
   threshold: number;
+  /** Semantic gate applied to graph-stage candidates; defaults to threshold. */
+  graphThreshold?: number;
 }): KnowledgeRetrievalDrop[] {
   const drops = new Map<string, KnowledgeRetrievalDrop>();
   for (const candidate of input.candidates) {
     if (input.selectedChunkIds.has(candidate.chunkId)) continue;
+    const threshold =
+      candidate.stage === 'graph'
+        ? (input.graphThreshold ?? input.threshold)
+        : input.threshold;
     const reason: KnowledgeRetrievalDrop['reason'] =
-      candidate.scoreType === 'semantic_distance' &&
-      candidate.score > input.threshold
+      candidate.scoreType === 'semantic_distance' && candidate.score > threshold
         ? 'below_threshold'
         : !input.relevantChunkIds.has(candidate.chunkId)
           ? 'filtered'

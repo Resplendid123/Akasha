@@ -113,13 +113,6 @@ export interface CompiledKnowledgeArtifact extends KnowledgeScope {
     isDangling?: boolean;
     inputSourceRefs?: KnowledgeSourceRef[];
   }>;
-  graphEdges?: Array<{
-    toKnowledgePageId?: string;
-    targetArtifactKind?: CompiledKnowledgeArtifactKind;
-    targetCanonicalKey?: string;
-    relation: string;
-    inputSourceRefs?: KnowledgeSourceRef[];
-  }>;
   rawArtifactKey?: string;
 }
 

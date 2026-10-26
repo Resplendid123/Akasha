@@ -188,10 +188,8 @@ export class SemanticKnowledgeCompilerRunner implements LlmWikiCompilerRunner {
     );
     const artifacts = enrichArtifactRelationships({
       artifacts: compiledArtifacts,
-      analysis,
       input: { ...input, catalog: generationCatalog.entries },
       source,
-      warnings,
     });
     return {
       workspaceId: input.workspaceId,
@@ -491,7 +489,6 @@ function toCompiledArtifact(input: {
     parentSections: [...parentSections, ...attachmentEvidence.parentSections],
     chunks,
     links,
-    graphEdges: [],
     rawArtifactKey: `${input.artifact.kind}:${input.artifact.canonicalKey}`,
   };
 }
@@ -543,71 +540,15 @@ type RelationshipTarget = {
 
 function enrichArtifactRelationships(input: {
   artifacts: CompiledKnowledgeArtifact[];
-  analysis: SemanticAnalysis;
   input: CompileSpaceInput;
   source: KnowledgeSourceSnapshot;
-  warnings: CompileDiagnostic[];
 }): CompiledKnowledgeArtifact[] {
   const sourceRef = toSourceRef(input.source);
   const targets = relationshipTargets(input.artifacts, input.input.catalog);
-  const targetsByCanonicalKey = groupByCanonicalKey(targets);
   const localTargets = targets.filter((target) => target.local);
   const summary = localTargets.find(
     (target) => target.artifactKind === 'source_summary',
   );
-  const semanticEdgesByArtifactId = new Map<
-    string,
-    NonNullable<CompiledKnowledgeArtifact['graphEdges']>
-  >();
-
-  for (const relation of input.analysis.relations) {
-    const from = uniqueCanonicalTarget(
-      targetsByCanonicalKey,
-      relation.fromCanonicalKey,
-    );
-    const to = uniqueCanonicalTarget(
-      targetsByCanonicalKey,
-      relation.toCanonicalKey,
-    );
-    if (!from?.local) continue;
-    if (
-      normalizeCanonicalKey(from.canonicalKey) ===
-      normalizeCanonicalKey(relation.toCanonicalKey)
-    ) {
-      continue;
-    }
-    if (to && from.artifactId === to.artifactId) continue;
-
-    const edges = semanticEdgesByArtifactId.get(from.artifactId) ?? [];
-    if (
-      edges.some(
-        (edge) =>
-          edge.targetCanonicalKey ===
-            normalizeCanonicalKey(relation.toCanonicalKey) &&
-          edge.relation === relation.relation,
-      )
-    ) {
-      continue;
-    }
-    edges.push({
-      ...(to
-        ? {
-            toKnowledgePageId: to.artifactId,
-            targetArtifactKind: to.artifactKind,
-          }
-        : {}),
-      targetCanonicalKey: normalizeCanonicalKey(relation.toCanonicalKey),
-      relation: relation.relation,
-      inputSourceRefs: [
-        sourceRefForEvidence(
-          input.source,
-          relation.evidenceQuote,
-          input.warnings,
-        ),
-      ],
-    });
-    semanticEdgesByArtifactId.set(from.artifactId, edges);
-  }
 
   return input.artifacts.map((artifact) => {
     const links = [...(artifact.links ?? [])];
@@ -660,11 +601,7 @@ function enrichArtifactRelationships(input: {
       if (linkedTargetIds.size >= 12) break;
     }
 
-    return {
-      ...artifact,
-      links,
-      graphEdges: semanticEdgesByArtifactId.get(artifact.artifactId) ?? [],
-    };
+    return { ...artifact, links };
   });
 }
 
@@ -703,28 +640,6 @@ function relationshipTargets(
     );
   }
   return [...targetsByLookupKey.values()];
-}
-
-function groupByCanonicalKey(
-  targets: RelationshipTarget[],
-): Map<string, RelationshipTarget[]> {
-  const grouped = new Map<string, RelationshipTarget[]>();
-  for (const target of targets) {
-    const key = normalizeCanonicalKey(target.canonicalKey);
-    grouped.set(key, [...(grouped.get(key) ?? []), target]);
-  }
-  return grouped;
-}
-
-function uniqueCanonicalTarget(
-  grouped: Map<string, RelationshipTarget[]>,
-  canonicalKey: string,
-): RelationshipTarget | undefined {
-  const targets = grouped.get(normalizeCanonicalKey(canonicalKey)) ?? [];
-  const distinct = [
-    ...new Map(targets.map((target) => [target.artifactId, target])).values(),
-  ];
-  return distinct.length === 1 ? distinct[0] : undefined;
 }
 
 function directLink(input: {

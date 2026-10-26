@@ -25,8 +25,14 @@ import useUserRole from "@/hooks/use-user-role.tsx";
 interface SpaceDetailsProps {
   spaceId: string;
   readOnly?: boolean;
+  // Space admins can change the icon even when other settings are read-only.
+  canEditIcon?: boolean;
 }
-export default function SpaceDetails({ spaceId, readOnly }: SpaceDetailsProps) {
+export default function SpaceDetails({
+  spaceId,
+  readOnly,
+  canEditIcon,
+}: SpaceDetailsProps) {
   const { t } = useTranslation();
   const { data: space, isLoading, refetch } = useSpaceQuery(spaceId);
   const { isAdmin } = useUserRole();
@@ -85,7 +91,7 @@ export default function SpaceDetails({ spaceId, readOnly }: SpaceDetailsProps) {
               onUpload={handleIconUpload}
               onRemove={handleIconRemove}
               isLoading={isIconUploading}
-              disabled={readOnly}
+              disabled={readOnly && !canEditIcon}
             />
           </div>
 

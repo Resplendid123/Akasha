@@ -40,19 +40,6 @@ ORDER BY query_hash, created_at DESC
 """
 
 
-EDGES_OF_ARTIFACTS = """
-SELECT e.id, e.relation, e.stale_at,
-       e.from_knowledge_page_id, f.title AS from_title, f.canonical_key AS from_key,
-       e.to_knowledge_page_id,   t.title AS to_title,   t.canonical_key AS to_key
-FROM knowledge_graph_edges e
-JOIN knowledge_pages f ON f.id = e.from_knowledge_page_id
-JOIN knowledge_pages t ON t.id = e.to_knowledge_page_id
-WHERE e.from_knowledge_page_id = ANY(%(ids)s)
-   OR e.to_knowledge_page_id = ANY(%(ids)s)
-ORDER BY e.relation
-"""
-
-
 COMPILED_SOURCE_PAGES = """
 SELECT DISTINCT kps.source_page_id
 FROM knowledge_page_sources kps
@@ -170,15 +157,12 @@ class LineageReader:
                 ids = [a["id"] for a in artifacts]
 
                 chunks: list[dict[str, Any]] = []
-                edges: list[dict[str, Any]] = []
                 if ids:
                     cursor.execute(CHUNKS_OF_ARTIFACTS, {"ids": ids})
                     chunks = _rows(cursor)
                     if chunk_chars is not None:
                         for chunk in chunks:
                             chunk["text"] = (chunk["text"] or "")[:chunk_chars]
-                    cursor.execute(EDGES_OF_ARTIFACTS, {"ids": ids})
-                    edges = _rows(cursor)
 
                 cursor.execute(SOURCE_CHUNKS, {"page": page_id})
                 source_chunks = _rows(cursor)
@@ -191,11 +175,9 @@ class LineageReader:
             "artifacts": artifacts,
             "chunks": chunks,
             "source_chunks": source_chunks,
-            "edges": edges,
             "counts": {
                 "artifacts": len(artifacts),
                 "chunks": len(chunks),
-                "source_chunks": len(source_chunks),
-                "edges": len(edges),
+                    "source_chunks": len(source_chunks),
             },
         }

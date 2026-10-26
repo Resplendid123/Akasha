@@ -136,24 +136,6 @@ export class KnowledgeArtifactValidatorService {
       reasons,
     );
 
-    if (
-      (artifact.graphEdges ?? []).some(
-        (edge) =>
-          (!edge.toKnowledgePageId && !edge.targetCanonicalKey?.trim()) ||
-          (edge.toKnowledgePageId != null && !isUuid(edge.toKnowledgePageId)),
-      )
-    ) {
-      reasons.push('graph edge target identity is invalid');
-    }
-
-    validateChildSourceRefs(
-      'graph edge',
-      (artifact.graphEdges ?? []).map((edge) => edge.inputSourceRefs),
-      input,
-      compileSourcesByKey,
-      reasons,
-    );
-
     return reasons;
   }
 }

@@ -391,34 +391,6 @@ export interface KnowledgeCompilationAttempts {
   workspaceId: string;
 }
 
-export interface KnowledgeGraphEdges {
-  compilerRunId: string | null;
-  compileTaskId: string | null;
-  createdAt: Generated<Timestamp>;
-  fromKnowledgePageId: string;
-  id: Generated<string>;
-  relation: string;
-  spaceId: string;
-  staleAt: Timestamp | null;
-  toKnowledgePageId: string | null;
-  targetArtifactKind: Generated<string | null>;
-  targetCanonicalKey: Generated<string | null>;
-  isDangling: Generated<boolean>;
-  workspaceId: string;
-}
-
-export interface KnowledgeGraphEdgeSources {
-  attachmentId: string | null;
-  contentHash: string;
-  graphEdgeId: string;
-  provenanceKind: string;
-  quoteHash: string | null;
-  sourcePageId: string;
-  sourceRange: Json | null;
-  sourceVersion: string;
-  workspaceId: string;
-}
-
 export interface KnowledgeImageExtractions {
   attachmentId: string;
   attachmentVersion: Timestamp | null;
@@ -1185,8 +1157,6 @@ export interface DB {
   knowledgeChunks: KnowledgeChunks;
   knowledgeChunkSources: KnowledgeChunkSources;
   knowledgeCompilationAttempts: KnowledgeCompilationAttempts;
-  knowledgeGraphEdges: KnowledgeGraphEdges;
-  knowledgeGraphEdgeSources: KnowledgeGraphEdgeSources;
   knowledgeImageExtractions: KnowledgeImageExtractions;
   knowledgeLinks: KnowledgeLinks;
   knowledgeLinkSources: KnowledgeLinkSources;

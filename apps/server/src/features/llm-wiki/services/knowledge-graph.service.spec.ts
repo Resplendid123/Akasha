@@ -30,11 +30,6 @@ describe('KnowledgeGraphService', () => {
           linkSource('link-1', 'source-2'),
           linkSource('link-hidden', 'source-hidden'),
         ],
-        graphEdges: [graphEdge('edge-1', 'kp-2', 'kp-1', 'depends on')],
-        graphEdgeSources: [
-          graphEdgeSource('edge-1', 'source-1'),
-          graphEdgeSource('edge-1', 'source-2'),
-        ],
       }),
     };
     const sourceAuthorization = {
@@ -58,7 +53,7 @@ describe('KnowledgeGraphService', () => {
           spaceId: 'space-1',
           sourcePageId: 'source-1',
           kind: 'page',
-          degree: 2,
+          degree: 1,
           artifactKind: 'source_summary',
           communityId: 'community-1',
         },
@@ -68,7 +63,7 @@ describe('KnowledgeGraphService', () => {
           spaceId: 'space-1',
           sourcePageId: 'source-2',
           kind: 'page',
-          degree: 2,
+          degree: 1,
           artifactKind: 'source_summary',
           communityId: 'community-1',
         },
@@ -82,15 +77,6 @@ describe('KnowledgeGraphService', () => {
           label: 'references',
           weight: 3,
           reasons: ['direct-link'],
-        },
-        {
-          id: 'edge-1',
-          from: 'kp-2',
-          to: 'kp-1',
-          type: 'semantic',
-          label: 'depends on',
-          weight: 2,
-          reasons: ['semantic-edge'],
         },
       ],
       insights: {
@@ -208,8 +194,6 @@ describe('KnowledgeGraphService', () => {
         ],
         links: [],
         linkSources: [],
-        graphEdges: [],
-        graphEdgeSources: [],
       }),
     };
     const service = createService({
@@ -284,8 +268,6 @@ describe('KnowledgeGraphService', () => {
         parentSectionSources: [],
         links: [],
         linkSources: [],
-        graphEdges: [],
-        graphEdgeSources: [],
       }),
     };
     const service = createService({
@@ -341,8 +323,6 @@ describe('KnowledgeGraphService', () => {
           linkSource('link-b-c', 'source-b'),
           linkSource('catalog-link', 'source-a'),
         ],
-        graphEdges: [],
-        graphEdgeSources: [],
       }),
     };
     const service = createService({
@@ -391,8 +371,6 @@ describe('KnowledgeGraphService', () => {
         parentSectionSources: [],
         links: [],
         linkSources: [],
-        graphEdges: [],
-        graphEdgeSources: [],
       }),
     };
     const service = createService({
@@ -436,8 +414,6 @@ describe('KnowledgeGraphService', () => {
           linkSources: links.map((entry) =>
             linkSource(entry.id, `source-${entry.fromKnowledgePageId}`),
           ),
-          graphEdges: [],
-          graphEdgeSources: [],
         }),
       },
       sourceAuthorization: {
@@ -486,8 +462,6 @@ function createService(
       parentSectionSources: [],
       links: [],
       linkSources: [],
-      graphEdges: [],
-      graphEdgeSources: [],
     }),
     ...overrides.capsuleRepo,
   };
@@ -571,40 +545,6 @@ function linkSource(linkId: string, sourcePageId: string) {
   return {
     workspaceId: 'workspace-1',
     linkId,
-    sourcePageId,
-    sourceVersion: 'v1',
-    sourceRange: null,
-    quoteHash: null,
-    contentHash: `sha256:${sourcePageId}`,
-    provenanceKind: 'synthesis_lineage',
-    attachmentId: null,
-  };
-}
-
-function graphEdge(
-  id: string,
-  fromKnowledgePageId: string,
-  toKnowledgePageId: string,
-  relation: string,
-) {
-  return {
-    id,
-    workspaceId: 'workspace-1',
-    spaceId: 'space-1',
-    fromKnowledgePageId,
-    toKnowledgePageId,
-    relation,
-    compilerRunId: 'run-1',
-    compileTaskId: 'task-1',
-    staleAt: null,
-    createdAt: new Date('2026-06-16T00:00:00.000Z'),
-  };
-}
-
-function graphEdgeSource(graphEdgeId: string, sourcePageId: string) {
-  return {
-    workspaceId: 'workspace-1',
-    graphEdgeId,
     sourcePageId,
     sourceVersion: 'v1',
     sourceRange: null,
