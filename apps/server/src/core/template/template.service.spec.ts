@@ -157,14 +157,16 @@ describe('TemplateService', () => {
       expect(view.canManage).toBe(true);
     });
 
-    it('未开启成员模板开关时成员不能创建', async () => {
-      const { service } = createSubject();
-      await expect(service.create({ title: 't' }, member, ws(false))).rejects.toBeInstanceOf(
-        ForbiddenException,
+    it('普通用户可以创建指定到空间的模板', async () => {
+      const { service } = createSubject({
+        template: row({ spaceIds: ['space-1'], creatorId: 'member-1' }),
+      });
+      const view = await service.create(
+        { title: 't', spaceIds: ['space-1'] },
+        member,
+        ws(false),
       );
-      await expect(
-        service.create({ title: 't', spaceIds: ['space-1'] }, member, ws(false)),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(view.canManage).toBe(true);
     });
 
     it('任一指定空间没有建页权限时拒绝', async () => {
@@ -218,14 +220,15 @@ describe('TemplateService', () => {
   });
 
   describe('可见性与管理', () => {
-    it('模板指定的空间都不在用户可访问范围内时返回 404', async () => {
+    it('模板创建者可以看到自己的模板，即使指定的空间不在访问范围内', async () => {
       const { service } = createSubject({
-        template: row({ spaceIds: ['space-x', 'space-y'] }),
+        template: row({ spaceIds: ['space-x', 'space-y'], creatorId: 'member-1' }),
         userSpaceIds: ['space-1'],
       });
-      await expect(service.getById('t1', member, ws())).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      const view = await service.getById('t1', member, ws());
+      expect(view.canManage).toBe(true);
+      expect(view.spaceIds).toEqual([]);
+      expect(view.otherSpaceCount).toBe(2);
     });
 
     it('只返回用户可访问的空间，并给出其余空间数量', async () => {
