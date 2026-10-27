@@ -68,6 +68,25 @@ const steps = (...items: string[]) => ({
   })),
 });
 
+/** 内置提示块；默认 info（蓝色），用来放填写说明，和正文区分开。 */
+const callout = (value: string, type: 'info' | 'note' | 'success' | 'warning' = 'info') => ({
+  type: 'callout',
+  attrs: { type },
+  content: [p(text(value))],
+});
+
+const code = (language: string, value: string) => ({
+  type: 'codeBlock',
+  attrs: { language },
+  content: [text(value)],
+});
+
+/** 块级公式，内容为 KaTeX / LaTeX。 */
+const math = (latex: string) => ({ type: 'mathBlock', attrs: { text: latex } });
+
+/** 行内公式。 */
+const inlineMath = (latex: string) => ({ type: 'mathInline', attrs: { text: latex } });
+
 const doc = (...content: any[]) => ({ type: 'doc', content });
 
 // ---- Excalidraw scene 构造（模板预置画布） ----
@@ -264,12 +283,12 @@ const weeklyReport: BuiltinTemplate = {
       title: '周报',
       description: '总结本周进展，同步下周计划。',
       content: doc(
-        h(2, '本周进展'),
+        h(2, '📈 本周进展'),
         h(3, '已完成'),
         bullets('事项：结果 / 产出链接', '事项：结果 / 产出链接'),
         h(3, '问题记录'),
         bullets('问题：问题描述'),
-        h(2, '下周计划'),
+        h(2, '🗓️ 下周计划'),
         tasks('计划事项 1', '计划事项 2', '计划事项 3'),
       ),
     },
@@ -278,12 +297,12 @@ const weeklyReport: BuiltinTemplate = {
       description:
         'Summarize this week’s progress and share next week’s plan.',
       content: doc(
-        h(2, 'Progress'),
+        h(2, '📈 Progress'),
         h(3, 'Done'),
         bullets('Item: result / link to output', 'Item: result / link to output'),
         h(3, 'Issues'),
         bullets('Issue: description'),
-        h(2, 'Next week'),
+        h(2, '🗓️ Next week'),
         tasks('Planned item 1', 'Planned item 2', 'Planned item 3'),
       ),
     },
@@ -299,11 +318,11 @@ const todoChecklist: BuiltinTemplate = {
       title: '待办清单',
       description: '用勾选清单记下要做的事，完成一项勾一项。',
       content: doc(
-        h(2, '今天'),
+        h(2, '☀️ 今天'),
         tasks('待办事项 1', '待办事项 2', '待办事项 3'),
-        h(2, '稍后'),
+        h(2, '⏳ 稍后'),
         tasks('不急的事项'),
-        h(2, '备注'),
+        h(2, '📝 备注'),
         bullets('相关链接、补充说明'),
       ),
     },
@@ -311,11 +330,11 @@ const todoChecklist: BuiltinTemplate = {
       title: 'To-do checklist',
       description: 'Jot down what needs doing and check items off as you go.',
       content: doc(
-        h(2, 'Today'),
+        h(2, '☀️ Today'),
         tasks('To-do item 1', 'To-do item 2', 'To-do item 3'),
-        h(2, 'Later'),
+        h(2, '⏳ Later'),
         tasks('Not urgent'),
-        h(2, 'Notes'),
+        h(2, '📝 Notes'),
         bullets('Related links and details'),
       ),
     },
@@ -330,7 +349,7 @@ const flowchart: BuiltinTemplate = {
       title: '流程图',
       description: '从一张示例流程图开始，双击画布就能改成自己的流程。',
       content: doc(
-        h(2, '画布'),
+        h(2, '🎨 画布'),
         {
           type: 'excalidraw',
           attrs: {
@@ -346,9 +365,9 @@ const flowchart: BuiltinTemplate = {
             }),
           },
         },
-        h(2, '说明'),
+        h(2, '📝 说明'),
+        callout('图形约定：椭圆是开始 / 结束，矩形是步骤，菱形是判断'),
         bullets(
-          '图形约定：椭圆是开始 / 结束，矩形是步骤，菱形是判断',
           '这段流程解决什么问题、覆盖哪些场景',
           '分支条件、负责人或时间要求',
         ),
@@ -359,7 +378,7 @@ const flowchart: BuiltinTemplate = {
       description:
         'Start from a sample flow and reshape it in the canvas; saved as an attachment.',
       content: doc(
-        h(2, 'Canvas'),
+        h(2, '🎨 Canvas'),
         {
           type: 'excalidraw',
           attrs: {
@@ -375,9 +394,9 @@ const flowchart: BuiltinTemplate = {
             }),
           },
         },
-        h(2, 'Notes'),
+        h(2, '📝 Notes'),
+        callout('Shapes: ovals are start / end, rectangles are steps, diamonds are decisions'),
         bullets(
-          'Shapes: ovals are start / end, rectangles are steps, diamonds are decisions',
           'What this flow solves and where it applies',
           'Branch conditions, owners or timing',
         ),
@@ -394,21 +413,21 @@ const operationManual: BuiltinTemplate = {
       title: '操作手册',
       description: '把一件事的做法写成步骤，新人照着就能完成。',
       content: doc(
-        h(2, '适用场景'),
-        p(text('什么情况下用这份手册，由谁来操作。')),
-        h(2, '准备'),
+        h(2, '🎯 适用场景'),
+        callout('什么情况下用这份手册，由谁来操作。'),
+        h(2, '🧰 准备'),
         bullets('需要的权限、账号或工具', '开始前要确认的事项'),
-        h(2, '操作步骤'),
+        h(2, '🪜 操作步骤'),
         steps(
           '第一步：做什么，在哪里操作',
           '第二步：做什么，预期看到什么结果',
           '第三步：做什么，怎么确认完成',
         ),
-        h(2, '常见问题'),
+        h(2, '❓ 常见问题'),
         h(3, '问题：遇到什么情况'),
         p(text('原因和处理方法。')),
-        h(2, '相关链接'),
-        bullets('相关文档、负责人或联系方式'),
+        h(2, '🔗 相关链接'),
+        bullets('@相关文档、负责人或联系方式'),
       ),
     },
     en: {
@@ -416,21 +435,165 @@ const operationManual: BuiltinTemplate = {
       description:
         'Write down how to get something done step by step, so anyone can follow along.',
       content: doc(
-        h(2, 'When to use'),
-        p(text('When this manual applies and who performs it.')),
-        h(2, 'Before you start'),
+        h(2, '🎯 When to use'),
+        callout('When this manual applies and who performs it.'),
+        h(2, '🧰 Before you start'),
         bullets('Permissions, accounts or tools needed', 'Things to check first'),
-        h(2, 'Steps'),
+        h(2, '🪜 Steps'),
         steps(
           'Step 1: what to do and where',
           'Step 2: what to do and what you should see',
           'Step 3: what to do and how to confirm it is done',
         ),
-        h(2, 'Troubleshooting'),
+        h(2, '❓ Troubleshooting'),
         h(3, 'Problem: what happens'),
         p(text('Cause and how to fix it.')),
-        h(2, 'Related links'),
-        bullets('Related docs, owners or contacts'),
+        h(2, '🔗 Related links'),
+        bullets('@Related docs, owners or contacts'),
+      ),
+    },
+  },
+};
+
+const techDesign: BuiltinTemplate = {
+  id: '0b6f8a3e-5c1d-4e2a-9f47-1a2b3c4d5e07',
+  icon: '🛠️',
+  locales: {
+    zh: {
+      title: '技术方案',
+      description: '写清背景、方案和容量估算，内含代码块、时序图和公式示例。',
+      content: doc(
+        callout('先写结论和关键取舍，再展开细节。'),
+        h(2, '🎯 背景与目标'),
+        bullets('要解决的问题、现状和影响', '目标与非目标（明确不做什么）'),
+        h(2, '🏗️ 方案设计'),
+        h(3, '接口定义'),
+        code(
+          'typescript',
+          [
+            '// 请求与响应的数据结构',
+            'interface CreateOrderRequest {',
+            '  userId: string;',
+            '  items: Array<{ skuId: string; quantity: number }>;',
+            '}',
+            '',
+            'interface CreateOrderResponse {',
+            '  orderId: string;',
+            "  status: 'pending' | 'paid';",
+            '}',
+          ].join('\n'),
+        ),
+        h(3, '数据模型'),
+        code(
+          'sql',
+          [
+            'CREATE TABLE orders (',
+            '  id         uuid PRIMARY KEY,',
+            '  user_id    uuid NOT NULL,',
+            '  status     varchar(16) NOT NULL,',
+            '  created_at timestamptz NOT NULL DEFAULT now()',
+            ');',
+          ].join('\n'),
+        ),
+        h(3, '调用流程'),
+        code(
+          'mermaid',
+          [
+            'sequenceDiagram',
+            '  participant C as 客户端',
+            '  participant S as 服务',
+            '  participant DB as 数据库',
+            '  C->>S: 发起请求',
+            '  S->>DB: 读写数据',
+            '  DB-->>S: 返回结果',
+            '  S-->>C: 响应',
+          ].join('\n'),
+        ),
+        h(2, '📐 容量估算'),
+        p(
+          text('按日请求量 '),
+          inlineMath('N'),
+          text('、峰值系数 '),
+          inlineMath('k'),
+          text(' 估算峰值 QPS：'),
+        ),
+        math(String.raw`\text{峰值 QPS} = \frac{N}{86\,400} \times k`),
+        math(String.raw`N = 10^7,\ k = 5 \;\Rightarrow\; \text{峰值 QPS} \approx 579`),
+        h(2, '⚖️ 备选方案'),
+        bullets('方案 A：做法、优点、缺点', '选择当前方案的原因'),
+        h(2, '🚀 上线计划'),
+        tasks('灰度范围与节奏', '监控指标与告警', '回滚方案'),
+        h(2, '❓ 待确认问题'),
+        bullets('@负责人 需要确认的问题'),
+      ),
+    },
+    en: {
+      title: 'Technical design',
+      description:
+        'Lay out background, design and capacity estimates, with sample code blocks, a sequence diagram and formulas.',
+      content: doc(
+        callout('Lead with the conclusion and key trade-offs, then go into detail.'),
+        h(2, '🎯 Background & goals'),
+        bullets('The problem, current state and impact', 'Goals and non-goals (what is out of scope)'),
+        h(2, '🏗️ Design'),
+        h(3, 'API'),
+        code(
+          'typescript',
+          [
+            '// Request and response shapes',
+            'interface CreateOrderRequest {',
+            '  userId: string;',
+            '  items: Array<{ skuId: string; quantity: number }>;',
+            '}',
+            '',
+            'interface CreateOrderResponse {',
+            '  orderId: string;',
+            "  status: 'pending' | 'paid';",
+            '}',
+          ].join('\n'),
+        ),
+        h(3, 'Data model'),
+        code(
+          'sql',
+          [
+            'CREATE TABLE orders (',
+            '  id         uuid PRIMARY KEY,',
+            '  user_id    uuid NOT NULL,',
+            '  status     varchar(16) NOT NULL,',
+            '  created_at timestamptz NOT NULL DEFAULT now()',
+            ');',
+          ].join('\n'),
+        ),
+        h(3, 'Request flow'),
+        code(
+          'mermaid',
+          [
+            'sequenceDiagram',
+            '  participant C as Client',
+            '  participant S as Service',
+            '  participant DB as Database',
+            '  C->>S: Send request',
+            '  S->>DB: Read / write',
+            '  DB-->>S: Result',
+            '  S-->>C: Response',
+          ].join('\n'),
+        ),
+        h(2, '📐 Capacity estimate'),
+        p(
+          text('Estimate peak QPS from daily requests '),
+          inlineMath('N'),
+          text(' and a peak factor '),
+          inlineMath('k'),
+          text(':'),
+        ),
+        math(String.raw`\text{Peak QPS} = \frac{N}{86\,400} \times k`),
+        math(String.raw`N = 10^7,\ k = 5 \;\Rightarrow\; \text{Peak QPS} \approx 579`),
+        h(2, '⚖️ Alternatives'),
+        bullets('Option A: approach, pros, cons', 'Why the chosen design wins'),
+        h(2, '🚀 Rollout'),
+        tasks('Canary scope and pace', 'Metrics and alerts', 'Rollback plan'),
+        h(2, '❓ Open questions'),
+        bullets('@owner Questions to confirm'),
       ),
     },
   },
@@ -441,6 +604,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   todoChecklist,
   flowchart,
   operationManual,
+  techDesign,
 ];
 
 export function findBuiltinTemplate(id: string): BuiltinTemplate | undefined {

@@ -12,15 +12,16 @@ import { UserRole } from '../../common/helpers/types/permission';
 import { jsonToNode } from '../../collaboration/collaboration.util';
 import { BUILTIN_TEMPLATES } from './builtin-templates';
 
-const [WEEKLY_ID, CHECKLIST_ID, FLOWCHART_ID, MANUAL_ID] =
+const [WEEKLY_ID, CHECKLIST_ID, FLOWCHART_ID, MANUAL_ID, DESIGN_ID] =
   BUILTIN_TEMPLATES.map((t) => t.id);
 const BUILTIN_IDS = BUILTIN_TEMPLATES.map((t) => t.id);
 /** 每个内置模板必须保留下来的块（未知节点会被静默剥掉） */
 const EXPECTED_BLOCKS: Record<string, string[]> = {
   [WEEKLY_ID]: ['heading', 'taskList', 'bulletList'],
   [CHECKLIST_ID]: ['heading', 'taskList', 'taskItem', 'bulletList'],
-  [FLOWCHART_ID]: ['heading', 'excalidraw', 'bulletList'],
-  [MANUAL_ID]: ['heading', 'orderedList', 'bulletList'],
+  [FLOWCHART_ID]: ['heading', 'excalidraw', 'callout', 'bulletList'],
+  [MANUAL_ID]: ['heading', 'callout', 'orderedList', 'bulletList'],
+  [DESIGN_ID]: ['heading', 'callout', 'codeBlock', 'mathBlock', 'mathInline', 'taskList', 'bulletList'],
 };
 
 const DOC = {
@@ -325,6 +326,8 @@ describe('TemplateService', () => {
       expect(await ids({ query: 'checklist' })).toEqual([CHECKLIST_ID]);
       expect(await ids({ query: '手册' })).toEqual([MANUAL_ID]);
       expect(await ids({ query: 'manual' })).toEqual([MANUAL_ID]);
+      expect(await ids({ query: '技术方案' })).toEqual([DESIGN_ID]);
+      expect(await ids({ query: 'technical design' })).toEqual([DESIGN_ID]);
       expect(await ids({ scope: 'available', spaceId: 'space-1' })).toEqual(BUILTIN_IDS);
     });
 
@@ -348,6 +351,38 @@ describe('TemplateService', () => {
             expect(types).toContain(type);
           }
         }
+      }
+    });
+
+    it('所有内置模板的二级标题都以 emoji 开头', () => {
+      for (const tpl of BUILTIN_TEMPLATES) {
+        for (const locale of Object.values(tpl.locales)) {
+          jsonToNode(locale.content).descendants((n) => {
+            if (n.type.name === 'heading' && n.attrs.level === 2) {
+              expect(n.textContent).toMatch(/^\p{Extended_Pictographic}/u);
+            }
+          });
+        }
+      }
+    });
+
+    it('技术方案模板：代码块带语言（含 Mermaid 时序图），公式不为空', () => {
+      const tpl = BUILTIN_TEMPLATES.find((t) => t.id === DESIGN_ID)!;
+      for (const locale of Object.values(tpl.locales)) {
+        const languages: string[] = [];
+        const formulas: string[] = [];
+        jsonToNode(locale.content).descendants((n) => {
+          if (n.type.name === 'codeBlock') {
+            languages.push(n.attrs.language);
+            expect(n.textContent.trim().length).toBeGreaterThan(0);
+          }
+          if (n.type.name === 'mathBlock' || n.type.name === 'mathInline') {
+            formulas.push(n.attrs.text);
+          }
+        });
+        expect(languages).toEqual(['typescript', 'sql', 'mermaid']);
+        expect(formulas.every((f) => f.trim().length > 0)).toBe(true);
+        expect(formulas).toHaveLength(4);
       }
     });
 
