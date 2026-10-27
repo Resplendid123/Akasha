@@ -1526,5 +1526,7 @@
   "Available in all spaces": "Available in all spaces",
   "Members can create templates — for all spaces, or for spaces where they can create pages — and manage the ones they created.": "Members can create templates — for all spaces, or for spaces where they can create pages — and manage the ones they created.",
   "No templates available in this space yet.": "No templates available in this space yet.",
-  "Browse templates": "Browse templates"
+  "Browse templates": "Browse templates",
+  "Built-in template": "Built-in template",
+  "Built-in templates": "Built-in templates"
 }

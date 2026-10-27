@@ -31,11 +31,12 @@ export function SpaceTemplatesSection({
     spaceId,
   });
 
-  // 专门指定到本空间的模板排在"所有空间"模板前面
-  const templates = useMemo(
-    () => [...data].sort((a, b) => Number(a.allSpaces) - Number(b.allSpaces)),
-    [data],
-  );
+  // 本空间专属 → 团队的"所有空间"模板 → 公共模板
+  const templates = useMemo(() => {
+    const rank = (tpl: PageTemplate) =>
+      tpl.builtin ? 2 : tpl.allSpaces ? 1 : 0;
+    return [...data].sort((a, b) => rank(a) - rank(b));
+  }, [data]);
 
   if (!canCreatePages || isLoading) return null;
 

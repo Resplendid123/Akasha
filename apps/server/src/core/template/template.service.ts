@@ -37,18 +37,34 @@ import {
   UseTemplateDto,
 } from './dto/template.dto';
 import { buildOutline, OutlineItem } from './template-outline';
+import {
+  BUILTIN_TEMPLATE_DATE,
+  BUILTIN_TEMPLATES,
+  BuiltinTemplate,
+  builtinLang,
+  findBuiltinTemplate,
+} from './builtin-templates';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
+
+/** 带 builtin 标记的模板行；内置模板不在数据库里。 */
+type ResolvedTemplate = TemplateRow & {
+  builtin?: boolean;
+  /** 内置模板的建页标题格式，仅代码内置模板有值。 */
+  pageTitlePattern?: string;
+};
 
 /**
  * 对外返回的模板：
  * - spaceIds 只包含当前用户能访问的空间；
- * - otherSpaceCount 为用户看不到的已指定空间数（只用于展示"另有 N 个空间"）。
+ * - otherSpaceCount 为用户看不到的已指定空间数（只用于展示"另有 N 个空间"）；
+ * - builtin 为 true 时是代码内置的公共模板，只读。
  */
 export type TemplateView = Omit<TemplateRow, 'spaceIds'> & {
   spaceIds: string[];
   otherSpaceCount: number;
   canManage: boolean;
+  builtin: boolean;
 };
 export type TemplateListItem = Omit<TemplateView, 'content'> & {
   outline: OutlineItem[];
@@ -93,17 +109,27 @@ export class TemplateService {
       { includeContent: true },
     );
 
+    // 内置模板对所有空间可用：只在首页、且不是"指定到某空间"的筛选时追加在最前
+    const builtins =
+      scope === 'space' || dto.cursor || dto.beforeCursor
+        ? []
+        : this.matchBuiltins(dto.query).map((tpl) =>
+            this.builtinRow(tpl, user, workspace),
+          );
+
     return {
       ...result,
-      items: result.items.map((row): TemplateListItem => {
-        const { content, ...view } = this.toView(
-          row as TemplateRow,
-          user,
-          workspace,
-          userSpaceIds,
-        );
-        return { ...view, outline: buildOutline(content) };
-      }),
+      items: [...builtins, ...(result.items as TemplateRow[])].map(
+        (row): TemplateListItem => {
+          const { content, ...view } = this.toView(
+            row,
+            user,
+            workspace,
+            userSpaceIds,
+          );
+          return { ...view, outline: buildOutline(content) };
+        },
+      ),
     };
   }
 
@@ -294,7 +320,7 @@ export class TemplateService {
     const page = await this.pageService.create(user.id, workspace.id, {
       spaceId: dto.spaceId,
       parentPageId: dto.parentPageId,
-      title: template.title ?? undefined,
+      title: this.resolvePageTitle(template, user),
       icon: template.icon ?? undefined,
       content: (template.content as object) ?? EMPTY_DOC,
       format: 'json',
@@ -317,7 +343,13 @@ export class TemplateService {
     user: User,
     workspace: Workspace,
     opts?: { includeContent?: boolean },
-  ): Promise<{ template: TemplateRow; userSpaceIds: string[] }> {
+  ): Promise<{ template: ResolvedTemplate; userSpaceIds: string[] }> {
+    const builtin = findBuiltinTemplate(templateId);
+    if (builtin) {
+      const userSpaceIds = await this.spaceMemberRepo.getUserSpaceIds(user.id);
+      return { template: this.builtinRow(builtin, user, workspace), userSpaceIds };
+    }
+
     const template = await this.templateRepo.findById(templateId, workspace.id, {
       includeContent: opts?.includeContent,
     });
@@ -352,12 +384,14 @@ export class TemplateService {
     return settings?.templates?.allowMemberTemplates === true;
   }
 
-  private canManage(template: TemplateRow, user: User, workspace: Workspace) {
+  private canManage(template: ResolvedTemplate, user: User, workspace: Workspace) {
+    // 内置模板只读，管理员也不能改删
+    if (template.builtin) return false;
     if (isWorkspaceAdmin(user.role)) return true;
     return this.membersAllowed(workspace) && template.creatorId === user.id;
   }
 
-  private assertCanManage(template: TemplateRow, user: User, workspace: Workspace) {
+  private assertCanManage(template: ResolvedTemplate, user: User, workspace: Workspace) {
     if (!this.canManage(template, user, workspace)) {
       throw new ForbiddenException();
     }
@@ -414,8 +448,19 @@ export class TemplateService {
     }
   }
 
+  /** 内置模板可以用日期命名页面标题；普通模板沿用模板标题。 */
+  private resolvePageTitle(
+    template: ResolvedTemplate,
+    user: User,
+  ): string | undefined {
+    if (!template.pageTitlePattern) return template.title ?? undefined;
+    return template.pageTitlePattern
+      .replace('{date}', localDate(user.timezone))
+      .replace('{title}', template.title ?? '');
+  }
+
   private toView(
-    template: TemplateRow,
+    template: ResolvedTemplate,
     user: User,
     workspace: Workspace,
     userSpaceIds: string[],
@@ -427,10 +472,71 @@ export class TemplateService {
       spaceIds: visibleSpaceIds,
       otherSpaceCount: spaceIds.length - visibleSpaceIds.length,
       canManage: this.canManage(template, user, workspace),
+      builtin: template.builtin === true,
     };
+  }
+
+  private matchBuiltins(query?: string): BuiltinTemplate[] {
+    const q = query?.trim().toLowerCase();
+    if (!q) return BUILTIN_TEMPLATES;
+    // 中英文任一语言命中都算，避免切换语言后搜不到
+    return BUILTIN_TEMPLATES.filter((tpl) =>
+      Object.values(tpl.locales).some(
+        (l) =>
+          l.title.toLowerCase().includes(q) ||
+          l.description.toLowerCase().includes(q),
+      ),
+    );
+  }
+
+  /** 把内置模板转成与数据库行同形的结构，按用户语言取内容。 */
+  private builtinRow(
+    tpl: BuiltinTemplate,
+    user: User,
+    workspace: Workspace,
+  ): ResolvedTemplate {
+    const locale = tpl.locales[builtinLang(user.locale)];
+    return {
+      id: tpl.id,
+      title: locale.title,
+      description: locale.description,
+      icon: tpl.icon,
+      allSpaces: true,
+      spaceIds: [],
+      // 复制一份，避免调用方改动共享的模块级对象
+      content: structuredClone(locale.content),
+      workspaceId: workspace.id,
+      creatorId: null,
+      lastUpdatedById: null,
+      createdAt: BUILTIN_TEMPLATE_DATE,
+      updatedAt: BUILTIN_TEMPLATE_DATE,
+      deletedAt: null,
+      builtin: true,
+      pageTitlePattern: tpl.pageTitlePattern,
+    } as ResolvedTemplate;
   }
 }
 
 function sameSet(a: string[], b: string[]) {
   return a.length === b.length && a.every((x) => b.includes(x));
+}
+
+/** 按用户时区取当天日期（YYYY/MM/DD）；时区缺失或非法时退回服务器时区。 */
+function localDate(timeZone: string | null | undefined): string {
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  };
+  try {
+    if (timeZone) options.timeZone = timeZone;
+    const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(now);
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value ?? '';
+    return `${get('year')}/${get('month')}/${get('day')}`;
+  } catch {
+    const iso = now.toISOString().slice(0, 10);
+    return iso.replace(/-/g, '/');
+  }
 }

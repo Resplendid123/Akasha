@@ -1547,5 +1547,7 @@
   "Available in all spaces": "适用于所有空间",
   "Members can create templates — for all spaces, or for spaces where they can create pages — and manage the ones they created.": "成员可以创建适用于所有空间的模板，也可以为自己有建页权限的空间创建模板，并管理自己创建的模板。",
   "No templates available in this space yet.": "此空间暂无可用模板。",
-  "Browse templates": "去模板库看看"
+  "Browse templates": "去模板库看看",
+  "Built-in template": "公共模板",
+  "Built-in templates": "公共模板"
 }
