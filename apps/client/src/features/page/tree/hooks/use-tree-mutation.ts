@@ -21,6 +21,7 @@ import { buildPageUrl } from "@/features/page/page.utils.ts";
 import { getSpaceUrl } from "@/lib/config.ts";
 import { useQueryEmit } from "@/features/websocket/use-query-emit.ts";
 import { createPageFromTemplate } from "@/features/template/api/template-api";
+import { OPEN_IN_EDIT_MODE_STATE } from "@/features/editor/use-open-in-edit-mode";
 
 export type UseTreeMutation = {
   handleMove: (sourceId: string, op: DropOp) => Promise<void>;
@@ -201,7 +202,8 @@ export function useTreeMutation(spaceId: string): UseTreeMutation {
         createdPage.slugId,
         createdPage.title,
       );
-      navigate(pageUrl);
+      // 用模板建的页面直接进入编辑模式，方便马上填写
+      navigate(pageUrl, opts?.templateId ? { state: OPEN_IN_EDIT_MODE_STATE } : undefined);
     },
     [spaceId, createPageMutation, setData, store, emit, navigate, spaceSlug, t],
   );
