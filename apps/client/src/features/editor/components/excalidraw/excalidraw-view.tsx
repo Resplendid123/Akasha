@@ -60,6 +60,10 @@ export default function ExcalidrawView(props: NodeViewProps) {
     if (!editor.isEditable) {
       return;
     }
+    // 模板预置的空白画布：首次打开时载入示例内容
+    if (!node.attrs.src && node.attrs.initialScene) {
+      setExcalidrawData(structuredClone(node.attrs.initialScene));
+    }
     isDirtyRef.current = false;
     isInitialLoadRef.current = true;
     open();
@@ -112,10 +116,12 @@ export default function ExcalidrawView(props: NodeViewProps) {
           title: attachment.fileName,
           size: attachment.fileSize,
           attachmentId: attachment.id,
+          initialScene: null,
         });
       } else {
         updateAttributes({
           attachmentId: attachment.id,
+          initialScene: null,
         });
       }
 

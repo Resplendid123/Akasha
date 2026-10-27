@@ -9,6 +9,19 @@ import {
 } from '@nestjs/common';
 import { TemplateService } from './template.service';
 import { UserRole } from '../../common/helpers/types/permission';
+import { jsonToNode } from '../../collaboration/collaboration.util';
+import { BUILTIN_TEMPLATES } from './builtin-templates';
+
+const [WEEKLY_ID, CHECKLIST_ID, FLOWCHART_ID, MANUAL_ID] =
+  BUILTIN_TEMPLATES.map((t) => t.id);
+const BUILTIN_IDS = BUILTIN_TEMPLATES.map((t) => t.id);
+/** 每个内置模板必须保留下来的块（未知节点会被静默剥掉） */
+const EXPECTED_BLOCKS: Record<string, string[]> = {
+  [WEEKLY_ID]: ['heading', 'taskList', 'bulletList'],
+  [CHECKLIST_ID]: ['heading', 'taskList', 'taskItem', 'bulletList'],
+  [FLOWCHART_ID]: ['heading', 'excalidraw', 'bulletList'],
+  [MANUAL_ID]: ['heading', 'orderedList', 'bulletList'],
+};
 
 const DOC = {
   type: 'doc',
@@ -277,6 +290,135 @@ describe('TemplateService', () => {
     });
   });
 
+  describe('内置模板', () => {
+    it('列表首页把内置模板排在最前，并按用户语言返回', async () => {
+      const { service, templateRepo } = createSubject();
+      templateRepo.findTemplates.mockResolvedValue({ items: [row()], meta: {} });
+
+      const zh = await service.list({ ...member, locale: 'zh-CN' }, ws(), {} as any);
+      expect(zh.items.map((t) => t.id)).toEqual([...BUILTIN_IDS, 't1']);
+      expect(zh.items[0]).toMatchObject({
+        title: '周报',
+        builtin: true,
+        allSpaces: true,
+        canManage: false,
+      });
+      expect(zh.items[0].outline.length).toBeGreaterThan(0);
+      expect(zh.items[zh.items.length - 1].builtin).toBe(false);
+
+      const en = await service.list({ ...member, locale: 'en-US' }, ws(), {} as any);
+      expect(en.items[0].title).toBe('Weekly report');
+    });
+
+    it('翻页、按指定空间筛选或搜索不命中时不返回内置模板', async () => {
+      const { service } = createSubject();
+      const ids = async (dto: any) =>
+        (await service.list(member, ws(), dto)).items.map((t) => t.id);
+
+      expect(await ids({ cursor: 'next' })).toEqual([]);
+      expect(await ids({ scope: 'space', spaceId: 'space-1' })).toEqual([]);
+      expect(await ids({ query: '不存在的模板' })).toEqual([]);
+      // 中英文任一语言命中都返回
+      expect(await ids({ query: 'weekly' })).toEqual([WEEKLY_ID]);
+      expect(await ids({ query: '周报' })).toEqual([WEEKLY_ID]);
+      expect(await ids({ query: '清单' })).toEqual([CHECKLIST_ID]);
+      expect(await ids({ query: 'checklist' })).toEqual([CHECKLIST_ID]);
+      expect(await ids({ query: '手册' })).toEqual([MANUAL_ID]);
+      expect(await ids({ query: 'manual' })).toEqual([MANUAL_ID]);
+      expect(await ids({ scope: 'available', spaceId: 'space-1' })).toEqual(BUILTIN_IDS);
+    });
+
+    it('内置模板可以查看详情，正文是合法文档', async () => {
+      const { service, templateRepo } = createSubject();
+      const view = await service.getById(WEEKLY_ID, admin, ws());
+      expect(templateRepo.findById).not.toHaveBeenCalled();
+      expect(view.builtin).toBe(true);
+      expect(view.content).toEqual(BUILTIN_TEMPLATES[0].locales.en.content);
+      // 每种语言的正文都要能被编辑器 schema 解析
+      for (const tpl of BUILTIN_TEMPLATES) {
+        for (const locale of Object.values(tpl.locales)) {
+          const node = jsonToNode(locale.content);
+          expect(() => node.check()).not.toThrow();
+          // 未知节点会被静默剥掉，这里确认关键块都还在
+          const types = new Set<string>();
+          node.descendants((n) => {
+            types.add(n.type.name);
+          });
+          for (const type of EXPECTED_BLOCKS[tpl.id]) {
+            expect(types).toContain(type);
+          }
+        }
+      }
+    });
+
+    it('流程图模板的示例画布：标准图形，文字和连线都绑定在图形上，引用互相一致', () => {
+      const tpl = BUILTIN_TEMPLATES.find((t) => t.id === FLOWCHART_ID)!;
+      for (const locale of Object.values(tpl.locales)) {
+        const excalidraw = locale.content.content.find((n: any) => n.type === 'excalidraw');
+        const elements: any[] = excalidraw.attrs.initialScene.elements;
+        const byId = new Map(elements.map((e) => [e.id, e]));
+        expect(byId.size).toBe(elements.length);
+
+        const shapes = elements.filter((e) => ['ellipse', 'rectangle', 'diamond'].includes(e.type));
+        expect(shapes.map((s) => s.type).sort()).toEqual([
+          'diamond',
+          'ellipse',
+          'ellipse',
+          'rectangle',
+          'rectangle',
+          'rectangle',
+        ]);
+
+        // 文字 ↔ 容器 双向绑定
+        for (const text of elements.filter((e) => e.type === 'text')) {
+          const container = byId.get(text.containerId);
+          expect(container).toBeDefined();
+          expect(container.boundElements).toContainEqual({ id: text.id, type: 'text' });
+          expect(text.text.length).toBeGreaterThan(0);
+        }
+        // 每个图形都有文字
+        for (const shape of shapes) {
+          expect(shape.boundElements.some((b: any) => b.type === 'text')).toBe(true);
+        }
+
+        // 箭头两端绑定到存在的图形，且图形里登记了这条箭头
+        const arrows = elements.filter((e) => e.type === 'arrow');
+        expect(arrows).toHaveLength(6);
+        for (const arrow of arrows) {
+          for (const binding of [arrow.startBinding, arrow.endBinding]) {
+            const target = byId.get(binding.elementId);
+            expect(['ellipse', 'rectangle', 'diamond']).toContain(target?.type);
+            expect(target.boundElements).toContainEqual({ id: arrow.id, type: 'arrow' });
+            expect(binding.mode).toBe('orbit');
+          }
+          expect(arrow.points[0]).toEqual([0, 0]);
+        }
+        // 判断节点有"是 / 否"两个分支，"否"的分支回到提交（循环）
+        const decision = shapes.find((s) => s.type === 'diamond');
+        const outgoing = arrows.filter((a) => a.startBinding.elementId === decision.id);
+        expect(outgoing.map((a) => a.boundElements.length)).toEqual([1, 1]);
+        const revise = byId.get(outgoing[1].endBinding.elementId);
+        expect(
+          arrows.some(
+            (a) => a.startBinding.elementId === revise.id && a.endBinding.elementId === 'submit',
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it('管理员也不能修改或删除内置模板', async () => {
+      const { service, templateRepo } = createSubject();
+      await expect(
+        service.update({ templateId: WEEKLY_ID, title: 'x' }, admin, ws()),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.delete(WEEKLY_ID, admin, ws())).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(templateRepo.updateTemplate).not.toHaveBeenCalled();
+      expect(templateRepo.deleteTemplate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('use', () => {
     it('以模板标题/图标/正文创建页面', async () => {
       const { service, pageService } = createSubject({
@@ -291,6 +433,44 @@ describe('TemplateService', () => {
         content: DOC,
         format: 'json',
       });
+    });
+
+    it('可以用内置模板建页，且不查数据库', async () => {
+      const { service, templateRepo, pageService } = createSubject();
+      await service.use(
+        { templateId: WEEKLY_ID, spaceId: 'space-1' },
+        { ...member, locale: 'zh-CN' },
+        ws(),
+      );
+      expect(templateRepo.findById).not.toHaveBeenCalled();
+      expect(pageService.create).toHaveBeenCalledWith(
+        'member-1',
+        'ws-1',
+        expect.objectContaining({
+          spaceId: 'space-1',
+          title: expect.stringMatching(/^\d{4}\/\d{2}\/\d{2}-周报$/),
+          format: 'json',
+        }),
+      );
+    });
+
+    it('内置周报按用户本地创建日期命名标题', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-27T02:00:00.000Z'));
+      try {
+        const { service, pageService } = createSubject();
+        await service.use(
+          { templateId: WEEKLY_ID, spaceId: 'space-1' },
+          { ...member, locale: 'zh-CN', timezone: 'Asia/Shanghai' },
+          ws(),
+        );
+        expect(pageService.create).toHaveBeenCalledWith(
+          'member-1',
+          'ws-1',
+          expect.objectContaining({ title: '2026/10/27-周报' }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('模板未指定到目标空间时返回 400', async () => {

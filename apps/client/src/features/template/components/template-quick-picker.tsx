@@ -69,13 +69,15 @@ export function TemplateQuickPicker({
       : { scope: "all", query: debouncedQuery || undefined },
   );
 
-  // 分组：本空间专属 → 所有空间 → 其他（多空间等）
+  // 分组：本空间专属 → 所有空间 → 其他（多空间等）→ 公共模板
   const groups = useMemo<TemplateGroup[]>(() => {
     const thisSpace: PageTemplate[] = [];
     const everywhere: PageTemplate[] = [];
     const others: PageTemplate[] = [];
+    const builtin: PageTemplate[] = [];
     for (const tpl of templates) {
-      if (tpl.allSpaces) everywhere.push(tpl);
+      if (tpl.builtin) builtin.push(tpl);
+      else if (tpl.allSpaces) everywhere.push(tpl);
       else if (preferredSpaceId && tpl.spaceIds.includes(preferredSpaceId))
         thisSpace.push(tpl);
       else others.push(tpl);
@@ -84,6 +86,7 @@ export function TemplateQuickPicker({
       { key: "this", label: t("This space"), items: thisSpace },
       { key: "all", label: t("All spaces"), items: everywhere },
       { key: "other", label: t("Other spaces"), items: others },
+      { key: "builtin", label: t("Built-in templates"), items: builtin },
     ].filter((g) => g.items.length > 0);
   }, [templates, preferredSpaceId, t]);
 

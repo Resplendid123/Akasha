@@ -29,6 +29,8 @@ export interface PageTemplate {
   /** 仅列表接口返回 */
   outline?: TemplateOutlineItem[];
   canManage: boolean;
+  /** 代码内置的公共模板：所有空间可用、只读 */
+  builtin?: boolean;
   createdAt: string;
   updatedAt: string;
 }

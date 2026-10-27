@@ -9,6 +9,15 @@ vi.mock("react-i18next", () => ({
 
 const templates = [
   {
+    id: "b1",
+    title: "内置周报",
+    allSpaces: true,
+    spaceIds: [],
+    icon: "📅",
+    description: null,
+    builtin: true,
+  },
+  {
     id: "g1",
     title: "全局周报",
     allSpaces: true,
@@ -93,15 +102,21 @@ describe("TemplateQuickPicker", () => {
     } as any;
   });
 
-  it("本空间模板排第一，其次所有空间，再其他空间", async () => {
+  it("本空间模板排第一，其次所有空间、其他空间，公共模板单独一组排最后", async () => {
     renderPicker();
     const options = await screen.findAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual([
       expect.stringContaining("本空间纪要"),
       expect.stringContaining("全局周报"),
       expect.stringContaining("别的空间"),
+      expect.stringContaining("内置周报"),
     ]);
     expect(options[0].getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen
+        .getByRole("group", { name: "Built-in templates" })
+        .contains(options[3]),
+    ).toBe(true);
   });
 
   it("方向键移动高亮，回车确认当前模板", async () => {
@@ -120,14 +135,14 @@ describe("TemplateQuickPicker", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
     await waitFor(() =>
       expect(
-        screen.getAllByRole("option")[2].getAttribute("aria-selected"),
+        screen.getAllByRole("option")[3].getAttribute("aria-selected"),
       ).toBe("true"),
     );
 
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() =>
       expect(onConfirm).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "o1" }),
+        expect.objectContaining({ id: "b1" }),
       ),
     );
   });
