@@ -210,9 +210,7 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   const hasTemplates = useHasFeature(Feature.TEMPLATES);
   const { isAdmin } = useUserRole();
   const workspace = useAtomValue(workspaceAtom);
-  const canSaveAsTemplate =
-    hasTemplates &&
-    (isAdmin || workspace?.settings?.templates?.allowMemberTemplates === true);
+  const canSaveAsTemplate = hasTemplates;
   const [
     insertTemplateOpened,
     { open: openInsertTemplate, close: closeInsertTemplate },

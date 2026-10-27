@@ -106,7 +106,11 @@ export class TemplateService {
       userSpaceIds,
       dto,
       filter,
-      { includeContent: true },
+      {
+        includeContent: true,
+        isAdmin: isWorkspaceAdmin(user.role),
+        userId: user.id,
+      },
     );
 
     // 内置模板对所有空间可用：只在首页、且不是"指定到某空间"的筛选时追加在最前
@@ -358,6 +362,8 @@ export class TemplateService {
     }
     const userSpaceIds = await this.spaceMemberRepo.getUserSpaceIds(user.id);
     const visible =
+      isWorkspaceAdmin(user.role) ||
+      template.creatorId === user.id ||
       template.allSpaces ||
       template.spaceIds.some((id) => userSpaceIds.includes(id));
     // 不可见与不存在返回同一错误，避免泄露模板存在性
@@ -379,16 +385,12 @@ export class TemplateService {
     return { allSpaces: false, spaceIds };
   }
 
-  private membersAllowed(workspace: Workspace): boolean {
-    const settings = workspace.settings as any;
-    return settings?.templates?.allowMemberTemplates === true;
-  }
-
   private canManage(template: ResolvedTemplate, user: User, workspace: Workspace) {
     // 内置模板只读，管理员也不能改删
     if (template.builtin) return false;
     if (isWorkspaceAdmin(user.role)) return true;
-    return this.membersAllowed(workspace) && template.creatorId === user.id;
+    // 普通用户可以管理自己创建的模板
+    return template.creatorId === user.id;
   }
 
   private assertCanManage(template: ResolvedTemplate, user: User, workspace: Workspace) {
@@ -407,9 +409,6 @@ export class TemplateService {
     user: User,
     workspace: Workspace,
   ) {
-    if (!isWorkspaceAdmin(user.role) && !this.membersAllowed(workspace)) {
-      throw new ForbiddenException();
-    }
     if (next.allSpaces) return;
     const added = next.spaceIds.filter((id) => !currentSpaceIds?.includes(id));
     for (const spaceId of added) {
