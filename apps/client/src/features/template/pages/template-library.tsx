@@ -26,13 +26,10 @@ import {
   IconTemplate,
   IconTrash,
 } from "@tabler/icons-react";
-import { useAtomValue } from "jotai";
 import { Helmet } from "react-helmet-async";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { getAppName } from "@/lib/config.ts";
-import useUserRole from "@/hooks/use-user-role";
-import { workspaceAtom } from "@/features/user/atoms/current-user-atom.ts";
 import {
   useCreateTemplate,
   useRemoveTemplate,
@@ -53,9 +50,6 @@ const ALL_SPACES = "allSpaces";
 export default function TemplateLibrary() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin } = useUserRole();
-  const workspace = useAtomValue(workspaceAtom);
-  const canCreate = true;
 
   const { spaces, availabilityLabel } = useSpaceDirectory();
   const [filter, setFilter] = useState<string>(ALL);
@@ -141,15 +135,13 @@ export default function TemplateLibrary() {
               )}
             </Text>
           </div>
-          {canCreate && (
-            <Button
-              leftSection={<IconPlus size={16} />}
-              loading={createTemplate.isPending}
-              onClick={() => handleCreate().catch(() => undefined)}
-            >
-              {t("New template")}
-            </Button>
-          )}
+          <Button
+            leftSection={<IconPlus size={16} />}
+            loading={createTemplate.isPending}
+            onClick={() => handleCreate().catch(() => undefined)}
+          >
+            {t("New template")}
+          </Button>
         </Group>
 
         <Group justify="space-between" mb="lg" gap="sm" wrap="wrap">
@@ -205,7 +197,7 @@ export default function TemplateLibrary() {
                     "Turn the documents your team writes over and over — meeting notes, PRDs, retrospectives — into templates. You can also use “Save as template” from any page menu.",
                   )}
             </Text>
-            {canCreate && !isFiltered && (
+            {!isFiltered && (
               <Button
                 mt="lg"
                 variant="light"
@@ -218,19 +210,6 @@ export default function TemplateLibrary() {
           </div>
         ) : (
           <SimpleGrid cols={{ base: 1, xs: 2, md: 3, lg: 4 }} spacing="md">
-            {canCreate && !isFiltered && (
-              <button
-                type="button"
-                className={classes.newCard}
-                onClick={() => handleCreate().catch(() => undefined)}
-                disabled={createTemplate.isPending}
-              >
-                <IconPlus size={22} stroke={1.5} />
-                <Text size="sm" fw={500} mt={6}>
-                  {t("New template")}
-                </Text>
-              </button>
-            )}
             {templates.map((tpl) => (
               <TemplateCard
                 key={tpl.id}
