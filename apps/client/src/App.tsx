@@ -40,8 +40,8 @@ import WorkspaceApiKeys from "@/features/api-key/pages/workspace-api-keys";
 import AiSettings from "@/features/ai/pages/ai-settings.tsx";
 import AuditLogs from "@/ee/audit/pages/audit-logs.tsx";
 import VerifiedPages from "@/features/page-verification/pages/verified-pages.tsx";
-import TemplateList from "@/features/template/pages/template-list";
-import TemplateEditor from "@/features/template/pages/template-editor";
+import TemplateLibrary from "@/features/template/pages/template-library";
+import TemplateWorkbench from "@/features/template/pages/template-workbench";
 import FavoritesPage from "@/pages/favorites/favorites-page";
 import AiChat from "@/features/ai-chat/pages/ai-chat.tsx";
 import KnowledgeAdminPage from "@/features/llm-wiki/pages/knowledge-admin";
@@ -105,8 +105,8 @@ export default function App() {
           <Route path={"/favorites"} element={<FavoritesPage />} />
           <Route path={"/analytics"} element={<AnalyticsPage />} />
           <Route path={"/labels/:labelName"} element={<LabelPage />} />
-          <Route path={"/templates"} element={<TemplateList />} />
-          <Route path={"/templates/:templateId"} element={<TemplateEditor />} />
+          <Route path={"/templates"} element={<TemplateLibrary />} />
+          <Route path={"/templates/:templateId"} element={<TemplateWorkbench />} />
           <Route path={"/s/:spaceSlug"} element={<SpaceHome />} />
           <Route
             path={"/s/:spaceSlug/graph"}

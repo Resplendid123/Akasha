@@ -20,10 +20,15 @@ import {
 import { buildPageUrl } from "@/features/page/page.utils.ts";
 import { getSpaceUrl } from "@/lib/config.ts";
 import { useQueryEmit } from "@/features/websocket/use-query-emit.ts";
+import { createPageFromTemplate } from "@/features/template/api/template-api";
 
 export type UseTreeMutation = {
   handleMove: (sourceId: string, op: DropOp) => Promise<void>;
-  handleCreate: (parentId: string | null) => Promise<void>;
+  /** 传 templateId 时用模板内容建页。 */
+  handleCreate: (
+    parentId: string | null,
+    opts?: { templateId?: string },
+  ) => Promise<void>;
   handleRename: (id: string, name: string) => Promise<void>;
   handleDelete: (id: string) => Promise<void>;
 };
@@ -131,21 +136,32 @@ export function useTreeMutation(spaceId: string): UseTreeMutation {
   );
 
   const handleCreate = useCallback(
-    async (parentId: string | null) => {
+    async (parentId: string | null, opts?: { templateId?: string }) => {
       const payload: { spaceId: string; parentPageId?: string } = { spaceId };
       if (parentId) payload.parentPageId = parentId;
 
       let createdPage: IPage;
       try {
-        createdPage = await createPageMutation.mutateAsync(payload);
-      } catch {
+        createdPage = opts?.templateId
+          ? await createPageFromTemplate({ ...payload, templateId: opts.templateId })
+          : await createPageMutation.mutateAsync(payload);
+      } catch (err: any) {
+        if (opts?.templateId) {
+          notifications.show({
+            color: "red",
+            message:
+              err?.response?.data?.message ??
+              t("Failed to create page from template"),
+          });
+        }
         throw new Error("Failed to create page");
       }
 
       const newNode: SpaceTreeNode = {
         id: createdPage.id,
         slugId: createdPage.slugId,
-        name: "",
+        name: createdPage.title ?? "",
+        icon: createdPage.icon ?? undefined,
         position: createdPage.position,
         spaceId: createdPage.spaceId,
         parentPageId: createdPage.parentPageId,
@@ -187,7 +203,7 @@ export function useTreeMutation(spaceId: string): UseTreeMutation {
       );
       navigate(pageUrl);
     },
-    [spaceId, createPageMutation, setData, store, emit, navigate, spaceSlug],
+    [spaceId, createPageMutation, setData, store, emit, navigate, spaceSlug, t],
   );
 
   const handleRename = useCallback(

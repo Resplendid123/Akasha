@@ -1002,7 +1002,14 @@ export interface Spaces {
   workspaceId: string;
 }
 
+export interface TemplateSpaces {
+  createdAt: Generated<Timestamp>;
+  spaceId: string;
+  templateId: string;
+}
+
 export interface Templates {
+  allSpaces: Generated<boolean>;
   collaboratorIds: string[] | null;
   content: Json | null;
   createdAt: Generated<Timestamp>;
@@ -1195,6 +1202,7 @@ export interface DB {
   shares: Shares;
   spaceMembers: SpaceMembers;
   spaces: Spaces;
+  templateSpaces: TemplateSpaces;
   templates: Templates;
   userMfa: UserMfa;
   users: Users;
