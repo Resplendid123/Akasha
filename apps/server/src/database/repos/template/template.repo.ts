@@ -66,7 +66,7 @@ export class TemplateRepo {
     accessibleSpaceIds: string[],
     pagination: PaginationOptions,
     filter: TemplateSpaceFilter,
-    opts?: { includeContent?: boolean },
+    opts?: { includeContent?: boolean; isAdmin?: boolean; userId?: string },
   ) {
     let query = this.db
       .selectFrom('templates')
@@ -101,14 +101,21 @@ export class TemplateRepo {
         break;
       }
       default:
-        query = query.where((eb) =>
-          eb.or([
-            eb('allSpaces', '=', true),
-            ...(accessibleSpaceIds.length > 0
-              ? [assignedToAny(accessibleSpaceIds)]
-              : []),
-          ]),
-        );
+        // 管理员可以看到所有模板
+        if (opts?.isAdmin) {
+          // 不添加额外过滤条件，查询所有模板
+        } else {
+          // 普通用户：自己有权限空间的模板 + 自己创建的模板
+          query = query.where((eb) =>
+            eb.or([
+              eb('allSpaces', '=', true),
+              ...(accessibleSpaceIds.length > 0
+                ? [assignedToAny(accessibleSpaceIds)]
+                : []),
+              ...(opts?.userId ? [eb('creatorId', '=', opts.userId)] : []),
+            ]),
+          );
+        }
     }
 
     if (pagination.query) {

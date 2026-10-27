@@ -55,8 +55,7 @@ export default function TemplateLibrary() {
   const navigate = useNavigate();
   const { isAdmin } = useUserRole();
   const workspace = useAtomValue(workspaceAtom);
-  const canCreate =
-    isAdmin || workspace?.settings?.templates?.allowMemberTemplates === true;
+  const canCreate = true;
 
   const { spaces, availabilityLabel } = useSpaceDirectory();
   const [filter, setFilter] = useState<string>(ALL);
