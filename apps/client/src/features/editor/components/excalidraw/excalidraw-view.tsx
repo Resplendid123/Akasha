@@ -60,7 +60,6 @@ export default function ExcalidrawView(props: NodeViewProps) {
     if (!editor.isEditable) {
       return;
     }
-    // 模板预置的空白画布：首次打开时载入示例内容
     if (!node.attrs.src && node.attrs.initialScene) {
       setExcalidrawData(structuredClone(node.attrs.initialScene));
     }

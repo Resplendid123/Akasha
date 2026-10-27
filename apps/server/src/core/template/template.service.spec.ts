@@ -366,7 +366,7 @@ describe('TemplateService', () => {
       }
     });
 
-    it('技术方案模板：代码块带语言（含 Mermaid 时序图），公式不为空', () => {
+    it('技术方案模板：代码块带语言（含 Mermaid 流程图），公式不为空', () => {
       const tpl = BUILTIN_TEMPLATES.find((t) => t.id === DESIGN_ID)!;
       for (const locale of Object.values(tpl.locales)) {
         const languages: string[] = [];
@@ -380,7 +380,7 @@ describe('TemplateService', () => {
             formulas.push(n.attrs.text);
           }
         });
-        expect(languages).toEqual(['typescript', 'sql', 'mermaid']);
+        expect(languages).toEqual(['mermaid', 'json']);
         expect(formulas.every((f) => f.trim().length > 0)).toBe(true);
         expect(formulas).toHaveLength(4);
       }
