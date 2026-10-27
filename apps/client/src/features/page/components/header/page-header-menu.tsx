@@ -34,6 +34,8 @@ import {
   IconCircleCheck,
   IconLoader2,
   IconCircle,
+  IconTemplate,
+  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useAsideTriggerProps } from "@/hooks/use-toggle-aside.tsx";
@@ -61,8 +63,16 @@ import ExportModal from "@/components/common/export-modal";
 import { htmlToMarkdown } from "@docmost/editor-ext";
 import {
   pageEditorAtom,
+  titleEditorAtom,
   yjsConnectionStatusAtom,
 } from "@/features/editor/atoms/editor-atoms.ts";
+import { useHasFeature } from "@/ee/hooks/use-feature";
+import { Feature } from "@/ee/features";
+import useUserRole from "@/hooks/use-user-role";
+import { workspaceAtom } from "@/features/user/atoms/current-user-atom.ts";
+import { TemplateQuickPicker } from "@/features/template/components/template-quick-picker";
+import { SaveAsTemplateModal } from "@/features/template/components/save-as-template-modal";
+import { applyTemplateToEditor } from "@/features/template/lib/apply-template";
 import { formattedDate } from "@/lib/time.ts";
 import { PageEditModeControls } from "@/features/editor/components/page-edit-mode-toggle.tsx";
 import MovePageModal from "@/features/page/components/move-page-modal.tsx";
@@ -196,6 +206,21 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
     { open: openVerificationModal, close: closeVerificationModal },
   ] = useDisclosure(false);
   const [pageEditor] = useAtom(pageEditorAtom);
+  const titleEditor = useAtomValue(titleEditorAtom);
+  const hasTemplates = useHasFeature(Feature.TEMPLATES);
+  const { isAdmin } = useUserRole();
+  const workspace = useAtomValue(workspaceAtom);
+  const canSaveAsTemplate =
+    hasTemplates &&
+    (isAdmin || workspace?.settings?.templates?.allowMemberTemplates === true);
+  const [
+    insertTemplateOpened,
+    { open: openInsertTemplate, close: closeInsertTemplate },
+  ] = useDisclosure(false);
+  const [
+    saveTemplateOpened,
+    { open: openSaveTemplate, close: closeSaveTemplate },
+  ] = useDisclosure(false);
   const pageUpdatedAt = useTimeAgo(page?.updatedAt);
   const favoriteIds = useFavoriteIds("page", page?.spaceId);
   const addFavoriteMutation = useAddFavoriteMutation();
@@ -636,6 +661,28 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
             />
           )}
 
+          {hasTemplates && (!readOnly || canSaveAsTemplate) && (
+            <>
+              <Menu.Divider />
+              {!readOnly && (
+                <Menu.Item
+                  leftSection={<IconTemplate size={16} />}
+                  onClick={openInsertTemplate}
+                >
+                  {t("Insert template")}
+                </Menu.Item>
+              )}
+              {canSaveAsTemplate && (
+                <Menu.Item
+                  leftSection={<IconDeviceFloppy size={16} />}
+                  onClick={openSaveTemplate}
+                >
+                  {t("Save as template")}
+                </Menu.Item>
+              )}
+            </>
+          )}
+
           <Menu.Divider />
 
           {!readOnly && (
@@ -731,6 +778,31 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
         opened={verificationOpened}
         onClose={closeVerificationModal}
       />
+
+      {hasTemplates && insertTemplateOpened && (
+        <TemplateQuickPicker
+          opened={insertTemplateOpened}
+          onClose={closeInsertTemplate}
+          title={t("Insert template")}
+          confirmLabel={
+            pageEditor?.isEmpty ? t("Apply to page") : t("Insert at cursor")
+          }
+          preferredSpaceId={page.spaceId}
+          onConfirm={(template) => {
+            closeInsertTemplate();
+            if (!pageEditor || pageEditor.isDestroyed) return;
+            applyTemplateToEditor(pageEditor, titleEditor, template);
+          }}
+        />
+      )}
+
+      {canSaveAsTemplate && (
+        <SaveAsTemplateModal
+          opened={saveTemplateOpened}
+          onClose={closeSaveTemplate}
+          page={page}
+        />
+      )}
     </>
   );
 }

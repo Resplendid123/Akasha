@@ -6,7 +6,7 @@ import { getAppName, isCloud } from "@/lib/config.ts";
 import { Helmet } from "react-helmet-async";
 import ManageHostname from "@/ee/components/manage-hostname.tsx";
 import { Divider } from "@mantine/core";
-import AllowMemberTemplates from "@/ee/security/components/allow-member-templates.tsx";
+import MemberTemplateSetting from "@/features/template/components/member-template-setting";
 
 export default function WorkspaceSettings() {
   const { t } = useTranslation();
@@ -20,7 +20,7 @@ export default function WorkspaceSettings() {
       <WorkspaceNameForm />
 
       <Divider my="md" />
-      <AllowMemberTemplates />
+      <MemberTemplateSetting />
 
       {isCloud() && (
         <>

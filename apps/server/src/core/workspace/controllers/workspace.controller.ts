@@ -135,6 +135,9 @@ export class WorkspaceController {
     if (!features.includes(Feature.CONFLUENCE_IMPORT)) {
       features.push(Feature.CONFLUENCE_IMPORT);
     }
+    if (!features.includes(Feature.TEMPLATES)) {
+      features.push(Feature.TEMPLATES);
+    }
 
     return {
       cloud: this.environmentService.isCloud(),
