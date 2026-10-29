@@ -32,6 +32,7 @@ import {
   IconDatabaseSearch,
   IconDotsVertical,
   IconInfoCircle,
+  IconMoon,
   IconPlayerPlay,
   IconPlayerStop,
   IconRefresh,
@@ -387,11 +388,15 @@ export default function KnowledgeAdminPage() {
         : updateKnowledgeSpace(request);
     },
     retry: false,
-    onSuccess: () => {
+    onSuccess: (result) => {
       setConfirmedCompilation(null);
       setConfirmationSpaceName("");
       setConfirmationError(null);
-      notifications.show({ message: t("Knowledge update queued") });
+      notifications.show({
+        message: result.deferred
+          ? deferredCompileMessage(t, result.deferredUntil ?? null)
+          : t("Knowledge update queued"),
+      });
       refreshRunViews();
     },
     onError: (error) => setConfirmationError(error.message),
@@ -399,11 +404,15 @@ export default function KnowledgeAdminPage() {
   const immediateDelayedPageMutation = useMutation({
     mutationFn: immediatelyCompileDelayedPage,
     retry: false,
-    onSuccess: () => {
+    onSuccess: (result) => {
       setConfirmedDelayedPage(null);
       setDelayedPageConfirmationName("");
       setDelayedPageConfirmationError(null);
-      notifications.show({ message: t("Page compilation queued") });
+      notifications.show({
+        message: result.deferred
+          ? deferredCompileMessage(t, result.deferredUntil ?? null)
+          : t("Page compilation queued"),
+      });
       refreshRunViews();
     },
     onError: (error) => setDelayedPageConfirmationError(error.message),
@@ -1365,6 +1374,7 @@ function DelayedCompilationQueue({
   const { t } = useTranslation();
   const data = query.data;
   const items = data?.items ?? [];
+  const compileWindow = data?.summary.compileWindow;
   const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
 
   return (
@@ -1375,13 +1385,39 @@ function DelayedCompilationQueue({
             {t("Delayed compilation queue")}
           </Title>
           <Text size="sm" c="dimmed">
-            {t(
-              "Automatic page creates and updates compile after one hour without further edits. Manual and force compilation remain immediate.",
-            )}
+            {compileWindow?.enabled
+              ? t(
+                  "Automatic page creates and updates compile in the night compile window, without the one-hour wait. Manual page publish, retries and force rebuild remain immediate.",
+                )
+              : t(
+                  "Automatic page creates and updates compile after one hour without further edits. Manual and force compilation remain immediate.",
+                )}
           </Text>
         </div>
         {query.isFetching && <Loader size="sm" />}
       </Group>
+
+      {compileWindow?.enabled && (
+        <Alert
+          color={compileWindow.open ? "green" : "blue"}
+          icon={<IconMoon size={18} />}
+          mb="md"
+        >
+          {compileWindow.open
+            ? t(
+                "Night compile window {{start}}–{{end}} is open: due pages compile now.",
+                { start: compileWindow.startTime, end: compileWindow.endTime },
+              )
+            : t(
+                "Night compile window {{start}}–{{end}} is closed: due pages wait until {{time}}.",
+                {
+                  start: compileWindow.startTime,
+                  end: compileWindow.endTime,
+                  time: formatDate(compileWindow.nextOpenAt),
+                },
+              )}
+        </Alert>
+      )}
 
       <div className={classes.metricGrid}>
         <Metric
@@ -1449,7 +1485,7 @@ function DelayedCompilationQueue({
                   <Table.Th>{t("Trigger")}</Table.Th>
                   <Table.Th>{t("Changes")}</Table.Th>
                   <Table.Th>{t("Last changed")}</Table.Th>
-                  <Table.Th>{t("Eligible at")}</Table.Th>
+                  <Table.Th>{t("Compiles at")}</Table.Th>
                   <Table.Th>{t("Remaining")}</Table.Th>
                   {isAdmin && <Table.Th>{t("Actions")}</Table.Th>}
                 </Table.Tr>
@@ -1483,25 +1519,27 @@ function DelayedCompilationQueue({
                       <Table.Td>
                         <StateBadge
                           value={
-                            item.status === "due"
+                            item.status === "due" && !item.windowDeferred
                               ? "ready_for_dispatch"
                               : "waiting"
                           }
                           label={
-                            item.status === "due"
-                              ? t("Ready for dispatch")
-                              : t("Waiting")
+                            item.windowDeferred
+                              ? t("Waiting for night window")
+                              : item.status === "due"
+                                ? t("Ready for dispatch")
+                                : t("Waiting")
                           }
                         />
                       </Table.Td>
                       <Table.Td>{humanizeState(item.trigger)}</Table.Td>
                       <Table.Td>{item.changeCount}</Table.Td>
                       <Table.Td>{formatDate(item.lastChangedAt)}</Table.Td>
-                      <Table.Td>{formatDate(item.eligibleAt)}</Table.Td>
+                      <Table.Td>{formatDate(item.compileStartsAt)}</Table.Td>
                       <Table.Td>
-                        {item.status === "due"
-                          ? t("Awaiting dispatch")
-                          : formatDuration(item.remainingWaitMs)}
+                        {item.remainingUntilCompileMs > 0
+                          ? formatDuration(item.remainingUntilCompileMs)
+                          : t("Awaiting dispatch")}
                       </Table.Td>
                       {isAdmin && (
                         <Table.Td>
@@ -2226,6 +2264,17 @@ function ProgressCell({
       </Text>
     </Stack>
   );
+}
+
+function deferredCompileMessage(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  deferredUntil: string | null,
+): string {
+  return deferredUntil
+    ? t("Queued for the night compile window starting at {{time}}", {
+        time: formatDate(deferredUntil),
+      })
+    : t("Queued for the night compile window");
 }
 
 function formatDate(value: string | null): string {

@@ -58,17 +58,26 @@ export interface KnowledgeCompileSpacesResult {
   acceptedRunCount: number;
   coalescedRunCount: number;
   rerunRequestedCount: number;
-  runs: Array<{
-    spaceId: string;
-    runId: string;
-    disposition: KnowledgeCompileRunDisposition;
-  }>;
+  /** Spaces held until the night compile window opens. */
+  deferredCount: number;
+  deferredUntil: string | null;
+  runs: Array<
+    | {
+        spaceId: string;
+        runId: string;
+        disposition: KnowledgeCompileRunDisposition;
+      }
+    | { spaceId: string; disposition: "deferred" }
+  >;
 }
 
 export interface KnowledgeSpaceOperationResult {
-  runId: string;
+  /** Absent when the request was deferred to the night compile window. */
+  runId?: string;
   mode: "incremental" | "force_rebuild";
-  knowledgeGeneration: number;
+  knowledgeGeneration?: number;
+  deferred?: boolean;
+  deferredUntil?: string | null;
 }
 
 export type KnowledgeAdminSpaceAction =
@@ -224,6 +233,11 @@ export interface KnowledgeRunDiagnosticsPage {
 
 export type KnowledgeDelayedPageStatus = "waiting" | "due";
 
+export type KnowledgeDelayedPageTrigger =
+  | "page_created"
+  | "page_updated"
+  | "page_restored";
+
 export interface KnowledgeDelayedPageDiagnostic {
   scheduleId: string;
   sourcePageId: string;
@@ -231,15 +245,28 @@ export interface KnowledgeDelayedPageDiagnostic {
   spaceName: string;
   title: string;
   slugId: string;
-  trigger: "page_created" | "page_updated";
+  trigger: KnowledgeDelayedPageTrigger;
   changeCount: number;
   status: KnowledgeDelayedPageStatus;
   firstChangedAt: string;
   lastChangedAt: string;
   eligibleAt: string;
   remainingWaitMs: number;
+  /** When compilation actually starts, night compile window included. */
+  compileStartsAt: string;
+  remainingUntilCompileMs: number;
+  /** True when the night window, not the quiet period, sets the start. */
+  windowDeferred: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgeCompileWindowState {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+  open: boolean;
+  nextOpenAt: string | null;
 }
 
 export interface KnowledgeDelayedPageDiagnosticsPage {
@@ -250,6 +277,7 @@ export interface KnowledgeDelayedPageDiagnosticsPage {
     affectedSpaceCount: number;
     oldestFirstChangedAt: string | null;
     nextEligibleAt: string | null;
+    compileWindow: KnowledgeCompileWindowState;
   };
   items: KnowledgeDelayedPageDiagnostic[];
   total: number;
@@ -262,6 +290,9 @@ export interface KnowledgeImmediateDelayedPageCompileResult {
   scheduleId: string;
   sourcePageId: string;
   spaceId: string;
+  /** True outside the night compile window: runs at deferredUntil. */
+  deferred?: boolean;
+  deferredUntil?: string | null;
 }
 
 export interface KnowledgeRemoveDelayedPageResult {

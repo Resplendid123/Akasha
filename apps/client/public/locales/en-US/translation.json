@@ -1528,5 +1528,20 @@
   "No templates available in this space yet.": "No templates available in this space yet.",
   "Browse templates": "Browse templates",
   "Built-in template": "Built-in template",
-  "Built-in templates": "Built-in templates"
+  "Built-in templates": "Built-in templates",
+  "Night compile window": "Night compile window",
+  "When enabled, automatic and space-level knowledge compilation only runs inside this time window. Manual page publish, retrying failed pages and force rebuild still run immediately.": "When enabled, automatic and space-level knowledge compilation only runs inside this time window. Manual page publish, retrying failed pages and force rebuild still run immediately.",
+  "Start time": "Start time",
+  "End time": "End time",
+  "An end time earlier than the start time crosses midnight.": "An end time earlier than the start time crosses midnight.",
+  "Queued for the night compile window starting at {{time}}": "Queued for the night compile window starting at {{time}}",
+  "Queued for the night compile window": "Queued for the night compile window",
+  "Times follow the server timezone ({{timezone}}). An end time earlier than the start time crosses midnight.": "Times follow the server timezone ({{timezone}}). An end time earlier than the start time crosses midnight.",
+  "Hours": "Hours",
+  "Minutes": "Minutes",
+  "Night compile window {{start}}–{{end}} is open: due pages compile now.": "Night compile window {{start}}–{{end}} is open: due pages compile now.",
+  "Night compile window {{start}}–{{end}} is closed: due pages wait until {{time}}.": "Night compile window {{start}}–{{end}} is closed: due pages wait until {{time}}.",
+  "Waiting for night window": "Waiting for night window",
+  "Compiles at": "Compiles at",
+  "Automatic page creates and updates compile in the night compile window, without the one-hour wait. Manual page publish, retries and force rebuild remain immediate.": "Automatic page creates and updates compile in the night compile window, without the one-hour wait. Manual page publish, retries and force rebuild remain immediate."
 }

@@ -129,6 +129,13 @@ describe("KnowledgeAdminPage", () => {
         affectedSpaceCount: 1,
         oldestFirstChangedAt: "2026-08-05T09:30:00.000Z",
         nextEligibleAt: "2026-08-05T10:30:00.000Z",
+        compileWindow: {
+          enabled: false,
+          startTime: "23:00",
+          endTime: "07:00",
+          open: true,
+          nextOpenAt: null,
+        },
       },
       items: [
         {
@@ -145,6 +152,9 @@ describe("KnowledgeAdminPage", () => {
           lastChangedAt: "2026-08-05T09:30:00.000Z",
           eligibleAt: "2026-08-05T10:30:00.000Z",
           remainingWaitMs: 30 * 60 * 1000,
+          compileStartsAt: "2026-08-05T10:30:00.000Z",
+          remainingUntilCompileMs: 30 * 60 * 1000,
+          windowDeferred: false,
           createdAt: "2026-08-05T09:30:00.000Z",
           updatedAt: "2026-08-05T09:30:00.000Z",
         },
@@ -377,6 +387,41 @@ describe("KnowledgeAdminPage", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("shows when a closed night window holds a due page back", async () => {
+    const base = await vi.mocked(getKnowledgeDelayedPageDiagnostics)({
+      page: 1,
+      limit: 50,
+    });
+    vi.mocked(getKnowledgeDelayedPageDiagnostics).mockResolvedValue({
+      ...base,
+      summary: {
+        ...base.summary,
+        compileWindow: {
+          enabled: true,
+          startTime: "23:00",
+          endTime: "07:00",
+          open: false,
+          nextOpenAt: "2026-08-05T15:00:00.000Z",
+        },
+      },
+      items: base.items.map((item) => ({
+        ...item,
+        status: "due" as const,
+        compileStartsAt: "2026-08-05T15:00:00.000Z",
+        remainingUntilCompileMs: 5 * 60 * 60 * 1000,
+        windowDeferred: true,
+      })),
+    });
+    renderPage();
+    await screen.findByText("Space compilation runs");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Delayed queue" }));
+    expect(await screen.findByText("BeeGFS deployment")).toBeTruthy();
+    expect(screen.getByText("Waiting for night window")).toBeTruthy();
+    expect(screen.getByText(/Night compile window .* is closed/)).toBeTruthy();
+    expect(screen.getByText("5.0h")).toBeTruthy();
   });
 
   it("removes a delayed page from the queue without a confirmation dialog", async () => {

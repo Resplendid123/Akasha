@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { KnowledgeSpaceCompilationRepo } from '@akasha/db/repos/llm-wiki/knowledge-space-compilation.repo';
+import {
+  KNOWLEDGE_MANUAL_RUN_TRIGGER,
+  KnowledgeSpaceCompilationRepo,
+} from '@akasha/db/repos/llm-wiki/knowledge-space-compilation.repo';
 import { QueueName } from '../../../integrations/queue/constants';
 import {
   DEFAULT_KNOWLEDGE_COMPILER_VERSION,
@@ -38,7 +41,7 @@ export class KnowledgeSpaceResetService {
     const result = await this.runRepo.forceResetAndRequestRun({
       ...scope,
       confirmationSpaceName: input.confirmationSpaceName,
-      trigger: 'manual_compile',
+      trigger: KNOWLEDGE_MANUAL_RUN_TRIGGER,
       compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
       promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
     });

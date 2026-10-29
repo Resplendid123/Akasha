@@ -755,6 +755,19 @@ export interface KnowledgeSpaceCompileRuns {
   workspaceId: string;
 }
 
+export interface KnowledgeSpaceDeferredCompiles {
+  createdAt: Generated<Timestamp>;
+  firstRequestedAt: Timestamp;
+  id: Generated<string>;
+  lastRequestedAt: Timestamp;
+  requestCount: Generated<number>;
+  requestedBy: string | null;
+  scanRemovedSources: Generated<boolean>;
+  spaceId: string;
+  updatedAt: Generated<Timestamp>;
+  workspaceId: string;
+}
+
 export interface LegacyLinkMappings {
   createdAt: Generated<Timestamp>;
   id: Generated<string>;
@@ -1185,6 +1198,7 @@ export interface DB {
   knowledgeSpaceCompileRunImages: KnowledgeSpaceCompileRunImages;
   knowledgeSpaceCompileRunPages: KnowledgeSpaceCompileRunPages;
   knowledgeSpaceCompileRuns: KnowledgeSpaceCompileRuns;
+  knowledgeSpaceDeferredCompiles: KnowledgeSpaceDeferredCompiles;
   legacyLinkMappings: LegacyLinkMappings;
   labels: Labels;
   notifications: Notifications;

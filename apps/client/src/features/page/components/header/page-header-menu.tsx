@@ -68,8 +68,6 @@ import {
 } from "@/features/editor/atoms/editor-atoms.ts";
 import { useHasFeature } from "@/ee/hooks/use-feature";
 import { Feature } from "@/ee/features";
-import useUserRole from "@/hooks/use-user-role";
-import { workspaceAtom } from "@/features/user/atoms/current-user-atom.ts";
 import { TemplateQuickPicker } from "@/features/template/components/template-quick-picker";
 import { SaveAsTemplateModal } from "@/features/template/components/save-as-template-modal";
 import { applyTemplateToEditor } from "@/features/template/lib/apply-template";
@@ -208,8 +206,6 @@ function PageActionMenu({ readOnly }: PageActionMenuProps) {
   const [pageEditor] = useAtom(pageEditorAtom);
   const titleEditor = useAtomValue(titleEditorAtom);
   const hasTemplates = useHasFeature(Feature.TEMPLATES);
-  const { isAdmin } = useUserRole();
-  const workspace = useAtomValue(workspaceAtom);
   const canSaveAsTemplate = hasTemplates;
   const [
     insertTemplateOpened,

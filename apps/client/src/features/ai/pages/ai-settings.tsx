@@ -17,6 +17,7 @@ import { isCloud } from "@/lib/config.ts";
 import { useLocation, useNavigate } from "react-router-dom";
 import SkillSettings from "@/features/ai/components/skill-settings.tsx";
 import AiModelSettings from "@/features/ai/components/ai-model-settings.tsx";
+import CompileWindowSettings from "@/features/ai/components/compile-window-settings.tsx";
 
 export default function AiSettings() {
   const { t } = useTranslation();
@@ -78,6 +79,7 @@ export default function AiSettings() {
             {!isCloud() && <EnableAiSearch />}
             <EnableGenerativeAi />
             <EnableAiChat />
+            <CompileWindowSettings />
           </Stack>
         </Tabs.Panel>
 

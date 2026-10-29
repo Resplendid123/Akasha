@@ -514,6 +514,93 @@ describe('KnowledgeSpaceCompilationService', () => {
   });
 });
 
+describe('KnowledgeSpaceCompilationService night compile window', () => {
+  it('reads the gate once per pass and excludes gated workspaces from both promotions', async () => {
+    const fixture = createService({ gatedWorkspaceIds: ['workspace-gated'] });
+
+    await fixture.service.dispatchPending();
+
+    expect(
+      fixture.compileWindowRepo.findGatedWorkspaceIds,
+    ).toHaveBeenCalledTimes(1);
+    expect(fixture.repo.promoteDeferredSpaceCompiles).toHaveBeenCalledWith(
+      expect.objectContaining({ excludedWorkspaceIds: ['workspace-gated'] }),
+    );
+    expect(fixture.repo.promoteDuePageCompileSchedules).toHaveBeenCalledWith(
+      expect.objectContaining({ excludedWorkspaceIds: ['workspace-gated'] }),
+    );
+    // Space intents are promoted before page schedules so a full-Space Run
+    // absorbs that Space's delayed pages.
+    expect(
+      fixture.repo.promoteDeferredSpaceCompiles.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      fixture.repo.promoteDuePageCompileSchedules.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps the one-hour quiet period only while the window switch is off', async () => {
+    const fixture = createService();
+    const schedule = () =>
+      fixture.service.scheduleIncrementalCompileForPages({
+        workspaceId: 'workspace-1',
+        sourcePageIds: ['page-1'],
+        trigger: 'page_updated',
+      });
+
+    fixture.compileWindowRepo.isEnabled.mockResolvedValueOnce(false);
+    await schedule();
+    fixture.compileWindowRepo.isEnabled.mockResolvedValueOnce(true);
+    await schedule();
+
+    expect(
+      fixture.repo.scheduleIncrementalCompileForPages,
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ quietPeriodMs: 60 * 60 * 1_000 }),
+    );
+    expect(
+      fixture.repo.scheduleIncrementalCompileForPages,
+    ).toHaveBeenNthCalledWith(2, expect.objectContaining({ quietPeriodMs: 0 }));
+  });
+
+  it('stores deferred Space requests as intents and surfaces confirmation mismatches', async () => {
+    const fixture = createService();
+    fixture.repo.deferSpaceCompiles.mockResolvedValueOnce([
+      { disposition: 'deferred', spaceId: 'space-1' },
+    ]);
+
+    await expect(
+      fixture.service.deferSpaceRuns('workspace-1', [
+        { spaceId: 'space-1', scanRemovedSources: true, requestedBy: 'user-1' },
+      ]),
+    ).resolves.toEqual(['space-1']);
+    expect(fixture.repo.deferSpaceCompiles).toHaveBeenCalledWith({
+      requests: [
+        {
+          workspaceId: 'workspace-1',
+          spaceId: 'space-1',
+          scanRemovedSources: true,
+          requestedBy: 'user-1',
+        },
+      ],
+    });
+    expect(fixture.repo.requestRuns).not.toHaveBeenCalled();
+
+    fixture.repo.deferSpaceCompiles.mockResolvedValueOnce([
+      {
+        disposition: 'rejected',
+        spaceId: 'space-1',
+        reason: 'space_name_mismatch',
+      },
+    ]);
+    await expect(
+      fixture.service.deferSpaceRuns('workspace-1', [
+        { spaceId: 'space-1', confirmationSpaceName: 'wrong' },
+      ]),
+    ).rejects.toThrow('Space name confirmation no longer matches.');
+  });
+});
+
 function createService(
   overrides: {
     reservationCandidates?: unknown[];
@@ -524,13 +611,28 @@ function createService(
     targetSourcePageIds?: string[] | null;
     trigger?: string;
     mode?: string;
+    gatedWorkspaceIds?: string[];
   } = {},
 ) {
+  const compileWindowRepo = {
+    findGatedWorkspaceIds: jest
+      .fn()
+      .mockResolvedValue(overrides.gatedWorkspaceIds ?? []),
+    decide: jest
+      .fn()
+      .mockResolvedValue({ deferred: false, deferredUntil: null }),
+    isEnabled: jest.fn().mockResolvedValue(false),
+  };
   const repo = {
     requestRuns: jest.fn().mockResolvedValue([]),
     requestIncrementalCompileForPages: jest.fn().mockResolvedValue([]),
+    scheduleIncrementalCompileForPages: jest.fn().mockResolvedValue(1),
     markDelayedPageForImmediateCompilation: jest.fn(),
     removeDelayedPageCompilation: jest.fn(),
+    deferSpaceCompiles: jest.fn(),
+    promoteDeferredSpaceCompiles: jest
+      .fn()
+      .mockResolvedValue({ selectedCount: 0, runRequestCount: 0 }),
     promoteDuePageCompileSchedules: jest.fn().mockResolvedValue({
       selectedPageCount: 0,
       promotedPageCount: 0,
@@ -619,10 +721,13 @@ function createService(
     sourceExporter as unknown as KnowledgeSourceExporterService,
     imageProvider as unknown as KnowledgeImageUnderstandingProvider,
     executionRepo as unknown as KnowledgeSpaceExecutionRepo,
+    undefined,
+    compileWindowRepo as never,
   );
   return {
     service,
     repo,
+    compileWindowRepo,
     spaceQueue,
     imageQueue,
     sourceExporter,

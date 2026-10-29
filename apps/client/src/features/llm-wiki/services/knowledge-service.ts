@@ -6,6 +6,8 @@ import type {
   KnowledgeDelayedPageDiagnosticsPage,
   KnowledgeImmediateDelayedPageCompileResult,
   KnowledgeDelayedPageStatus,
+  KnowledgeDelayedPageTrigger,
+  KnowledgeCompileWindowState,
   KnowledgeCompileResult,
   KnowledgeCompileSpacesResult,
   KnowledgeCompileRunDisposition,
@@ -114,11 +116,14 @@ function normalizeCompileSpacesResult(
   value: unknown,
 ): KnowledgeCompileSpacesResult {
   const record = isRecord(value) ? value : {};
-  const runs = Array.isArray(record.runs)
-    ? record.runs.flatMap((value) => {
+  const runs: KnowledgeCompileSpacesResult["runs"] = Array.isArray(record.runs)
+    ? record.runs.flatMap((value): KnowledgeCompileSpacesResult["runs"] => {
         if (!isRecord(value)) return [];
+        if (typeof value.spaceId !== "string") return [];
+        if (value.disposition === "deferred") {
+          return [{ spaceId: value.spaceId, disposition: "deferred" as const }];
+        }
         if (
-          typeof value.spaceId !== "string" ||
           typeof value.runId !== "string" ||
           !isCompileRunDisposition(value.disposition)
         ) {
@@ -138,6 +143,9 @@ function normalizeCompileSpacesResult(
     acceptedRunCount: numberOrZero(record.acceptedRunCount),
     coalescedRunCount: numberOrZero(record.coalescedRunCount),
     rerunRequestedCount: numberOrZero(record.rerunRequestedCount),
+    deferredCount: numberOrZero(record.deferredCount),
+    deferredUntil:
+      typeof record.deferredUntil === "string" ? record.deferredUntil : null,
     runs,
   };
 }
@@ -146,11 +154,29 @@ function normalizeSpaceOperationResult(
   value: unknown,
 ): KnowledgeSpaceOperationResult {
   const record = isRecord(value) ? value : {};
+  if (record.deferred === true) {
+    return {
+      mode: "incremental",
+      deferred: true,
+      deferredUntil:
+        typeof record.deferredUntil === "string" ? record.deferredUntil : null,
+    };
+  }
   return {
     runId: typeof record.runId === "string" ? record.runId : "",
     mode: record.mode === "force_rebuild" ? "force_rebuild" : "incremental",
     knowledgeGeneration: numberOrZero(record.knowledgeGeneration),
+    deferred: false,
+    deferredUntil: null,
   };
+}
+
+function isDelayedPageTrigger(
+  value: unknown,
+): value is KnowledgeDelayedPageTrigger {
+  return ["page_created", "page_updated", "page_restored"].includes(
+    value as string,
+  );
 }
 
 function isCompileRunDisposition(
@@ -644,6 +670,19 @@ function normalizeRunDiagnosticsPage(
   };
 }
 
+function normalizeCompileWindowState(
+  value: unknown,
+): KnowledgeCompileWindowState {
+  const record = isRecord(value) ? value : {};
+  return {
+    enabled: record.enabled === true,
+    startTime: readString(record.startTime),
+    endTime: readString(record.endTime),
+    open: record.open !== false,
+    nextOpenAt: readNullableString(record.nextOpenAt),
+  };
+}
+
 function normalizeDelayedPageDiagnostics(
   value: unknown,
 ): KnowledgeDelayedPageDiagnosticsPage {
@@ -657,6 +696,7 @@ function normalizeDelayedPageDiagnostics(
       affectedSpaceCount: readNumber(summary.affectedSpaceCount),
       oldestFirstChangedAt: readNullableString(summary.oldestFirstChangedAt),
       nextEligibleAt: readNullableString(summary.nextEligibleAt),
+      compileWindow: normalizeCompileWindowState(summary.compileWindow),
     },
     items: Array.isArray(record.items)
       ? record.items.filter(isRecord).map((item) => ({
@@ -666,14 +706,23 @@ function normalizeDelayedPageDiagnostics(
           spaceName: readString(item.spaceName),
           title: readString(item.title),
           slugId: readString(item.slugId),
-          trigger:
-            item.trigger === "page_created" ? "page_created" : "page_updated",
+          trigger: isDelayedPageTrigger(item.trigger)
+            ? item.trigger
+            : "page_updated",
           changeCount: readNumber(item.changeCount),
           status: item.status === "due" ? "due" : "waiting",
           firstChangedAt: readString(item.firstChangedAt),
           lastChangedAt: readString(item.lastChangedAt),
           eligibleAt: readString(item.eligibleAt),
           remainingWaitMs: readNumber(item.remainingWaitMs),
+          // Older servers omit these; fall back to the quiet-period deadline.
+          compileStartsAt:
+            readString(item.compileStartsAt) || readString(item.eligibleAt),
+          remainingUntilCompileMs:
+            typeof item.remainingUntilCompileMs === "number"
+              ? item.remainingUntilCompileMs
+              : readNumber(item.remainingWaitMs),
+          windowDeferred: item.windowDeferred === true,
           createdAt: readString(item.createdAt),
           updatedAt: readString(item.updatedAt),
         }))

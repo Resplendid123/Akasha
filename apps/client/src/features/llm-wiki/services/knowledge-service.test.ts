@@ -47,6 +47,8 @@ describe("knowledge service", () => {
       acceptedRunCount: 1,
       coalescedRunCount: 1,
       rerunRequestedCount: 1,
+      deferredCount: 0,
+      deferredUntil: null,
       runs: [
         { spaceId: "space-1", runId: "run-1", disposition: "created" },
         { spaceId: "space-2", runId: "run-2", disposition: "coalesced" },
@@ -61,6 +63,64 @@ describe("knowledge service", () => {
       "/api/llm-wiki/admin/compile-spaces",
       expect.objectContaining({ method: "POST", credentials: "include" }),
     );
+  });
+
+  it("keeps deferred Spaces that have no runId outside the night window", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: {
+            requestedSpaceCount: 1,
+            acceptedRunCount: 0,
+            coalescedRunCount: 0,
+            rerunRequestedCount: 0,
+            deferredCount: 1,
+            deferredUntil: "2026-10-28T15:00:00.000Z",
+            runs: [{ spaceId: "space-1", disposition: "deferred" }],
+          },
+        }),
+      }),
+    );
+
+    await expect(
+      compileKnowledgeSpaces({ spaceIds: ["space-1"] }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        acceptedRunCount: 0,
+        deferredCount: 1,
+        deferredUntil: "2026-10-28T15:00:00.000Z",
+        runs: [{ spaceId: "space-1", disposition: "deferred" }],
+      }),
+    );
+  });
+
+  it("normalizes a deferred single-Space update without a runId", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: {
+            mode: "incremental",
+            deferred: true,
+            deferredUntil: "2026-10-28T15:00:00.000Z",
+          },
+        }),
+      }),
+    );
+
+    await expect(
+      updateKnowledgeSpace({
+        spaceId: "space-1",
+        confirmationSpaceName: "AIM",
+      }),
+    ).resolves.toEqual({
+      mode: "incremental",
+      deferred: true,
+      deferredUntil: "2026-10-28T15:00:00.000Z",
+    });
   });
 
   it("uses distinct confirmed incremental and force-rebuild endpoints", async () => {
@@ -89,6 +149,8 @@ describe("knowledge service", () => {
       runId: "run-1",
       mode: "force_rebuild",
       knowledgeGeneration: 7,
+      deferred: false,
+      deferredUntil: null,
     });
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([

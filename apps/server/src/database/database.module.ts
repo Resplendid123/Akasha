@@ -41,6 +41,7 @@ import { KnowledgeQuarantineRepo } from '@akasha/db/repos/llm-wiki/knowledge-qua
 import { KnowledgeCompilationRepo } from '@akasha/db/repos/llm-wiki/knowledge-compilation.repo';
 import { KnowledgeArtifactContributionRepo } from '@akasha/db/repos/llm-wiki/knowledge-artifact-contribution.repo';
 import { KnowledgeSpaceCompilationRepo } from '@akasha/db/repos/llm-wiki/knowledge-space-compilation.repo';
+import { KnowledgeCompileWindowRepo } from '@akasha/db/repos/llm-wiki/knowledge-compile-window.repo';
 import { KnowledgeSpaceExecutionRepo } from '@akasha/db/repos/llm-wiki/knowledge-space-execution.repo';
 import { KnowledgeImageExtractionRepo } from '@akasha/db/repos/llm-wiki/knowledge-image-extraction.repo';
 import { AiChatRepo } from '@akasha/db/repos/ai-chat/ai-chat.repo';
@@ -115,6 +116,7 @@ export {
     KnowledgeCompilationRepo,
     KnowledgeArtifactContributionRepo,
     KnowledgeSpaceCompilationRepo,
+    KnowledgeCompileWindowRepo,
     KnowledgeSpaceExecutionRepo,
     KnowledgeImageExtractionRepo,
     AiChatRepo,
@@ -155,6 +157,7 @@ export {
     KnowledgeCompilationRepo,
     KnowledgeArtifactContributionRepo,
     KnowledgeSpaceCompilationRepo,
+    KnowledgeCompileWindowRepo,
     KnowledgeSpaceExecutionRepo,
     KnowledgeImageExtractionRepo,
     AiChatRepo,
