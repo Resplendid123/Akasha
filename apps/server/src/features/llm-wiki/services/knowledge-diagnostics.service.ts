@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { InjectKysely } from 'nestjs-kysely';
 import { Queue } from 'bullmq';
@@ -6,6 +6,13 @@ import { sql } from 'kysely';
 import { KyselyDB } from '@akasha/db/types/kysely.types';
 import { KnowledgeQuarantineRepo } from '@akasha/db/repos/llm-wiki/knowledge-quarantine.repo';
 import { KnowledgeQueryAuditRepo } from '@akasha/db/repos/llm-wiki/knowledge-query-audit.repo';
+import { KnowledgeCompileWindowRepo } from '@akasha/db/repos/llm-wiki/knowledge-compile-window.repo';
+import {
+  effectiveCompileStartAt,
+  isCompileWindowOpen,
+  KNOWLEDGE_COMPILE_WINDOW_DISABLED,
+  nextCompileWindowStartAt,
+} from '@akasha/db/types/knowledge-compile-window.types';
 import { QueueJob, QueueName } from '../../../integrations/queue/constants';
 import {
   KNOWLEDGE_IMAGE_WORKER_OPTIONS,
@@ -157,6 +164,8 @@ export class KnowledgeDiagnosticsService {
     private readonly queryAuditRepo: KnowledgeQueryAuditRepo,
     @InjectQueue(QueueName.KNOWLEDGE_MERGE_QUEUE)
     private readonly knowledgeMergeQueue?: Queue,
+    @Optional()
+    private readonly compileWindowRepo?: KnowledgeCompileWindowRepo,
   ) {}
 
   async getQualityDiagnostics(input: {
@@ -758,6 +767,17 @@ export class KnowledgeDiagnosticsService {
       SELECT clock_timestamp() AS "sampledAt"
     `.execute(this.db);
     const sampledAt = sampledAtResult.rows[0].sampledAt;
+    // The night window holds due pages back; expose when they really start.
+    const windowConfig =
+      (await this.compileWindowRepo?.getConfig(input.workspaceId)) ??
+      KNOWLEDGE_COMPILE_WINDOW_DISABLED;
+    const compileWindow = {
+      enabled: windowConfig.enabled,
+      startTime: windowConfig.startTime,
+      endTime: windowConfig.endTime,
+      open: isCompileWindowOpen(windowConfig, sampledAt),
+      nextOpenAt: isoDate(nextCompileWindowStartAt(windowConfig, sampledAt)),
+    };
     if (input.enforceSpaceScope && input.spaceIds.length === 0) {
       return {
         summary: {
@@ -767,6 +787,7 @@ export class KnowledgeDiagnosticsService {
           affectedSpaceCount: 0,
           oldestFirstChangedAt: null,
           nextEligibleAt: null,
+          compileWindow,
         },
         items: [],
         total: 0,
@@ -861,28 +882,43 @@ export class KnowledgeDiagnosticsService {
         affectedSpaceCount: numberValue(summaryRow?.affectedSpaceCount),
         oldestFirstChangedAt: isoDate(summaryRow?.oldestFirstChangedAt),
         nextEligibleAt: isoDate(summaryRow?.nextEligibleAt),
+        compileWindow,
       },
-      items: rows.map((row) => ({
-        scheduleId: row.id,
-        sourcePageId: row.sourcePageId,
-        spaceId: row.spaceId,
-        spaceName: row.spaceName,
-        title: row.title ?? '',
-        slugId: row.slugId,
-        trigger: row.trigger,
-        changeCount: row.changeCount,
-        status:
-          row.eligibleAt.getTime() <= sampledAt.getTime() ? 'due' : 'waiting',
-        firstChangedAt: row.firstChangedAt.toISOString(),
-        lastChangedAt: row.lastChangedAt.toISOString(),
-        eligibleAt: row.eligibleAt.toISOString(),
-        remainingWaitMs: Math.max(
-          0,
-          row.eligibleAt.getTime() - sampledAt.getTime(),
-        ),
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      })),
+      items: rows.map((row) => {
+        const start = effectiveCompileStartAt(
+          windowConfig,
+          row.eligibleAt,
+          sampledAt,
+        );
+        return {
+          scheduleId: row.id,
+          sourcePageId: row.sourcePageId,
+          spaceId: row.spaceId,
+          spaceName: row.spaceName,
+          title: row.title ?? '',
+          slugId: row.slugId,
+          trigger: row.trigger,
+          changeCount: row.changeCount,
+          status:
+            row.eligibleAt.getTime() <= sampledAt.getTime() ? 'due' : 'waiting',
+          firstChangedAt: row.firstChangedAt.toISOString(),
+          lastChangedAt: row.lastChangedAt.toISOString(),
+          eligibleAt: row.eligibleAt.toISOString(),
+          remainingWaitMs: Math.max(
+            0,
+            row.eligibleAt.getTime() - sampledAt.getTime(),
+          ),
+          /** When compilation actually starts, night window included. */
+          compileStartsAt: start.startAt.toISOString(),
+          remainingUntilCompileMs: Math.max(
+            0,
+            start.startAt.getTime() - sampledAt.getTime(),
+          ),
+          windowDeferred: start.windowDeferred,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        };
+      }),
       total: numberValue(countRow?.count),
       page,
       limit,

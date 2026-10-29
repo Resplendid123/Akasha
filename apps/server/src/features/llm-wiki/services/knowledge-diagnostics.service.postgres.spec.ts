@@ -206,6 +206,65 @@ describePostgres(
       expect(dueSearch.items.map((item) => item.sourcePageId)).toEqual([
         'page-a-2',
       ]);
+      // Without a night window, compilation starts when the quiet period ends.
+      expect(result.summary.compileWindow).toMatchObject({
+        enabled: false,
+        open: true,
+        nextOpenAt: null,
+      });
+      expect(
+        result.items.every(
+          (item) =>
+            !item.windowDeferred &&
+            item.remainingUntilCompileMs === item.remainingWaitMs,
+        ),
+      ).toBe(true);
+    });
+
+    it('reports when a closed night window holds delayed pages back', async () => {
+      // A one-minute window starting two hours from now (server local time)
+      // is closed both now and at page-a-1's quiet-period deadline.
+      const pad = (value: number) => String(value).padStart(2, '0');
+      const opensAt = new Date(Date.now() + 2 * 60 * 60 * 1_000);
+      const closesAt = new Date(opensAt.getTime() + 60_000);
+      const hhmm = (date: Date) =>
+        `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      const windowService = new KnowledgeDiagnosticsService(
+        db as never,
+        queueStubs[2] as never,
+        queueStubs[0] as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        undefined,
+        {
+          getConfig: jest.fn().mockResolvedValue({
+            enabled: true,
+            startTime: hhmm(opensAt),
+            endTime: hhmm(closesAt),
+          }),
+        } as never,
+      );
+
+      const result = await windowService.listDelayedPageDiagnostics({
+        workspaceId: 'workspace-1',
+        spaceIds: ['space-a'],
+        enforceSpaceScope: true,
+      });
+
+      expect(result.summary.compileWindow).toMatchObject({
+        enabled: true,
+        open: false,
+      });
+      const nextOpenAt = new Date(result.summary.compileWindow.nextOpenAt!);
+      expect(hhmm(nextOpenAt)).toBe(hhmm(opensAt));
+      for (const item of result.items) {
+        expect(item.windowDeferred).toBe(true);
+        expect(item.compileStartsAt).toBe(nextOpenAt.toISOString());
+        expect(item.remainingUntilCompileMs).toBeGreaterThan(
+          item.remainingWaitMs,
+        );
+      }
     });
   },
 );

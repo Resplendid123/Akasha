@@ -1337,6 +1337,8 @@ describe('LlmWikiController', () => {
       scheduleId: '11111111-1111-4111-8111-111111111111',
       sourcePageId: 'page-1',
       spaceId: 'space-1',
+      deferred: false,
+      deferredUntil: null,
     });
     expect(
       spaceCompilation.requestImmediateDelayedPageCompilation,
@@ -1759,6 +1761,138 @@ describe('LlmWikiController', () => {
     expect(aiModelConfigTestService.testConfig).not.toHaveBeenCalled();
   });
 
+  describe('night compile window', () => {
+    const closedWindow = {
+      deferred: true,
+      deferredUntil: new Date('2026-10-28T15:00:00.000Z'),
+    };
+
+    it('defers a single-Space update outside the window without creating a Run', async () => {
+      const spaceCompilation = {
+        getCompileWindowDecision: jest.fn().mockResolvedValue(closedWindow),
+        deferSpaceRuns: jest.fn().mockResolvedValue(['space-1']),
+        requestRuns: jest.fn(),
+      };
+      const auditService = { log: jest.fn() };
+      const controller = createController({ spaceCompilation, auditService });
+
+      await expect(
+        controller.updateSpaceKnowledge(
+          'space-1',
+          { confirmationSpaceName: 'Space' },
+          adminUser(),
+          workspace(),
+        ),
+      ).resolves.toEqual({
+        mode: 'incremental',
+        deferred: true,
+        deferredUntil: '2026-10-28T15:00:00.000Z',
+      });
+      expect(spaceCompilation.deferSpaceRuns).toHaveBeenCalledWith(
+        'workspace-1',
+        [
+          expect.objectContaining({
+            spaceId: 'space-1',
+            confirmationSpaceName: 'Space',
+            scanRemovedSources: true,
+          }),
+        ],
+      );
+      expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: AuditEvent.KNOWLEDGE_COMPILE_QUEUED,
+          metadata: expect.objectContaining({ deferred: true }),
+        }),
+      );
+    });
+
+    it('defers batch Space compilation outside the window', async () => {
+      const spaceCompilation = {
+        getCompileWindowDecision: jest.fn().mockResolvedValue(closedWindow),
+        deferSpaceRuns: jest.fn().mockResolvedValue(['space-1', 'space-2']),
+        requestRuns: jest.fn(),
+      };
+      const controller = createController({ spaceCompilation });
+
+      await expect(
+        controller.compileSpaces(
+          { spaceIds: ['space-1', 'space-2'] },
+          adminUser(),
+          workspace(),
+        ),
+      ).resolves.toEqual({
+        requestedSpaceCount: 2,
+        acceptedRunCount: 0,
+        coalescedRunCount: 0,
+        rerunRequestedCount: 0,
+        deferredCount: 2,
+        deferredUntil: '2026-10-28T15:00:00.000Z',
+        runs: [
+          { spaceId: 'space-1', disposition: 'deferred' },
+          { spaceId: 'space-2', disposition: 'deferred' },
+        ],
+      });
+      expect(spaceCompilation.requestRuns).not.toHaveBeenCalled();
+    });
+
+    it('keeps force rebuild immediate outside the window', async () => {
+      const spaceCompilation = {
+        getCompileWindowDecision: jest.fn().mockResolvedValue(closedWindow),
+        deferSpaceRuns: jest.fn(),
+      };
+      const spaceReset = {
+        forceRebuild: jest.fn().mockResolvedValue({
+          run: { id: 'run-force' },
+          generation: 5,
+        }),
+      };
+      const controller = createController({ spaceCompilation, spaceReset });
+
+      await expect(
+        controller.forceRebuildSpaceKnowledge(
+          'space-1',
+          { confirmationSpaceName: 'Space' },
+          adminUser(),
+          workspace(),
+        ),
+      ).resolves.toEqual({
+        runId: 'run-force',
+        mode: 'force_rebuild',
+        knowledgeGeneration: 5,
+      });
+      expect(spaceCompilation.deferSpaceRuns).not.toHaveBeenCalled();
+    });
+
+    it('reports when an immediately-due delayed page will actually run', async () => {
+      const spaceCompilation = {
+        getCompileWindowDecision: jest.fn().mockResolvedValue(closedWindow),
+        requestImmediateDelayedPageCompilation: jest.fn().mockResolvedValue({
+          scheduleId: '11111111-1111-4111-8111-111111111111',
+          sourcePageId: 'page-1',
+          spaceId: 'space-1',
+          pageName: 'Page',
+        }),
+      };
+      const controller = createController({ spaceCompilation });
+
+      await expect(
+        controller.immediatelyCompileDelayedPage(
+          '11111111-1111-4111-8111-111111111111',
+          { confirmationPageName: 'Page' },
+          adminUser(),
+          workspace(),
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          accepted: true,
+          deferred: true,
+          deferredUntil: '2026-10-28T15:00:00.000Z',
+        }),
+      );
+    });
+  });
+
   describe('single-Space knowledge operations', () => {
     it('updates exactly one Space only after exact-name confirmation', async () => {
       const spaceCompilation = {
@@ -1989,6 +2123,10 @@ function createController(
     } as unknown as KnowledgeSourceExporterService,
     {
       requestRuns: jest.fn(),
+      getCompileWindowDecision: jest
+        .fn()
+        .mockResolvedValue({ deferred: false, deferredUntil: null }),
+      deferSpaceRuns: jest.fn(),
       requestImmediatePagePublish: jest.fn(),
       clearImageExtractionCache: jest.fn().mockResolvedValue(0),
       findSpaceIdsWithActiveRun: jest.fn().mockResolvedValue([]),

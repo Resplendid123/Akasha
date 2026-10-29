@@ -662,6 +662,31 @@ export class LlmWikiController {
     @AuthWorkspace() workspace: Workspace,
   ) {
     this.assertKnowledgeOperationAllowed(user, workspace);
+    const window = await this.spaceCompilation.getCompileWindowDecision(
+      workspace.id,
+    );
+    if (window.deferred) {
+      await this.spaceCompilation.deferSpaceRuns(workspace.id, [
+        {
+          spaceId,
+          confirmationSpaceName: dto.confirmationSpaceName,
+          scanRemovedSources: true,
+          requestedBy: user.id,
+        },
+      ]);
+      const deferred = {
+        mode: 'incremental' as const,
+        deferred: true as const,
+        deferredUntil: window.deferredUntil?.toISOString() ?? null,
+      };
+      this.auditService.log({
+        event: AuditEvent.KNOWLEDGE_COMPILE_QUEUED,
+        resourceType: AuditResource.KNOWLEDGE,
+        resourceId: spaceId,
+        metadata: deferred,
+      });
+      return deferred;
+    }
     const [request] = await this.spaceCompilation.requestRuns([
       {
         workspaceId: workspace.id,
@@ -718,6 +743,44 @@ export class LlmWikiController {
     this.assertAdmin(user, 'AI knowledge compile is restricted to admins');
 
     const spaceIds = uniqueValues(dto.spaceIds);
+    const window = await this.spaceCompilation.getCompileWindowDecision(
+      workspace.id,
+    );
+    if (window.deferred) {
+      const deferredSpaceIds = await this.spaceCompilation.deferSpaceRuns(
+        workspace.id,
+        spaceIds.map((spaceId) => ({
+          spaceId,
+          scanRemovedSources: true,
+          requestedBy: user.id,
+        })),
+      );
+      const deferredUntil = window.deferredUntil?.toISOString() ?? null;
+      const deferredResult = {
+        requestedSpaceCount: spaceIds.length,
+        acceptedRunCount: 0,
+        coalescedRunCount: 0,
+        rerunRequestedCount: 0,
+        deferredCount: deferredSpaceIds.length,
+        deferredUntil,
+        runs: deferredSpaceIds.map((spaceId) => ({
+          spaceId,
+          disposition: 'deferred' as const,
+        })),
+      };
+      this.auditService.log({
+        event: AuditEvent.KNOWLEDGE_COMPILE_QUEUED,
+        resourceType: AuditResource.KNOWLEDGE,
+        resourceId: workspace.id,
+        metadata: {
+          spaceIds,
+          deferred: true,
+          deferredCount: deferredResult.deferredCount,
+          deferredUntil,
+        },
+      });
+      return deferredResult;
+    }
     const requests = await this.spaceCompilation.requestRuns(
       spaceIds.map((spaceId) => ({
         workspaceId: workspace.id,
@@ -897,11 +960,18 @@ export class LlmWikiController {
         pageName: result.pageName,
       },
     });
+    // The schedule is now due; outside the night window the promotion gate
+    // still holds it, so report when it will actually run.
+    const window = await this.spaceCompilation.getCompileWindowDecision(
+      workspace.id,
+    );
     return {
       accepted: true,
       scheduleId: result.scheduleId,
       sourcePageId: result.sourcePageId,
       spaceId: result.spaceId,
+      deferred: window.deferred,
+      deferredUntil: window.deferredUntil?.toISOString() ?? null,
     };
   }
 

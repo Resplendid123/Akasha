@@ -40,6 +40,8 @@ import { RemoveWorkspaceUserDto } from '../dto/remove-workspace-user.dto';
 import { WorkspaceRepo } from '@akasha/db/repos/workspace/workspace.repo';
 import { Feature } from '../../../common/features';
 import { UpdateSkillSettingsDto } from '../dto/skill-settings.dto';
+import { UpdateCompileWindowSettingsDto } from '../dto/compile-window-settings.dto';
+import { CompileWindowSettingsService } from '../services/compile-window-settings.service';
 import { GetWorkspaceMemberDto } from '../dto/get-workspace-member.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -52,6 +54,7 @@ export class WorkspaceController {
     private readonly workspaceRepo: WorkspaceRepo,
     private environmentService: EnvironmentService,
     private licenseCheckService: LicenseCheckService,
+    private readonly compileWindowSettings: CompileWindowSettingsService,
   ) {}
 
   @Public()
@@ -98,6 +101,36 @@ export class WorkspaceController {
     }
 
     return this.workspaceService.updateSkillSettings(workspace.id, dto);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Get('settings/ai/compile-window')
+  async getCompileWindowSettings(
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    this.assertCanManageSettings(user, workspace);
+    return this.compileWindowSettings.get(workspace.id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Put('settings/ai/compile-window')
+  async updateCompileWindowSettings(
+    @Body() dto: UpdateCompileWindowSettingsDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    this.assertCanManageSettings(user, workspace);
+    return this.compileWindowSettings.update(workspace.id, dto);
+  }
+
+  private assertCanManageSettings(user: User, workspace: Workspace) {
+    const ability = this.workspaceAbility.createForUser(user, workspace);
+    if (
+      ability.cannot(WorkspaceCaslAction.Manage, WorkspaceCaslSubject.Settings)
+    ) {
+      throw new ForbiddenException();
+    }
   }
 
   @HttpCode(HttpStatus.OK)

@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Interval } from '@nestjs/schedule';
@@ -16,9 +17,14 @@ import {
 } from '@akasha/db/repos/llm-wiki/knowledge-image-extraction.repo';
 import {
   KNOWLEDGE_MANUAL_PAGE_PUBLISH_TRIGGER,
+  KnowledgePageCompileScheduleTrigger,
   KnowledgeSpaceCompilationRepo,
   SpaceRunRequest,
 } from '@akasha/db/repos/llm-wiki/knowledge-space-compilation.repo';
+import {
+  KnowledgeCompileWindowDecision,
+  KnowledgeCompileWindowRepo,
+} from '@akasha/db/repos/llm-wiki/knowledge-compile-window.repo';
 import {
   KnowledgeSpaceExecutionRepo,
   SpaceExecutionLease,
@@ -65,13 +71,16 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     private readonly imageProvider: KnowledgeImageUnderstandingProvider,
     executionRepo?: KnowledgeSpaceExecutionRepo,
     retirementService?: KnowledgeSourceRetirementService,
+    @Optional() compileWindowRepo?: KnowledgeCompileWindowRepo,
   ) {
     this.executionRepo = executionRepo;
     this.retirementService = retirementService;
+    this.compileWindowRepo = compileWindowRepo;
   }
 
   private readonly executionRepo?: KnowledgeSpaceExecutionRepo;
   private readonly retirementService?: KnowledgeSourceRetirementService;
+  private readonly compileWindowRepo?: KnowledgeCompileWindowRepo;
 
   async onModuleInit(): Promise<void> {
     await this.dispatchPending();
@@ -110,6 +119,50 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     }
     await this.dispatchPending();
     return results;
+  }
+
+  /** Night compile window gate for one workspace; open when unconfigured. */
+  async getCompileWindowDecision(
+    workspaceId: string,
+  ): Promise<KnowledgeCompileWindowDecision> {
+    if (!this.compileWindowRepo) {
+      return { deferred: false, deferredUntil: null };
+    }
+    return this.compileWindowRepo.decide(workspaceId);
+  }
+
+  /**
+   * Stores Space-level admin compilation (update knowledge / batch compile)
+   * requested outside the night window as durable intents. Callers check
+   * getCompileWindowDecision() first and use requestRuns() when it is open.
+   */
+  async deferSpaceRuns(
+    workspaceId: string,
+    requests: Array<{
+      spaceId: string;
+      confirmationSpaceName?: string;
+      scanRemovedSources?: boolean;
+      requestedBy?: string | null;
+    }>,
+  ): Promise<string[]> {
+    const results = await this.runRepo.deferSpaceCompiles({
+      requests: requests.map((request) => ({ workspaceId, ...request })),
+    });
+    for (const result of results) {
+      if (result.disposition !== 'rejected') continue;
+      if (result.reason === 'space_name_mismatch') {
+        throw new ConflictException(
+          'Space name confirmation no longer matches.',
+        );
+      }
+      throw new NotFoundException('Space not found.');
+    }
+    this.logger.log({
+      event: 'knowledge_space_compile_deferred',
+      workspaceId,
+      spaceCount: results.length,
+    });
+    return results.map((result) => result.spaceId);
   }
 
   /**
@@ -331,11 +384,15 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
   async scheduleIncrementalCompileForPages(input: {
     workspaceId: string;
     sourcePageIds: string[];
-    trigger: 'page_created' | 'page_updated';
+    trigger: KnowledgePageCompileScheduleTrigger;
   }) {
+    // No quiet period while a night window is on: the window gates the run.
+    const windowEnabled = await this.compileWindowRepo?.isEnabled(
+      input.workspaceId,
+    );
     return this.runRepo.scheduleIncrementalCompileForPages({
       ...input,
-      quietPeriodMs: KNOWLEDGE_PAGE_COMPILE_QUIET_PERIOD_MS,
+      quietPeriodMs: windowEnabled ? 0 : KNOWLEDGE_PAGE_COMPILE_QUIET_PERIOD_MS,
     });
   }
 
@@ -611,7 +668,11 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     if (this.dispatching) return;
     this.dispatching = true;
     try {
-      await this.promoteDuePageSchedules();
+      // One gate snapshot per pass so Space intents and page schedules agree.
+      const gatedWorkspaceIds =
+        (await this.compileWindowRepo?.findGatedWorkspaceIds()) ?? [];
+      await this.promoteDeferredSpaceCompiles(gatedWorkspaceIds);
+      await this.promoteDuePageSchedules(gatedWorkspaceIds);
       await this.dispatchPendingSpaceJobs();
       await this.dispatchPendingRunImages();
       await this.dispatchPendingPageMerges();
@@ -652,7 +713,30 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
     }
   }
 
-  private async promoteDuePageSchedules(): Promise<void> {
+  private async promoteDeferredSpaceCompiles(
+    gatedWorkspaceIds: string[],
+  ): Promise<void> {
+    const batchSize = 100;
+    for (let batch = 0; batch < 20; batch += 1) {
+      const result = await this.runRepo.promoteDeferredSpaceCompiles({
+        compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
+        promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
+        limit: batchSize,
+        excludedWorkspaceIds: gatedWorkspaceIds,
+      });
+      if (result.selectedCount === 0) return;
+      this.logger.log({
+        event: 'knowledge_deferred_spaces_promoted',
+        selectedCount: result.selectedCount,
+        runRequestCount: result.runRequestCount,
+      });
+      if (result.selectedCount < batchSize) return;
+    }
+  }
+
+  private async promoteDuePageSchedules(
+    gatedWorkspaceIds: string[],
+  ): Promise<void> {
     const batchSize = 500;
     // Bound a single polling pass while still absorbing ordinary bulk edits
     // without waiting for many five-second intervals.
@@ -661,6 +745,7 @@ export class KnowledgeSpaceCompilationService implements OnModuleInit {
         compilerVersion: DEFAULT_KNOWLEDGE_COMPILER_VERSION,
         promptVersion: DEFAULT_KNOWLEDGE_PROMPT_VERSION,
         limit: batchSize,
+        excludedWorkspaceIds: gatedWorkspaceIds,
       });
       if (result.selectedPageCount === 0) return;
       this.logger.log({
